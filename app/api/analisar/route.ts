@@ -212,7 +212,8 @@ ${formatoDinamico}
   }
 
   const resposta = await openai.chat.completions.create({
-    model: "openrouter/free",
+  model: "openrouter/free",
+  temperature: 0.2,
 
     messages: [
       {
