@@ -61,7 +61,7 @@ export default function Home() {
 
   return (
     <main className="checker-bg min-h-screen text-white flex flex-col items-center px-6 py-10">
-      <section className="glass-panel w-full max-w-5xl rounded-3xl p-6 md:p-10">
+      <section className="glass-panel w-full max-w-5xl rounded-3xl p-6 md:p-10 border-2 border-blue-500/40 shadow-2xl shadow-blue-500/20">
         <header className="text-center mb-10">
           <p className="text-blue-400 font-semibold mb-2">
             NonFakeable apresenta
@@ -133,7 +133,7 @@ export default function Home() {
             className="w-full h-56 bg-zinc-950 border border-zinc-700 rounded-xl p-4 outline-none focus:border-blue-500 transition resize-none"
             placeholder={
               modo === "pergunta"
-                ? "Ex: Jair Bolsonaro já foi preso?"
+                ? "Faça sua pergunta aqui..."
                 : modo === "noticia"
                 ? "Cole a notícia aqui..."
                 : "Cole o link da notícia..."

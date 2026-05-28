@@ -1,14 +1,5 @@
 @import "tailwindcss";
 
-@keyframes checkerMove {
-  from {
-    background-position: 0 0;
-  }
-  to {
-    background-position: 0 240px;
-  }
-}
-
 html {
   scroll-behavior: smooth;
 }
@@ -16,25 +7,141 @@ html {
 body {
   margin: 0;
   background-color: #050505;
+  overflow-x: hidden;
 }
 
-  @keyframes checkerMove {
+@keyframes checkerMove {
   from {
-    background-position: 0 0, 0 32px, 32px -32px, -32px 0;
+    background-position:
+      0 0,
+      0 32px,
+      32px -32px,
+      -32px 0;
   }
+
   to {
-    background-position: 0 256px, 0 288px, 32px 224px, -32px 256px;
+    background-position:
+      0 256px,
+      0 288px,
+      32px 224px,
+      -32px 256px;
   }
 }
 
 .checker-bg {
   background-color: #050505;
+
   background-image:
-    linear-gradient(45deg, rgba(255, 255, 255, 0.09) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(255, 255, 255, 0.09) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.09) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.09) 75%);
+    linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.09) 25%,
+      transparent 25%
+    ),
+
+    linear-gradient(
+      -45deg,
+      rgba(255, 255, 255, 0.09) 25%,
+      transparent 25%
+    ),
+
+    linear-gradient(
+      45deg,
+      transparent 75%,
+      rgba(255, 255, 255, 0.09) 75%
+    ),
+
+    linear-gradient(
+      -45deg,
+      transparent 75%,
+      rgba(255, 255, 255, 0.09) 75%
+    );
+
   background-size: 64px 64px;
-  background-position: 0 0, 0 32px, 32px -32px, -32px 0;
+
+  background-position:
+    0 0,
+    0 32px,
+    32px -32px,
+    -32px 0;
+
   animation: checkerMove 14s linear infinite;
+}
+
+.glass-panel {
+  position: relative;
+
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(5, 5, 10, 0.96),
+      rgba(3, 3, 6, 0.985)
+    );
+
+  backdrop-filter: blur(18px);
+
+  border: 2px solid rgba(59, 130, 246, 0.45);
+
+  border-radius: 28px;
+
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+
+    0 0 45px rgba(37, 99, 235, 0.22),
+
+    inset 0 0 80px rgba(0, 0, 0, 0.75);
+
+  overflow: hidden;
+
+  isolation: isolate;
+}
+
+.glass-panel::before {
+  content: "";
+
+  position: absolute;
+
+  inset: 0;
+
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.03),
+      transparent
+    );
+
+  pointer-events: none;
+}
+
+textarea {
+  color: white;
+}
+
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: #2563eb;
+  color: white;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.5);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.75);
 }
