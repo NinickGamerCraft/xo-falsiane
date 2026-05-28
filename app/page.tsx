@@ -52,30 +52,55 @@ export default function Home() {
   }
 
   function detectarClassificacao(textoResposta: string) {
-    const resposta = textoResposta.toLowerCase();
+  const texto = textoResposta.toLowerCase();
 
-    if (resposta.includes("possivelmente falsa") || resposta.includes("falsa") || resposta.includes("❌")) {
-      return "falsa";
-    }
+  const linhaClassificacao = texto
+    .split("\n")
+    .find((linha) => linha.includes("classificação"));
 
-    if (resposta.includes("suspeita") || resposta.includes("⚠️")) {
-      return "suspeita";
-    }
-
-    if (resposta.includes("não confirmado") || resposta.includes("nao confirmado") || resposta.includes("❔")) {
-      return "não confirmado";
-    }
-
-    if (resposta.includes("parcialmente confiável") || resposta.includes("parcialmente confiavel") || resposta.includes("🟡")) {
-      return "parcialmente confiável";
-    }
-
-    if (resposta.includes("confiável") || resposta.includes("confiavel") || resposta.includes("✅")) {
-      return "confiável";
-    }
-
+  if (!linhaClassificacao) {
     return "neutra";
   }
+
+  if (
+    linhaClassificacao.includes("❌") ||
+    linhaClassificacao.includes("falsa")
+  ) {
+    return "falsa";
+  }
+
+  if (
+    linhaClassificacao.includes("⚠️") ||
+    linhaClassificacao.includes("suspeita")
+  ) {
+    return "suspeita";
+  }
+
+  if (
+    linhaClassificacao.includes("❔") ||
+    linhaClassificacao.includes("não confirmado") ||
+    linhaClassificacao.includes("nao confirmado")
+  ) {
+    return "não confirmado";
+  }
+
+  if (
+    linhaClassificacao.includes("🟡") ||
+    linhaClassificacao.includes("parcialmente")
+  ) {
+    return "parcialmente confiável";
+  }
+
+  if (
+    linhaClassificacao.includes("✅") ||
+    linhaClassificacao.includes("confiável") ||
+    linhaClassificacao.includes("confiavel")
+  ) {
+    return "confiável";
+  }
+
+  return "neutra";
+}
 
   function trocarModo(novoModo: string) {
     tocarClique();
