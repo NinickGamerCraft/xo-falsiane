@@ -644,11 +644,70 @@ body.reduce-motion *::after {
 .credits-toggle:hover {
   background: rgba(37, 99, 235, 0.38);
   transform: translateY(-2px);
-  .vlibras-container {
+}
+
+.vlibras-container {
   z-index: 9999999 !important;
 }
 
 [vw-access-button] {
   z-index: 9999999 !important;
 }
+
+.floating-action {
+  overflow: visible !important;
 }
+
+.floating-action::after {
+  content: attr(data-label);
+  position: absolute;
+  top: calc(100% + 12px);
+  left: 50%;
+
+  transform: translateX(-50%) translateY(-6px) scale(0.96);
+  opacity: 0;
+
+  padding: 7px 13px;
+  border-radius: 999px;
+
+  background: rgba(8, 12, 20, 0.9);
+  color: white;
+
+  border: 1px solid rgba(120, 160, 255, 0.4);
+  box-shadow: 0 0 20px rgba(37, 99, 235, 0.35);
+
+  font-size: 14px;
+  font-weight: 900;
+  white-space: nowrap;
+  pointer-events: none;
+
+  transition: opacity 0.25s ease 0.55s, transform 0.25s ease 0.55s;
+}
+
+.floating-action:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+@keyframes creditJump {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+
+  35% {
+    transform: translateY(-14px) scale(1.03);
+  }
+
+  70% {
+    transform: translateY(3px) scale(0.99);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+.credit-jump-play {
+  animation: creditJump 0.45s ease both !important;
+}
+

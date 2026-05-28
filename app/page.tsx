@@ -17,6 +17,7 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
   const [animacaoModo, setAnimacaoModo] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
+  const [creditoAnimando, setCreditoAnimando] = useState("");
 
   const equipe = [
     { nome: "Nicolas", cargo: "Programador", img: "/team/nicolas.png", som: "nicolas" },
@@ -163,25 +164,26 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
 
   return (
     <main className={`checker-bg min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}>
-      <button
-        onClick={() => {
-          tocarClique();
-          setMenuAberto(!menuAberto);
-        }}
-        className="floating-menu-btn"
-        aria-label="Abrir menu"
-      >
-        ☰
-      </button>
-
+   <button
+  onClick={() => {
+    tocarClique();
+    setMenuAberto(!menuAberto);
+  }}
+  className="floating-menu-btn floating-action"
+  data-label="Menu"
+  aria-label="Abrir menu"
+>
+  ☰
+</button>
       <a
-        href="/jogo"
-        onClick={() => tocarClique()}
-        className="floating-game-btn"
-        aria-label="Abrir jogo"
-      >
-        <img src="/game-icon.png" alt="Jogo" />
-      </a>
+  href="/jogo"
+  onClick={() => tocarClique()}
+  className="floating-game-btn floating-action"
+  data-label="Space News (Jogo!)"
+  aria-label="Abrir jogo"
+>
+  <img src="/game-icon.png" alt="Jogo" />
+</a>
 
       <aside className={`side-tab ${menuAberto ? "side-tab-open" : ""}`}>
         <div className="side-header">
@@ -447,9 +449,26 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
             <div className="credits-list">
               {equipe.map((pessoa) => (
                 <button
-                  key={pessoa.nome}
-                  className="credit-row"
-                  onClick={() => tocarAudio(pessoa.som)}
+                    key={pessoa.nome}
+  className={`credit-row ${
+    creditoAnimando === pessoa.nome
+      ? "credit-jump-play"
+      : ""
+  }`}
+  onClick={() => {
+    tocarAudio(pessoa.som);
+
+    setCreditoAnimando("");
+
+    setTimeout(() => {
+      setCreditoAnimando(pessoa.nome);
+    }, 10);
+
+    setTimeout(() => {
+      setCreditoAnimando("");
+    }, 500);
+  }}
+
                 >
                   <img src={pessoa.img} alt={pessoa.nome} />
 
@@ -465,4 +484,4 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
       </div>
     </main>
   );
-}
+}          
