@@ -267,6 +267,20 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
           >
             {reduzirAnimacoes ? "✨ Ativar animações" : "🧘 Reduzir animações"}
           </button>
+<button
+  onClick={() => {
+    tocarClique();
+
+    if ((window as any).abrirVLibras) {
+      (window as any).abrirVLibras();
+    } else {
+      alert("VLibras ainda não carregou. Aguarde alguns segundos.");
+    }
+  }}
+  className="settings-row"
+>
+  🙇 Libras
+</button>
         </div>
 
         <div className="settings-section">

@@ -644,4 +644,11 @@ body.reduce-motion *::after {
 .credits-toggle:hover {
   background: rgba(37, 99, 235, 0.38);
   transform: translateY(-2px);
+  .vlibras-container {
+  z-index: 9999999 !important;
+}
+
+[vw-access-button] {
+  z-index: 9999999 !important;
+}
 }

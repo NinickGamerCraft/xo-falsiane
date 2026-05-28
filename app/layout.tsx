@@ -1,4 +1,5 @@
 import "./globals.css";
+import VLibras from "./vlibras";
 
 export const metadata = {
   title: "Xô, falsiane! | Detector de Fake News",
@@ -12,7 +13,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        {children}
+        <VLibras />
+      </body>
     </html>
   );
 }
