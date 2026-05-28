@@ -777,7 +777,14 @@ body.reduce-motion *::after {
 /* Celulares menores: modo ultra leve */
 @media (max-width: 480px) {
   .checker-bg {
-    background-image: none;
-    background-color: #050505;
+    animation: none !important;
+
+    background-size: 48px 48px;
+
+    background-image:
+      linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+      linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%),
+      linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%);
   }
 }
