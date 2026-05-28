@@ -773,6 +773,69 @@ body.reduce-motion *::after {
   .mode-switch {
     animation-duration: 0.2s;
   }
+  @media (max-width: 768px) {
+
+  * {
+    will-change: auto !important;
+  }
+
+  .checker-bg {
+    animation-duration: 40s !important;
+  }
+
+  .glass-panel,
+  .side-tab,
+  .credits-section,
+  .liquid-menu {
+    backdrop-filter: blur(3px) !important;
+  }
+
+  .floating-menu-btn,
+  .floating-game-btn,
+  .mode-btn,
+  .primary-btn,
+  .secondary-btn,
+  .copy-btn,
+  .credit-row,
+  .settings-row {
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease !important;
+
+    transform: none !important;
+  }
+
+  .floating-menu-btn:hover,
+  .floating-game-btn:hover,
+  .mode-btn:hover,
+  .primary-btn:hover,
+  .secondary-btn:hover,
+  .copy-btn:hover,
+  .settings-row:hover {
+    transform: none !important;
+  }
+
+  .header-enter,
+  .mode-switch,
+  .result-enter,
+  .credit-jump-play {
+    animation-duration: 0.18s !important;
+  }
+
+  .loading-box span {
+    animation-duration: 1.4s !important;
+  }
+
+  .glass-panel {
+    box-shadow:
+      0 0 18px rgba(37, 99, 235, 0.12) !important;
+  }
+
+  .side-tab {
+    box-shadow:
+      6px 0 20px rgba(0, 0, 0, 0.35) !important;
+  }
+}
 }
 }
 }
