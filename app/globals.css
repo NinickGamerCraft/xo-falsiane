@@ -709,5 +709,71 @@ body.reduce-motion *::after {
 
 .credit-jump-play {
   animation: creditJump 0.45s ease both !important;
+  @media (max-width: 768px) {
+  .checker-bg {
+    animation: none !important;
+    background-size: 52px 52px;
+  }
+
+  .glass-panel {
+    backdrop-filter: blur(6px);
+    box-shadow:
+      0 0 22px rgba(37, 99, 235, 0.16),
+      inset 0 0 35px rgba(0, 0, 0, 0.5);
+  }
+
+  .side-tab {
+    backdrop-filter: blur(8px);
+    box-shadow:
+      12px 0 35px rgba(0, 0, 0, 0.55);
+  }
+
+  .main-content {
+    padding: 96px 14px 36px;
+  }
+
+  .glass-panel {
+    border-radius: 22px;
+    padding: 22px !important;
+  }
+
+  .floating-menu-btn,
+  .floating-game-btn {
+    width: 58px !important;
+    height: 58px !important;
+    border-radius: 18px !important;
+  }
+
+  .floating-game-btn img {
+    width: 38px !important;
+    height: 38px !important;
+  }
+
+  .main-textarea {
+    height: 12rem;
+  }
+
+  .credits-section {
+    padding: 28px 18px;
+  }
+  @media (max-width: 480px) {
+  .checker-bg {
+    background-image: none;
+    background-color: #050505;
+  }
+
+  .glass-panel,
+  .side-tab,
+  .credits-section {
+    backdrop-filter: none !important;
+  }
+
+  .result-enter,
+  .header-enter,
+  .mode-switch {
+    animation-duration: 0.2s;
+  }
+}
+}
 }
 
