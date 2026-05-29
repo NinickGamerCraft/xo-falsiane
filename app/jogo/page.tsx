@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-type GameState = "loading" | "menu" | "playing" | "paused" | "gameover";
+type GameState = "menu" | "playing" | "paused";
 
 type Shot = {
   x: number;
@@ -46,20 +46,37 @@ const CONFIG = {
 
 export default function JogoPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const keys = useRef<Record<string, boolean>>({});
-  const mobileShoot = useRef(false);
-  const gameStateRef = useRef<GameState>("loading");
+
+  const keysRef = useRef<Record<string, boolean>>({});
+  const mobileShootRef = useRef(false);
+  const gameStateRef = useRef<GameState>("menu");
   const strongCooldownRef = useRef(0);
 
-  const [gameState, setGameState] = useState<GameState>("loading");
-  const [strongCooldown, setStrongCooldown] = useState(0);
+  const playerRef = useRef({
+    x: 100,
+    y: 320,
+    w: 52,
+    h: 40,
+    normalCooldown: 0,
+    strongReadyAt: 0,
+  });
 
-  const sprites = useRef<Record<string, HTMLImageElement | null>>({
+  const shotsRef = useRef<Shot[]>([]);
+
+  const spritesRef = useRef<Record<string, HTMLImageElement | null>>({
     player: null,
     normalShot: null,
     strongShot: null,
     background: null,
   });
+
+  const [gameState, setGameState] = useState<GameState>("menu");
+  const [strongCooldown, setStrongCooldown] = useState(0);
+
+  function setEstado(estado: GameState) {
+    gameStateRef.current = estado;
+    setGameState(estado);
+  }
 
   function tocarSom(src: string) {
     if (!CONFIG.useSounds) return;
@@ -69,13 +86,41 @@ export default function JogoPage() {
     audio.play().catch(() => {});
   }
 
-  function mudarEstado(estado: GameState) {
-    gameStateRef.current = estado;
-    setGameState(estado);
+  function iniciarJogo() {
+    playerRef.current = {
+      x: 100,
+      y: 320,
+      w: 52,
+      h: 40,
+      normalCooldown: 0,
+      strongReadyAt: 0,
+    };
+
+    shotsRef.current = [];
+    strongCooldownRef.current = 0;
+    setStrongCooldown(0);
+
+    setEstado("playing");
+  }
+
+  function pausarOuVoltar() {
+    if (gameStateRef.current === "playing") {
+      setEstado("paused");
+    } else if (gameStateRef.current === "paused") {
+      setEstado("playing");
+    }
+  }
+
+  function tiroForteMobile() {
+    keysRef.current["x"] = true;
+
+    setTimeout(() => {
+      keysRef.current["x"] = false;
+    }, 80);
   }
 
   useEffect(() => {
-    async function carregarImagem(src: string) {
+    function carregarImagem(src: string) {
       return new Promise<HTMLImageElement | null>((resolve) => {
         const img = new Image();
         img.src = src;
@@ -85,14 +130,10 @@ export default function JogoPage() {
     }
 
     async function carregarAssets() {
-      sprites.current.player = await carregarImagem(CONFIG.sprites.player);
-      sprites.current.normalShot = await carregarImagem(CONFIG.sprites.normalShot);
-      sprites.current.strongShot = await carregarImagem(CONFIG.sprites.strongShot);
-      sprites.current.background = await carregarImagem(CONFIG.sprites.background);
-
-      setTimeout(() => {
-        mudarEstado("menu");
-      }, 500);
+      spritesRef.current.player = await carregarImagem(CONFIG.sprites.player);
+      spritesRef.current.normalShot = await carregarImagem(CONFIG.sprites.normalShot);
+      spritesRef.current.strongShot = await carregarImagem(CONFIG.sprites.strongShot);
+      spritesRef.current.background = await carregarImagem(CONFIG.sprites.background);
     }
 
     carregarAssets();
@@ -111,23 +152,15 @@ export default function JogoPage() {
     canvas.width = CONFIG.canvasWidth;
     canvas.height = CONFIG.canvasHeight;
 
-    const player = {
-      x: 100,
-      y: 320,
-      w: 52,
-      h: 40,
-      normalCooldown: 0,
-      strongReadyAt: 0,
-    };
-
-    let shots: Shot[] = [];
     let animationFrame = 0;
     let lastTime = performance.now();
 
     function shootNormal() {
+      const player = playerRef.current;
+
       if (player.normalCooldown > 0) return;
 
-      shots.push({
+      shotsRef.current.push({
         x: player.x + player.w,
         y: player.y + player.h / 2 - 4,
         w: 24,
@@ -142,11 +175,12 @@ export default function JogoPage() {
     }
 
     function shootStrong() {
+      const player = playerRef.current;
       const now = performance.now();
 
       if (now < player.strongReadyAt) return;
 
-      shots.push({
+      shotsRef.current.push({
         x: player.x + player.w,
         y: player.y + player.h / 2 - 12,
         w: 58,
@@ -159,11 +193,13 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.strongShot);
 
       player.strongReadyAt = now + CONFIG.strongShotCooldownMs;
-      strongCooldownRef.current = 8;
-      setStrongCooldown(8);
+      strongCooldownRef.current = Math.ceil(CONFIG.strongShotCooldownMs / 1000);
+      setStrongCooldown(strongCooldownRef.current);
     }
 
     const cooldownTimer = setInterval(() => {
+      const player = playerRef.current;
+
       const restante = Math.max(
         0,
         Math.ceil((player.strongReadyAt - performance.now()) / 1000)
@@ -171,11 +207,13 @@ export default function JogoPage() {
 
       strongCooldownRef.current = restante;
       setStrongCooldown(restante);
-    }, 200);
+    }, 250);
 
     function desenharFundo() {
-      if (CONFIG.useSprites && sprites.current.background) {
-        ctx.drawImage(sprites.current.background, 0, 0, canvas.width, canvas.height);
+      const bg = spritesRef.current.background;
+
+      if (CONFIG.useSprites && bg) {
+        ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
         return;
       }
 
@@ -192,8 +230,11 @@ export default function JogoPage() {
     }
 
     function desenharPlayer() {
-      if (CONFIG.useSprites && sprites.current.player) {
-        ctx.drawImage(sprites.current.player, player.x, player.y, player.w, player.h);
+      const player = playerRef.current;
+      const sprite = spritesRef.current.player;
+
+      if (CONFIG.useSprites && sprite) {
+        ctx.drawImage(sprite, player.x, player.y, player.w, player.h);
         return;
       }
 
@@ -207,8 +248,8 @@ export default function JogoPage() {
     function desenharTiro(shot: Shot) {
       const sprite =
         shot.type === "strong"
-          ? sprites.current.strongShot
-          : sprites.current.normalShot;
+          ? spritesRef.current.strongShot
+          : spritesRef.current.normalShot;
 
       if (CONFIG.useSprites && sprite) {
         ctx.drawImage(sprite, shot.x, shot.y, shot.w, shot.h);
@@ -235,42 +276,49 @@ export default function JogoPage() {
       ctx.fillText("P: pausar", 24, 102);
     }
 
+    function atualizar(delta: number) {
+      // if (gameStateRef.current !== "playing") return;
+
+      const player = playerRef.current;
+      const speedFactor = delta / 16.67;
+
+      const up = keysRef.current["arrowup"] || keysRef.current["w"];
+      const down = keysRef.current["arrowdown"] || keysRef.current["s"];
+      const left = keysRef.current["arrowleft"] || keysRef.current["a"];
+      const right = keysRef.current["arrowright"] || keysRef.current["d"];
+
+      if (up) player.y -= CONFIG.playerSpeed * speedFactor;
+      if (down) player.y += CONFIG.playerSpeed * speedFactor;
+      if (left) player.x -= CONFIG.playerSpeed * speedFactor;
+      if (right) player.x += CONFIG.playerSpeed * speedFactor;
+
+      if (keysRef.current["z"] || mobileShootRef.current) shootNormal();
+      if (keysRef.current["x"]) shootStrong();
+
+      player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
+      player.y = Math.max(0, Math.min(canvas.height - player.h, player.y));
+
+      if (player.normalCooldown > 0) {
+        player.normalCooldown -= 1;
+      }
+
+      shotsRef.current = shotsRef.current
+        .map((shot) => ({
+          ...shot,
+          x: shot.x + shot.speed * speedFactor,
+        }))
+        .filter((shot) => shot.x < canvas.width + 100);
+    }
+
     function loop(time: number) {
       const delta = Math.min(32, time - lastTime);
       lastTime = time;
 
-      if (gameStateRef.current === "playing") {
-        const speedFactor = delta / 16.67;
-
-        const up = keys.current["arrowup"] || keys.current["w"];
-        const down = keys.current["arrowdown"] || keys.current["s"];
-        const left = keys.current["arrowleft"] || keys.current["a"];
-        const right = keys.current["arrowright"] || keys.current["d"];
-
-        if (up) player.y -= CONFIG.playerSpeed * speedFactor;
-        if (down) player.y += CONFIG.playerSpeed * speedFactor;
-        if (left) player.x -= CONFIG.playerSpeed * speedFactor;
-        if (right) player.x += CONFIG.playerSpeed * speedFactor;
-
-        if (keys.current["z"] || mobileShoot.current) shootNormal();
-        if (keys.current["x"]) shootStrong();
-
-        player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
-        player.y = Math.max(0, Math.min(canvas.height - player.h, player.y));
-
-        if (player.normalCooldown > 0) player.normalCooldown--;
-
-        shots = shots
-          .map((shot) => ({
-            ...shot,
-            x: shot.x + shot.speed * speedFactor,
-          }))
-          .filter((shot) => shot.x < canvas.width + 100);
-      }
+      atualizar(delta);
 
       desenharFundo();
 
-      for (const shot of shots) {
+      for (const shot of shotsRef.current) {
         desenharTiro(shot);
       }
 
@@ -291,20 +339,20 @@ export default function JogoPage() {
 
     function keyDown(e: KeyboardEvent) {
       const key = e.key.toLowerCase();
-      keys.current[key] = true;
+      keysRef.current[key] = true;
 
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
         e.preventDefault();
       }
 
       if (key === "p" || key === "escape") {
-        if (gameStateRef.current === "playing") mudarEstado("paused");
-        else if (gameStateRef.current === "paused") mudarEstado("playing");
+        pausarOuVoltar();
       }
     }
 
     function keyUp(e: KeyboardEvent) {
-      keys.current[e.key.toLowerCase()] = false;
+      const key = e.key.toLowerCase();
+      keysRef.current[key] = false;
     }
 
     window.addEventListener("keydown", keyDown);
@@ -320,23 +368,6 @@ export default function JogoPage() {
     };
   }, []);
 
-  function iniciarJogo() {
-    mudarEstado("playing");
-  }
-
-  function pausarOuVoltar() {
-    if (gameState === "playing") mudarEstado("paused");
-    else if (gameState === "paused") mudarEstado("playing");
-  }
-
-  function tiroForteMobile() {
-    keys.current["x"] = true;
-
-    setTimeout(() => {
-      keys.current["x"] = false;
-    }, 80);
-  }
-
   return (
     <main className="game-page">
       <div className="game-wrapper">
@@ -344,12 +375,6 @@ export default function JogoPage() {
 
         <div className="game-area">
           <canvas ref={canvasRef} className="game-canvas" />
-
-          {gameState === "loading" && (
-            <div className="game-menu-layer">
-              <h2>Carregando...</h2>
-            </div>
-          )}
 
           {gameState === "menu" && (
             <div className="game-menu-layer">
@@ -370,16 +395,16 @@ export default function JogoPage() {
         <div className="game-controls-mobile">
           <button
             onTouchStart={() => {
-              mobileShoot.current = true;
+              mobileShootRef.current = true;
             }}
             onTouchEnd={() => {
-              mobileShoot.current = false;
+              mobileShootRef.current = false;
             }}
             onMouseDown={() => {
-              mobileShoot.current = true;
+              mobileShootRef.current = true;
             }}
             onMouseUp={() => {
-              mobileShoot.current = false;
+              mobileShootRef.current = false;
             }}
           >
             🔫 Tiro
