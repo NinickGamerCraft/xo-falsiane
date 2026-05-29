@@ -4,6 +4,15 @@ import { useEffect, useRef, useState } from "react";
 
 type GameState = "menu" | "playing" | "paused";
 
+type SpriteKey =
+  | "player"
+  | "normalShot"
+  | "strongShot"
+  | "background"
+  | "menuBackground"
+  | "portal"
+  | "chocado";
+
 type Shot = {
   x: number;
   y: number;
@@ -14,25 +23,85 @@ type Shot = {
   type: "normal" | "strong";
 };
 
+type SpriteConfig = {
+  src: string;
+  frameWidth?: number;
+  frameHeight?: number;
+  frames?: number;
+  fps?: number;
+};
+
+const ASSETS: Record<SpriteKey, SpriteConfig> = {
+  player: {
+    src: "/game/player/ship.png",
+    frameWidth: 64,
+    frameHeight: 64,
+    frames: 1,
+    fps: 8,
+  },
+
+  normalShot: {
+    src: "/game/shots/normal.png",
+  },
+
+  strongShot: {
+    src: "/game/shots/strong.png",
+  },
+
+  background: {
+    src: "/game/backgrounds/space.png",
+  },
+
+  menuBackground: {
+    src: "/game/backgrounds/menu-bg.png",
+  },
+
+  portal: {
+    src: "/game/enemies/portal-sheet.png",
+    frameWidth: 64,
+    frameHeight: 64,
+    frames: 4,
+    fps: 8,
+  },
+
+  chocado: {
+    src: "/game/bosses/chocado-sheet.png",
+    frameWidth: 128,
+    frameHeight: 128,
+    frames: 6,
+    fps: 7,
+  },
+};
+
 const CONFIG = {
   canvasWidth: 1280,
   canvasHeight: 720,
 
   playerSpeed: 6,
 
-  normalShotSpeed: 8,
-  normalShotCooldownFrames: 12,
+  normalShotSpeed: 7,
+  normalShotCooldownFrames: 14,
   normalShotDamage: 1,
 
-  strongShotSpeed: 6,
+  strongShotSpeed: 5,
   strongShotDamage: 5,
   strongShotCooldownMs: 8000,
 
-  sprites: {
-    player: "/game/player.png",
-    normalShot: "/game/shot-normal.png",
-    strongShot: "/game/shot-strong.png",
-    background: "/game/background.png",
+  useSprites: true,
+  useSounds: true,
+
+  fonts: {
+    title: "SpaceNewsTitle",
+    ui: "SpaceNewsUI",
+  },
+
+  menu: {
+    title: "SPACE NEWS",
+    subtitle: "Defenda a Terra!",
+    description:
+      "Portais falsos querem invadir o planeta e espalhar fake news.",
+    playButton: "JOGAR!",
+    controls: "WASD / Setas: mover • Z: tiro • X: tiro forte • P/ESC: pause",
   },
 
   sounds: {
@@ -40,38 +109,147 @@ const CONFIG = {
     strongShot: "/sounds/game-strong-shot.mp3",
   },
 
-  useSprites: true,
-  useSounds: true,
+  colors: {
+    fallbackBackground: "#020617",
+    player: "#60a5fa",
+    normalShot: "#60a5fa",
+    strongShot: "#facc15",
+  },
 };
+
+class AssetManager {
+  private images = new Map<SpriteKey, HTMLImageElement | null>();
+
+  async loadAll() {
+    const entries = Object.entries(ASSETS) as [SpriteKey, SpriteConfig][];
+
+    await Promise.all(
+      entries.map(async ([key, config]) => {
+        const image = await this.loadImage(config.src);
+        this.images.set(key, image);
+      })
+    );
+  }
+
+  get(key: SpriteKey) {
+    return this.images.get(key) ?? null;
+  }
+
+  private loadImage(src: string) {
+    return new Promise<HTMLImageElement | null>((resolve) => {
+      const img = new Image();
+      img.src = src;
+
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        console.warn(`Asset não encontrado: ${src}`);
+        resolve(null);
+      };
+    });
+  }
+}
+
+class Sprite {
+  key: SpriteKey;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+
+  constructor(key: SpriteKey, x: number, y: number, w: number, h: number) {
+    this.key = key;
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, assets: AssetManager) {
+    const img = assets.get(this.key);
+
+    if (!CONFIG.useSprites || !img) return false;
+
+    ctx.drawImage(img, this.x, this.y, this.w, this.h);
+    return true;
+  }
+}
+
+class AnimatedSprite extends Sprite {
+  frame = 0;
+  elapsed = 0;
+
+  update(delta: number) {
+    const config = ASSETS[this.key];
+
+    if (!config.frames || !config.fps) return;
+
+    this.elapsed += delta;
+
+    const frameTime = 1000 / config.fps;
+
+    if (this.elapsed >= frameTime) {
+      this.elapsed = 0;
+      this.frame = (this.frame + 1) % config.frames;
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D, assets: AssetManager) {
+    const img = assets.get(this.key);
+    const config = ASSETS[this.key];
+
+    if (
+      !CONFIG.useSprites ||
+      !img ||
+      !config.frameWidth ||
+      !config.frameHeight
+    ) {
+      return super.draw(ctx, assets);
+    }
+
+    ctx.drawImage(
+      img,
+      this.frame * config.frameWidth,
+      0,
+      config.frameWidth,
+      config.frameHeight,
+      this.x,
+      this.y,
+      this.w,
+      this.h
+    );
+
+    return true;
+  }
+}
 
 export default function JogoPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const keysRef = useRef<Record<string, boolean>>({});
   const mobileShootRef = useRef(false);
+
   const gameStateRef = useRef<GameState>("menu");
+  const [gameState, setGameState] = useState<GameState>("menu");
+
   const strongCooldownRef = useRef(0);
+  const [strongCooldown, setStrongCooldown] = useState(0);
+
+  const assetsRef = useRef(new AssetManager());
 
   const playerRef = useRef({
     x: 100,
     y: 320,
-    w: 52,
-    h: 40,
+    w: 64,
+    h: 64,
     normalCooldown: 0,
     strongReadyAt: 0,
   });
 
+  const playerAnimRef = useRef(
+    new AnimatedSprite("player", 100, 320, 64, 64)
+  );
+
   const shotsRef = useRef<Shot[]>([]);
-
-  const spritesRef = useRef<Record<string, HTMLImageElement | null>>({
-    player: null,
-    normalShot: null,
-    strongShot: null,
-    background: null,
-  });
-
-  const [gameState, setGameState] = useState<GameState>("menu");
-  const [strongCooldown, setStrongCooldown] = useState(0);
 
   function setEstado(estado: GameState) {
     gameStateRef.current = estado;
@@ -90,8 +268,8 @@ export default function JogoPage() {
     playerRef.current = {
       x: 100,
       y: 320,
-      w: 52,
-      h: 40,
+      w: 64,
+      h: 64,
       normalCooldown: 0,
       strongReadyAt: 0,
     };
@@ -99,16 +277,12 @@ export default function JogoPage() {
     shotsRef.current = [];
     strongCooldownRef.current = 0;
     setStrongCooldown(0);
-
     setEstado("playing");
   }
 
   function pausarOuVoltar() {
-    if (gameStateRef.current === "playing") {
-      setEstado("paused");
-    } else if (gameStateRef.current === "paused") {
-      setEstado("playing");
-    }
+    if (gameStateRef.current === "playing") setEstado("paused");
+    else if (gameStateRef.current === "paused") setEstado("playing");
   }
 
   function tiroForteMobile() {
@@ -120,34 +294,15 @@ export default function JogoPage() {
   }
 
   useEffect(() => {
-    function carregarImagem(src: string) {
-      return new Promise<HTMLImageElement | null>((resolve) => {
-        const img = new Image();
-        img.src = src;
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
-      });
-    }
-
-    async function carregarAssets() {
-      spritesRef.current.player = await carregarImagem(CONFIG.sprites.player);
-      spritesRef.current.normalShot = await carregarImagem(CONFIG.sprites.normalShot);
-      spritesRef.current.strongShot = await carregarImagem(CONFIG.sprites.strongShot);
-      spritesRef.current.background = await carregarImagem(CONFIG.sprites.background);
-    }
-
-    carregarAssets();
+    assetsRef.current.loadAll();
   }, []);
 
   useEffect(() => {
-    const canvasAtual = canvasRef.current;
-    if (!canvasAtual) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const contexto = canvasAtual.getContext("2d");
-    if (!contexto) return;
-
-    const canvas = canvasAtual;
-    const ctx = contexto;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
     canvas.width = CONFIG.canvasWidth;
     canvas.height = CONFIG.canvasHeight;
@@ -157,13 +312,12 @@ export default function JogoPage() {
 
     function shootNormal() {
       const player = playerRef.current;
-
       if (player.normalCooldown > 0) return;
 
       shotsRef.current.push({
-        x: player.x + player.w,
+        x: player.x + player.w - 4,
         y: player.y + player.h / 2 - 4,
-        w: 24,
+        w: 28,
         h: 8,
         speed: CONFIG.normalShotSpeed,
         damage: CONFIG.normalShotDamage,
@@ -181,10 +335,10 @@ export default function JogoPage() {
       if (now < player.strongReadyAt) return;
 
       shotsRef.current.push({
-        x: player.x + player.w,
-        y: player.y + player.h / 2 - 12,
-        w: 58,
-        h: 24,
+        x: player.x + player.w - 4,
+        y: player.y + player.h / 2 - 13,
+        w: 64,
+        h: 26,
         speed: CONFIG.strongShotSpeed,
         damage: CONFIG.strongShotDamage,
         type: "strong",
@@ -210,74 +364,91 @@ export default function JogoPage() {
     }, 250);
 
     function desenharFundo() {
-      const bg = spritesRef.current.background;
+      const bg = assetsRef.current.get("background");
 
       if (CONFIG.useSprites && bg) {
         ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
         return;
       }
 
-      ctx.fillStyle = "#020617";
+      ctx.fillStyle = CONFIG.colors.fallbackBackground;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.fillStyle = "rgba(96, 165, 250, 0.35)";
 
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 120; i++) {
         const x = (i * 173) % canvas.width;
         const y = (i * 91) % canvas.height;
         ctx.fillRect(x, y, 2, 2);
       }
     }
 
-    function desenharPlayer() {
+    function desenharPlayer(delta: number) {
       const player = playerRef.current;
-      const sprite = spritesRef.current.player;
+      const anim = playerAnimRef.current;
 
-      if (CONFIG.useSprites && sprite) {
-        ctx.drawImage(sprite, player.x, player.y, player.w, player.h);
-        return;
-      }
+      anim.x = player.x;
+      anim.y = player.y;
+      anim.w = player.w;
+      anim.h = player.h;
 
-      ctx.fillStyle = "#60a5fa";
+      anim.update(delta);
+
+      const desenhou = anim.draw(ctx, assetsRef.current);
+
+      if (desenhou) return;
+
+      ctx.fillStyle = CONFIG.colors.player;
       ctx.fillRect(player.x, player.y, player.w, player.h);
 
       ctx.fillStyle = "#dbeafe";
-      ctx.fillRect(player.x + 34, player.y + 12, 12, 12);
+      ctx.fillRect(player.x + 40, player.y + 22, 14, 14);
     }
 
     function desenharTiro(shot: Shot) {
-      const sprite =
+      const key = shot.type === "strong" ? "strongShot" : "normalShot";
+
+      const sprite = new Sprite(key, shot.x, shot.y, shot.w, shot.h);
+      const desenhou = sprite.draw(ctx, assetsRef.current);
+
+      if (desenhou) return;
+
+      ctx.fillStyle =
         shot.type === "strong"
-          ? spritesRef.current.strongShot
-          : spritesRef.current.normalShot;
+          ? CONFIG.colors.strongShot
+          : CONFIG.colors.normalShot;
 
-      if (CONFIG.useSprites && sprite) {
-        ctx.drawImage(sprite, shot.x, shot.y, shot.w, shot.h);
-        return;
-      }
-
-      ctx.fillStyle = shot.type === "strong" ? "#facc15" : "#60a5fa";
       ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
     }
 
     function desenharHUD() {
+      if (gameStateRef.current !== "playing") return;
+
+      ctx.save();
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+      ctx.fillRect(18, 18, 260, 100);
+
       ctx.fillStyle = "white";
-      ctx.font = "24px monospace";
-      ctx.fillText("Z: tiro normal", 24, 38);
+      ctx.font = `24px ${CONFIG.fonts.ui}`;
+
+      ctx.fillText("Z: tiro normal", 34, 50);
 
       ctx.fillText(
         strongCooldownRef.current > 0
           ? `X: forte ${strongCooldownRef.current}s`
           : "X: forte pronto",
-        24,
-        70
+        34,
+        80
       );
 
-      ctx.fillText("P: pausar", 24, 102);
+      ctx.fillText("P/ESC: pausar", 34, 110);
+
+      ctx.restore();
     }
 
     function atualizar(delta: number) {
-      // if (gameStateRef.current !== "playing") return;
+      if (gameStateRef.current !== "playing") return;
 
       const player = playerRef.current;
       const speedFactor = delta / 16.67;
@@ -307,7 +478,7 @@ export default function JogoPage() {
           ...shot,
           x: shot.x + shot.speed * speedFactor,
         }))
-        .filter((shot) => shot.x < canvas.width + 100);
+        .filter((shot) => shot.x < canvas.width + 120);
     }
 
     function loop(time: number) {
@@ -322,17 +493,8 @@ export default function JogoPage() {
         desenharTiro(shot);
       }
 
-      desenharPlayer();
+      desenharPlayer(delta);
       desenharHUD();
-
-      if (gameStateRef.current === "paused") {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.fillStyle = "white";
-        ctx.font = "64px monospace";
-        ctx.fillText("PAUSADO", canvas.width / 2 - 140, canvas.height / 2);
-      }
 
       animationFrame = requestAnimationFrame(loop);
     }
@@ -341,7 +503,9 @@ export default function JogoPage() {
       const key = e.key.toLowerCase();
       keysRef.current[key] = true;
 
-      if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
+      if (
+        ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
+      ) {
         e.preventDefault();
       }
 
@@ -351,8 +515,7 @@ export default function JogoPage() {
     }
 
     function keyUp(e: KeyboardEvent) {
-      const key = e.key.toLowerCase();
-      keysRef.current[key] = false;
+      keysRef.current[e.key.toLowerCase()] = false;
     }
 
     window.addEventListener("keydown", keyDown);
@@ -369,56 +532,70 @@ export default function JogoPage() {
   }, []);
 
   return (
-    <main className="game-page">
-      <div className="game-wrapper">
-        <h1>🚀 Space News</h1>
+    <main
+      className="game-fullscreen-page"
+      style={
+        {
+          "--game-menu-bg": `url(${ASSETS.menuBackground.src})`,
+          "--game-title-font": CONFIG.fonts.title,
+          "--game-ui-font": CONFIG.fonts.ui,
+        } as React.CSSProperties
+      }
+    >
+      <canvas ref={canvasRef} className="game-fullscreen-canvas" />
 
-        <div className="game-area">
-          <canvas ref={canvasRef} className="game-canvas" />
+      {gameState === "menu" && (
+        <section className="game-overlay game-menu-screen">
+          <div className="game-menu-card">
+            <p className="game-present">VERIFIQUE.AI apresenta</p>
 
-          {gameState === "menu" && (
-            <div className="game-menu-layer">
-              <h2>Defenda a Terra!</h2>
-              <p>Portais falsos querem espalhar fake news pelo planeta.</p>
-              <button onClick={iniciarJogo}>Jogar!</button>
-            </div>
-          )}
+            <h1>{CONFIG.menu.title}</h1>
 
-          {gameState === "paused" && (
-            <div className="game-menu-layer">
-              <h2>Jogo pausado</h2>
-              <button onClick={pausarOuVoltar}>Continuar</button>
-            </div>
-          )}
-        </div>
+            <h2>{CONFIG.menu.subtitle}</h2>
 
-        <div className="game-controls-mobile">
+            <p className="game-menu-description">{CONFIG.menu.description}</p>
+
+            <button onClick={iniciarJogo} className="game-play-button">
+              {CONFIG.menu.playButton}
+            </button>
+
+            <p className="game-menu-controls">{CONFIG.menu.controls}</p>
+          </div>
+        </section>
+      )}
+
+      {gameState === "paused" && (
+        <section className="game-overlay game-pause-screen">
+          <div className="game-pause-card">
+            <p className="game-present">Jogo pausado</p>
+
+            <h1>PAUSADO</h1>
+
+            <button onClick={pausarOuVoltar} className="game-play-button">
+              CONTINUAR
+            </button>
+          </div>
+        </section>
+      )}
+
+      {gameState === "playing" && (
+        <div className="game-mobile-controls">
           <button
-            onTouchStart={() => {
-              mobileShootRef.current = true;
-            }}
-            onTouchEnd={() => {
-              mobileShootRef.current = false;
-            }}
-            onMouseDown={() => {
-              mobileShootRef.current = true;
-            }}
-            onMouseUp={() => {
-              mobileShootRef.current = false;
-            }}
+            onTouchStart={() => (mobileShootRef.current = true)}
+            onTouchEnd={() => (mobileShootRef.current = false)}
+            onMouseDown={() => (mobileShootRef.current = true)}
+            onMouseUp={() => (mobileShootRef.current = false)}
           >
-            🔫 Tiro
+            🔫
           </button>
 
           <button onClick={tiroForteMobile} disabled={strongCooldown > 0}>
-            💥 Forte {strongCooldown > 0 ? `${strongCooldown}s` : ""}
+            {strongCooldown > 0 ? `${strongCooldown}s` : "💥"}
           </button>
 
-          <button onClick={pausarOuVoltar}>⏸ Pause</button>
+          <button onClick={pausarOuVoltar}>⏸</button>
         </div>
-
-        <p>WASD ou Setas para mover • Z tiro normal • X tiro forte • P pausa</p>
-      </div>
+      )}
     </main>
   );
 }
