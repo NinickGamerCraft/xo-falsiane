@@ -16,6 +16,7 @@ type GameMode = "story" | "infinite";
 
 type SpriteKey =
   | "player"
+  | "playerDodge"
   | "normalShot"
   | "strongShot"
   | "background"
@@ -115,6 +116,10 @@ type Player = {
   tilt: number;
   hp: number;
   invincibleUntil: number;
+  dodgeUntil: number;
+  boostUntil: number;
+  boostVx: number;
+  boostVy: number;
   normalCooldown: number;
   strongReadyAt: number;
   stretchUntil: number;
@@ -164,6 +169,14 @@ type WaveState = {
 const ASSETS: Record<SpriteKey, SpriteConfig> = {
   player: {
     src: "/game/player/ship.png",
+    frameWidth: 64,
+    frameHeight: 64,
+    frames: 1,
+    fps: 8,
+  },
+
+  playerDodge: {
+    src: "/game/player/ship-dodge.png",
     frameWidth: 64,
     frameHeight: 64,
     frames: 1,
@@ -274,6 +287,37 @@ const CONFIG = {
       strongShotShakeMs: 180,
     },
 
+    boost: {
+      enabled: true,
+      keyKillsToFull: 15,
+      startCharge: 7.5,
+      maxCharge: 15,
+      damage: 3.5,
+      durationMs: 260,
+      speed: 15.5,
+      knockback: 8.5,
+      particleAmount: 24,
+      shake: 5,
+      shakeMs: 120,
+    },
+
+    dodge: {
+      enabled: true,
+      durationMs: 500,
+      cooldownMs: 10000,
+      speedImpulse: 4.5,
+    },
+
+    score: {
+      red: 100,
+      black: 220,
+      purple: 120,
+      asteroid: 180,
+      fragment: 25,
+      waveClear: 500,
+      bossWaveClear: 2500,
+    },
+
     dynamicStretch: {
       enabled: true,
 
@@ -350,7 +394,7 @@ const CONFIG = {
       red: {
         width: 64,
         height: 64,
-        hp: 5,
+        hp: 3,
         speed: 2.3,
         waveAmplitude: 1,
         waveFrequency: 0.0032,
@@ -364,7 +408,7 @@ const CONFIG = {
       black: {
         width: 72,
         height: 72,
-        hp: 8,
+        hp: 5,
         appearX: 1040,
         windUpMs: 820,
         dashSpeed: 10.5,
@@ -373,7 +417,7 @@ const CONFIG = {
       purple: {
         width: 70,
         height: 70,
-        hp: 5,
+        hp: 3,
         speed: 3.4,
       },
 
@@ -429,6 +473,9 @@ const CONFIG = {
     mobileShot: "/game/ui/mobile-shot.png",
     mobileStrong: "/game/ui/mobile-strong.png",
     mobilePause: "/game/ui/mobile-pause.png",
+    mobileBoost: "/game/ui/mobile-boost.png",
+    mobileDodge: "/game/ui/mobile-dodge.png",
+    mobileFullscreen: "/game/ui/mobile-fullscreen.png",
   },
 
   settings: {
@@ -604,6 +651,10 @@ function createInitialPlayer(): Player {
     tilt: 0,
     hp: CONFIG.gameplay.player.maxHp,
     invincibleUntil: 0,
+    dodgeUntil: 0,
+    boostUntil: 0,
+    boostVx: 0,
+    boostVy: 0,
     normalCooldown: 0,
     strongReadyAt: 0,
     stretchUntil: 0,
@@ -843,6 +894,14 @@ export default function JogoPage() {
 
   const [playerHp, setPlayerHp] = useState(CONFIG.gameplay.player.maxHp);
   const [isLowHp, setIsLowHp] = useState(false);
+  const scoreRef = useRef(0);
+  const [score, setScore] = useState(0);
+  const boostChargeRef = useRef(CONFIG.gameplay.boost.startCharge);
+  const [boostCharge, setBoostCharge] = useState(CONFIG.gameplay.boost.startCharge);
+  const [dodgeReadyRatio, setDodgeReadyRatio] = useState(1);
+  const [strongReadyRatio, setStrongReadyRatio] = useState(1);
+  const lastDodgeAtRef = useRef(-9999);
+  const boostHitEnemiesRef = useRef(new Set<number>());
 
   const currentModeRef = useRef<GameMode | null>(null);
   const waveStateRef = useRef<WaveState>({
@@ -948,6 +1007,7 @@ export default function JogoPage() {
     enemyProjectilesRef.current = [];
     particlesRef.current = [];
     shakeRef.current = { intensity: 0, endAt: 0 };
+    boostHitEnemiesRef.current.clear();
   }
 
   function resetarWaves(mode: GameMode | null) {
@@ -991,6 +1051,10 @@ export default function JogoPage() {
 
     strongCooldownRef.current = 0;
     setStrongCooldown(0);
+    scoreRef.current = 0;
+    setScore(0);
+    boostChargeRef.current = CONFIG.gameplay.boost.startCharge;
+    setBoostCharge(CONFIG.gameplay.boost.startCharge);
     setPlayerHp(player.hp);
     setIsLowHp(false);
 
@@ -1088,6 +1152,82 @@ export default function JogoPage() {
     window.setTimeout(() => {
       keysRef.current["x"] = false;
     }, 80);
+  }
+
+  function adicionarPontuacao(valor: number) {
+    scoreRef.current += valor;
+    setScore(scoreRef.current);
+  }
+
+  function carregarBoostPorAbate() {
+    if (!CONFIG.gameplay.boost.enabled) return;
+
+    const next = clamp(
+      boostChargeRef.current + 1,
+      0,
+      CONFIG.gameplay.boost.maxCharge,
+    );
+
+    boostChargeRef.current = next;
+    setBoostCharge(next);
+  }
+
+  function registrarAbate(kind: EnemyKind) {
+    adicionarPontuacao(CONFIG.gameplay.score[kind]);
+    carregarBoostPorAbate();
+  }
+
+  function executarBoost() {
+    if (!CONFIG.gameplay.boost.enabled) return;
+    if (gameStateRef.current !== "playing") return;
+    if (boostChargeRef.current < CONFIG.gameplay.boost.maxCharge) return;
+
+    const player = playerRef.current;
+    const now = performance.now();
+    const speed = Math.hypot(player.vx, player.vy);
+    const dirX = speed > 0.2 ? player.vx / speed : 1;
+    const dirY = speed > 0.2 ? player.vy / speed : 0;
+
+    player.boostUntil = now + CONFIG.gameplay.boost.durationMs;
+    player.boostVx = dirX * CONFIG.gameplay.boost.speed;
+    player.boostVy = dirY * CONFIG.gameplay.boost.speed;
+    player.invincibleUntil = Math.max(player.invincibleUntil, player.boostUntil);
+    player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+    player.stretchVx = player.boostVx;
+    player.stretchVy = player.boostVy;
+
+    boostHitEnemiesRef.current.clear();
+    boostChargeRef.current = 0;
+    setBoostCharge(0);
+
+    criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#ffb703", CONFIG.gameplay.boost.particleAmount);
+
+    if (CONFIG.settings.enableScreenShake) {
+      shakeRef.current = {
+        intensity: CONFIG.gameplay.boost.shake,
+        endAt: now + CONFIG.gameplay.boost.shakeMs,
+      };
+    }
+  }
+
+  function executarEsquiva() {
+    if (!CONFIG.gameplay.dodge.enabled) return;
+    if (gameStateRef.current !== "playing") return;
+
+    const now = performance.now();
+    if (now - lastDodgeAtRef.current < CONFIG.gameplay.dodge.cooldownMs) return;
+
+    const player = playerRef.current;
+    const speed = Math.hypot(player.vx, player.vy);
+    const dirX = speed > 0.2 ? player.vx / speed : 1;
+    const dirY = speed > 0.2 ? player.vy / speed : 0;
+
+    player.dodgeUntil = now + CONFIG.gameplay.dodge.durationMs;
+    player.invincibleUntil = Math.max(player.invincibleUntil, player.dodgeUntil);
+    player.vx += dirX * CONFIG.gameplay.dodge.speedImpulse;
+    player.vy += dirY * CONFIG.gameplay.dodge.speedImpulse;
+    lastDodgeAtRef.current = now;
+    setDodgeReadyRatio(0);
   }
 
   function atualizarJoystick(event: ReactPointerEvent<HTMLDivElement>) {
@@ -1442,6 +1582,54 @@ export default function JogoPage() {
     }
   }
 
+  function criarParticulasBoost(player: Player, amount = 4) {
+    if (!CONFIG.settings.enableParticles) return;
+
+    const now = performance.now();
+    const speed = Math.hypot(player.boostVx, player.boostVy);
+    const dirX = speed > 0.001 ? player.boostVx / speed : 1;
+    const dirY = speed > 0.001 ? player.boostVy / speed : 0;
+
+    // Partículas na frente da nave, como uma bola de fogo no boost.
+    const frontX = player.x + player.w / 2 + dirX * (player.w * 0.58);
+    const frontY = player.y + player.h / 2 + dirY * (player.h * 0.58);
+
+    // Partículas atrás da nave, como rastro flamejante.
+    const backX = player.x + player.w / 2 - dirX * (player.w * 0.48);
+    const backY = player.y + player.h / 2 - dirY * (player.h * 0.48);
+
+    for (let i = 0; i < amount; i++) {
+      const spread = rand(-0.75, 0.75);
+      const forwardSpeed = rand(1.2, 4.4);
+      const sideX = -dirY;
+      const sideY = dirX;
+
+      particlesRef.current.push({
+        id: enemyIdRef.current++,
+        x: frontX + sideX * rand(-12, 12),
+        y: frontY + sideY * rand(-12, 12),
+        vx: dirX * forwardSpeed + sideX * spread,
+        vy: dirY * forwardSpeed + sideY * spread,
+        size: rand(6, 14),
+        life: rand(120, 260),
+        maxLife: 260,
+        color: corParticulaQuente(),
+      });
+
+      particlesRef.current.push({
+        id: enemyIdRef.current++,
+        x: backX + sideX * rand(-14, 14),
+        y: backY + sideY * rand(-14, 14),
+        vx: -dirX * rand(0.8, 3.6) + sideX * spread,
+        vy: -dirY * rand(0.8, 3.6) + sideY * spread,
+        size: rand(4, 11),
+        life: rand(150, 320),
+        maxLife: 320,
+        color: corParticulaQuente(),
+      });
+    }
+  }
+
   function triggerPlayerStretch(vx: number, vy: number) {
     const now = performance.now();
     const player = playerRef.current;
@@ -1526,10 +1714,18 @@ export default function JogoPage() {
         kind = "purple";
       }
 
-      events.push({ at, kind });
+      events.push({
+        at,
+        kind,
+        y: kind === "red" ? undefined : rand(70, CONFIG.canvasHeight - 150),
+      });
 
       if (!bossWave && waveNumber >= cfg.asteroidFromWave && waveNumber % cfg.asteroidEvery === 0 && i === Math.floor(groupCount / 2)) {
-        events.push({ at: at + cfg.spawnIntervalMs / 2, kind: "asteroid" });
+        events.push({
+          at: at + cfg.spawnIntervalMs / 2,
+          kind: "asteroid",
+          y: rand(70, CONFIG.canvasHeight - 180),
+        });
       }
     }
 
@@ -1537,26 +1733,29 @@ export default function JogoPage() {
   }
 
   function aplicarDificuldadeWave(inicio: number, difficulty: number) {
+    const waveNumber = waveStateRef.current.wave;
+    const hpBonus = Math.floor(waveNumber / 20);
+    const speedScale = Math.min(2.45, 1 + Math.max(0, difficulty - 1) * 0.38);
+
     for (const enemy of enemiesRef.current.slice(inicio)) {
       if (enemy.kind !== "fragment") {
-        enemy.hp = Math.ceil(enemy.hp * difficulty);
+        enemy.hp = Math.max(1, Math.ceil(enemy.hp + hpBonus));
         enemy.maxHp = enemy.hp;
       }
 
-      if (enemy.kind !== "black") {
-        enemy.vx *= Math.min(1.85, 0.92 + difficulty * 0.12);
-        enemy.vy *= Math.min(1.85, 0.92 + difficulty * 0.12);
-      }
+      enemy.vx *= speedScale;
+      enemy.vy *= speedScale;
 
       if (enemy.kind === "red") {
-        enemy.shotCooldown = Math.max(520, enemy.shotCooldown / Math.min(2.2, difficulty));
+        enemy.shotCooldown = Math.max(430, enemy.shotCooldown / Math.min(2.6, difficulty));
+        enemy.redTravelTimeMs = Math.max(950, (enemy.redTravelTimeMs ?? CONFIG.gameplay.enemies.red.verticalTravelMs) / Math.min(1.9, difficulty));
       }
     }
   }
 
-  function spawnWaveEnemy(kind: EnemyKind, difficulty: number) {
+  function spawnWaveEnemy(kind: EnemyKind, difficulty: number, y?: number) {
     const before = enemiesRef.current.length;
-    spawnEnemy(kind);
+    spawnEnemy(kind, y);
     aplicarDificuldadeWave(before, difficulty);
   }
 
@@ -1615,7 +1814,7 @@ export default function JogoPage() {
 
     while (wave.queue.length > 0 && elapsed >= wave.queue[0].at) {
       const event = wave.queue.shift();
-      if (event) spawnWaveEnemy(event.kind, wave.difficulty);
+      if (event) spawnWaveEnemy(event.kind, wave.difficulty, event.y);
     }
 
     if (wave.message && now > wave.messageUntil) {
@@ -1628,6 +1827,8 @@ export default function JogoPage() {
       wave.nextWaveAt = now + CONFIG.gameplay.infiniteWaves.nextWaveDelayMs;
       wave.message = `WAVE ${wave.wave} CONCLUÍDA`;
       wave.messageUntil = now + CONFIG.gameplay.infiniteWaves.messageMs;
+
+      adicionarPontuacao(wave.bossWave ? CONFIG.gameplay.score.bossWaveClear : CONFIG.gameplay.score.waveClear);
 
       setWaveUi({
         mode: "infinite",
@@ -1754,6 +1955,7 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.strongShot);
 
       player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
+      setStrongReadyRatio(0);
       player.vx -= CONFIG.gameplay.player.strongShotRecoil;
       player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
       player.stretchVx =
@@ -1778,15 +1980,28 @@ export default function JogoPage() {
 
     const cooldownTimer = window.setInterval(() => {
       const player = playerRef.current;
+      const now = performance.now();
 
-      const restante = Math.max(
-        0,
-        Math.ceil((player.strongReadyAt - performance.now()) / 1000),
-      );
+      const strongRemainingMs = Math.max(0, player.strongReadyAt - now);
+      const restante = Math.ceil(strongRemainingMs / 1000);
 
       strongCooldownRef.current = restante;
       setStrongCooldown(restante);
-    }, 250);
+
+      const strongRatio = clamp(
+        1 - strongRemainingMs / CONFIG.gameplay.shots.strong.cooldownMs,
+        0,
+        1,
+      );
+      setStrongReadyRatio(strongRatio);
+
+      const dodgeRatio = clamp(
+        (now - lastDodgeAtRef.current) / CONFIG.gameplay.dodge.cooldownMs,
+        0,
+        1,
+      );
+      setDodgeReadyRatio(dodgeRatio);
+    }, 120);
 
     function desenharFundo(
       ctx: CanvasRenderingContext2D,
@@ -1821,8 +2036,10 @@ export default function JogoPage() {
       }
 
       const anim = playerAnimRef.current;
-      const playerAsset = assetsRef.current.get("player");
-      const playerConfig = ASSETS.player;
+      const isDodging = now < player.dodgeUntil;
+      const dodgeAsset = assetsRef.current.get("playerDodge");
+      const playerAsset = isDodging && dodgeAsset ? dodgeAsset : assetsRef.current.get("player");
+      const playerConfig = isDodging && dodgeAsset ? ASSETS.playerDodge : ASSETS.player;
       anim.update(delta);
 
       ctx.save();
@@ -1870,6 +2087,15 @@ export default function JogoPage() {
 
         ctx.fillStyle = CONFIG.colors.playerDetail;
         ctx.fillRect(player.w * 0.12, -7, 14, 14);
+      }
+
+      if (isDodging && !dodgeAsset && Math.floor(now / 70) % 2 === 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.globalAlpha = 0.72;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
+        ctx.restore();
       }
 
       ctx.restore();
@@ -2185,6 +2411,7 @@ export default function JogoPage() {
 
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
+              registrarAbate(enemy.kind);
 
               if (enemy.kind === "asteroid") {
                 spawnAsteroidFragments(enemy);
@@ -2204,37 +2431,78 @@ export default function JogoPage() {
         }
       }
 
-      for (const enemy of enemiesRef.current) {
-        if (enemiesToRemove.has(enemy.id)) continue;
+      const now = performance.now();
+      const boosting = now < player.boostUntil;
+      const intangible = now < player.invincibleUntil || now < player.dodgeUntil || boosting;
 
-        if (rectsCollide(playerHitbox, enemy)) {
-          enemiesToRemove.add(enemy.id);
+      if (boosting) {
+        for (const enemy of enemiesRef.current) {
+          if (enemiesToRemove.has(enemy.id)) continue;
+          if (boostHitEnemiesRef.current.has(enemy.id)) continue;
 
-          if (enemy.kind === "asteroid") {
-            receberDano(0, true);
-            spawnAsteroidFragments(enemy);
-          } else {
-            criarParticulasHit(
-              player.x + player.w / 2,
-              player.y + player.h / 2,
-              "#ff6b6b",
-              10,
-            );
-            receberDano(1);
+          if (rectsCollide(playerHitbox, enemy)) {
+            boostHitEnemiesRef.current.add(enemy.id);
+            enemy.hp -= CONFIG.gameplay.boost.damage;
+            criarExplosao(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#fb8500", 14);
+
+            const dirX = player.boostVx || 1;
+            const dirY = player.boostVy || 0;
+            const len = Math.max(0.001, Math.hypot(dirX, dirY));
+
+            if (enemy.hp <= 0) {
+              enemiesToRemove.add(enemy.id);
+              registrarAbate(enemy.kind);
+
+              if (enemy.kind === "asteroid") {
+                spawnAsteroidFragments(enemy);
+              } else {
+                tocarSom(CONFIG.sounds.enemyDeath, 0.38);
+              }
+            } else {
+              // Se o boost não matar, empurra e NÃO aplica colisão normal depois.
+              enemy.vx += (dirX / len) * CONFIG.gameplay.boost.knockback;
+              enemy.vy += (dirY / len) * CONFIG.gameplay.boost.knockback;
+              enemy.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+            }
           }
         }
       }
 
-      for (const bullet of enemyProjectilesRef.current) {
-        if (rectsCollide(playerHitbox, bullet)) {
-          projectilesToRemove.add(bullet.id);
-          criarParticulasHit(
-            bullet.x + bullet.w / 2,
-            bullet.y + bullet.h / 2,
-            "#ff6b6b",
-            8,
-          );
-          receberDano(bullet.damage);
+      // Durante invencibilidade/esquiva/boost, o jogador atravessa inimigos e tiros.
+      // Isso corrige o bug de matar/tomar dano só por estar invencível.
+      if (!intangible) {
+        for (const enemy of enemiesRef.current) {
+          if (enemiesToRemove.has(enemy.id)) continue;
+
+          if (rectsCollide(playerHitbox, enemy)) {
+            enemiesToRemove.add(enemy.id);
+
+            if (enemy.kind === "asteroid") {
+              receberDano(0, true);
+              spawnAsteroidFragments(enemy);
+            } else {
+              criarParticulasHit(
+                player.x + player.w / 2,
+                player.y + player.h / 2,
+                "#ff6b6b",
+                10,
+              );
+              receberDano(1);
+            }
+          }
+        }
+
+        for (const bullet of enemyProjectilesRef.current) {
+          if (rectsCollide(playerHitbox, bullet)) {
+            projectilesToRemove.add(bullet.id);
+            criarParticulasHit(
+              bullet.x + bullet.w / 2,
+              bullet.y + bullet.h / 2,
+              "#ff6b6b",
+              8,
+            );
+            receberDano(bullet.damage);
+          }
         }
       }
 
@@ -2275,6 +2543,17 @@ export default function JogoPage() {
 
       const inputX = clamp(keyboardX + mobileMoveRef.current.x, -1, 1);
       const inputY = clamp(keyboardY + mobileMoveRef.current.y, -1, 1);
+
+      if (keysRef.current["shift"]) {
+        keysRef.current["shift"] = false;
+        executarBoost();
+      }
+
+      if (keysRef.current["control"] || keysRef.current["ctrl"]) {
+        keysRef.current["control"] = false;
+        keysRef.current["ctrl"] = false;
+        executarEsquiva();
+      }
 
       const movingNow = inputX !== 0 || inputY !== 0;
       const previousVx = player.vx;
@@ -2336,6 +2615,12 @@ export default function JogoPage() {
       player.wasMoving = isReallyMoving;
       player.lastInputX = movingNow ? inputX : 0;
       player.lastInputY = movingNow ? inputY : 0;
+
+      if (performance.now() < player.boostUntil) {
+        player.vx = player.boostVx;
+        player.vy = player.boostVy;
+        criarParticulasBoost(player, 3);
+      }
 
       player.x += player.vx * speedFactor;
       player.y += player.vy * speedFactor;
@@ -2437,7 +2722,7 @@ export default function JogoPage() {
       keysRef.current[key] = true;
 
       if (
-        ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
+        ["arrowup", "arrowdown", "arrowleft", "arrowright", " ", "shift", "control"].includes(key)
       ) {
         e.preventDefault();
       }
@@ -2584,6 +2869,42 @@ export default function JogoPage() {
         </div>
       )}
 
+      {(gameState === "playing" || gameState === "paused") && waveUi.mode === "infinite" && (
+        <div className="game-score-hud">
+          <strong>SCORE</strong>
+          <span>{score.toString().padStart(6, "0")}</span>
+        </div>
+      )}
+
+      {(gameState === "playing" || gameState === "paused") && (
+        <div className="game-ability-hud">
+          <div className={`game-ability-meter dodge ${dodgeReadyRatio >= 1 ? "ready" : ""}`}>
+            <div className="game-ability-fill">
+              <span style={{ height: `${clamp(dodgeReadyRatio * 100, 0, 100)}%` }} />
+              <strong>{dodgeReadyRatio >= 1 ? "READY!" : "DODGE"}</strong>
+            </div>
+          </div>
+
+          <div className={`game-ability-meter strong ${strongReadyRatio >= 1 ? "ready" : ""}`}>
+            <div className="game-ability-fill">
+              <span style={{ height: `${clamp(strongReadyRatio * 100, 0, 100)}%` }} />
+              <strong>{strongReadyRatio >= 1 ? "READY!" : "FORTE"}</strong>
+            </div>
+          </div>
+
+          <div className={`game-ability-meter boost ${boostCharge >= CONFIG.gameplay.boost.maxCharge ? "ready" : ""}`}>
+            <div className="game-ability-fill">
+              <span
+                style={{
+                  height: `${clamp((boostCharge / CONFIG.gameplay.boost.maxCharge) * 100, 0, 100)}%`,
+                }}
+              />
+              <strong>{boostCharge >= CONFIG.gameplay.boost.maxCharge ? "READY!" : "BOOST"}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
       {waveUi.message && (gameState === "playing" || gameState === "paused") && (
         <div className={`game-wave-banner ${waveUi.bossWave ? "boss" : ""}`}>
           {waveUi.message}
@@ -2726,6 +3047,17 @@ export default function JogoPage() {
       )}
 
       {gameState === "playing" && (
+        <div className="game-mobile-top-actions" onContextMenu={(event) => event.preventDefault()}>
+          <button type="button" onClick={solicitarFullscreen} aria-label="fullscreen">
+            <img draggable={false} src={CONFIG.uiImages.mobileFullscreen} alt="fullscreen" />
+          </button>
+          <button type="button" onClick={pausarOuVoltar} aria-label="pause">
+            <img draggable={false} src={CONFIG.uiImages.mobilePause} alt="pause" />
+          </button>
+        </div>
+      )}
+
+      {gameState === "playing" && (
         <div
           className="game-mobile-controls"
           onContextMenu={(event) => event.preventDefault()}
@@ -2757,6 +3089,19 @@ export default function JogoPage() {
           </div>
 
           <div className="game-mobile-actions">
+            <button type="button" onClick={executarEsquiva} aria-label="esquiva">
+              <img draggable={false} src={CONFIG.uiImages.mobileDodge} alt="esquiva" />
+            </button>
+
+            <button
+              type="button"
+              onClick={executarBoost}
+              disabled={boostCharge < CONFIG.gameplay.boost.maxCharge}
+              aria-label="boost"
+            >
+              <img draggable={false} src={CONFIG.uiImages.mobileBoost} alt="boost" />
+            </button>
+
             <button
               onPointerDown={() => (mobileShootRef.current = true)}
               onPointerUp={() => (mobileShootRef.current = false)}
@@ -2780,14 +3125,6 @@ export default function JogoPage() {
                   alt="tiro forte"
                 />
               )}
-            </button>
-
-            <button onClick={pausarOuVoltar}>
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobilePause}
-                alt="pause"
-              />
             </button>
           </div>
         </div>
