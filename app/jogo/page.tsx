@@ -142,6 +142,25 @@ type MenuOption = {
   disabled?: boolean;
 };
 
+type WaveSpawnEvent = {
+  at: number;
+  kind: EnemyKind;
+  y?: number;
+};
+
+type WaveState = {
+  mode: GameMode | null;
+  active: boolean;
+  wave: number;
+  waveStartedAt: number;
+  queue: WaveSpawnEvent[];
+  nextWaveAt: number;
+  difficulty: number;
+  bossWave: boolean;
+  messageUntil: number;
+  message: string;
+};
+
 const ASSETS: Record<SpriteKey, SpriteConfig> = {
   player: {
     src: "/game/player/ship.png",
@@ -307,6 +326,24 @@ const CONFIG = {
         damage: 5,
         cooldownMs: 8000,
       },
+    },
+
+    infiniteWaves: {
+      enabled: true,
+      firstWaveDelayMs: 900,
+      nextWaveDelayMs: 1800,
+      spawnIntervalMs: 720,
+      baseGroups: 2,
+      groupsPerWave: 0.42,
+      maxGroups: 20,
+      purpleFromWave: 2,
+      blackFromWave: 4,
+      asteroidFromWave: 3,
+      asteroidEvery: 3,
+      bossEvery: 50,
+      difficultyPerWave: 0.045,
+      maxDifficulty: 3.2,
+      messageMs: 1500,
     },
 
     enemies: {
@@ -807,6 +844,27 @@ export default function JogoPage() {
   const [playerHp, setPlayerHp] = useState(CONFIG.gameplay.player.maxHp);
   const [isLowHp, setIsLowHp] = useState(false);
 
+  const currentModeRef = useRef<GameMode | null>(null);
+  const waveStateRef = useRef<WaveState>({
+    mode: null,
+    active: false,
+    wave: 0,
+    waveStartedAt: 0,
+    queue: [],
+    nextWaveAt: 0,
+    difficulty: 1,
+    bossWave: false,
+    messageUntil: 0,
+    message: "",
+  });
+  const [waveUi, setWaveUi] = useState({
+    mode: null as GameMode | null,
+    wave: 0,
+    active: false,
+    bossWave: false,
+    message: "",
+  });
+
   const assetsRef = useRef(new AssetManager());
   const enemyIdRef = useRef(0);
   const shotIdRef = useRef(0);
@@ -892,13 +950,44 @@ export default function JogoPage() {
     shakeRef.current = { intensity: 0, endAt: 0 };
   }
 
-  function iniciarJogo() {
+  function resetarWaves(mode: GameMode | null) {
+    const now = performance.now();
+
+    waveStateRef.current = {
+      mode,
+      active: false,
+      wave: 0,
+      waveStartedAt: 0,
+      queue: [],
+      nextWaveAt:
+        mode === "infinite"
+          ? now + CONFIG.gameplay.infiniteWaves.firstWaveDelayMs
+          : 0,
+      difficulty: 1,
+      bossWave: false,
+      messageUntil:
+        mode === "infinite" ? now + CONFIG.gameplay.infiniteWaves.messageMs : 0,
+      message: mode === "infinite" ? "PREPARE-SE" : "",
+    };
+
+    setWaveUi({
+      mode,
+      wave: 0,
+      active: false,
+      bossWave: false,
+      message: mode === "infinite" ? "PREPARE-SE" : "",
+    });
+  }
+
+  function iniciarJogo(mode: GameMode = currentModeRef.current ?? "infinite") {
     solicitarFullscreen();
+    currentModeRef.current = mode;
 
     const player = createInitialPlayer();
     playerRef.current = player;
 
     limparCombate();
+    resetarWaves(mode);
 
     strongCooldownRef.current = 0;
     setStrongCooldown(0);
@@ -982,6 +1071,7 @@ export default function JogoPage() {
   function voltarAoMenuPrincipal() {
     tocarSom(CONFIG.sounds.menuBack, 0.45);
     limparCombate();
+    resetarWaves(null);
     setIsLowHp(false);
     setEstado("mainMenu");
     setIndiceMenu(0);
@@ -1055,6 +1145,8 @@ export default function JogoPage() {
 
     window.setTimeout(() => {
       limparCombate();
+      resetarWaves(null);
+      currentModeRef.current = null;
       setEstado("title");
       setIndiceMenu(0);
       setSaindoTitulo(false);
@@ -1063,6 +1155,7 @@ export default function JogoPage() {
   }
 
   function executarEscolhaDeModo(mode: GameMode) {
+    currentModeRef.current = mode;
     tocarSom(CONFIG.sounds.menuConfirm, 0.52);
     setMenuAberto(false);
     setEscurecendo(true);
@@ -1072,7 +1165,7 @@ export default function JogoPage() {
         setHistoriaIndex(0);
         setEstado("storyCutscene");
       } else {
-        iniciarJogo();
+        iniciarJogo("infinite");
       }
 
       window.setTimeout(() => {
@@ -1384,6 +1477,166 @@ export default function JogoPage() {
     player.stretchVy = dirY * pulseSpeed;
     player.lastMoveAngle = Math.atan2(vy, vx);
     player.lastStretchAt = now;
+  }
+
+
+  function mostrarMensagemWave(message: string, bossWave = false) {
+    const wave = waveStateRef.current;
+    const until = performance.now() + CONFIG.gameplay.infiniteWaves.messageMs;
+
+    wave.message = message;
+    wave.messageUntil = until;
+    wave.bossWave = bossWave;
+
+    setWaveUi({
+      mode: wave.mode,
+      wave: wave.wave,
+      active: wave.active,
+      bossWave,
+      message,
+    });
+  }
+
+  function criarPlanoWaveInfinita(waveNumber: number): WaveSpawnEvent[] {
+    const cfg = CONFIG.gameplay.infiniteWaves;
+    const events: WaveSpawnEvent[] = [];
+    const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
+    const groupCount = bossWave
+      ? Math.min(cfg.maxGroups, cfg.baseGroups + 12 + Math.floor(waveNumber / 8))
+      : Math.min(
+          cfg.maxGroups,
+          cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave),
+        );
+
+    for (let i = 0; i < groupCount; i++) {
+      const at = i * cfg.spawnIntervalMs;
+      const roll = Math.random();
+      let kind: EnemyKind = "red";
+
+      if (bossWave) {
+        if (i % 5 === 0) kind = "black";
+        else if (i % 3 === 0) kind = "asteroid";
+        else if (i % 2 === 0) kind = "purple";
+        else kind = "red";
+      } else if (waveNumber >= cfg.blackFromWave && roll > 0.78) {
+        kind = "black";
+      } else if (waveNumber >= cfg.asteroidFromWave && roll > 0.58) {
+        kind = "asteroid";
+      } else if (waveNumber >= cfg.purpleFromWave && roll > 0.36) {
+        kind = "purple";
+      }
+
+      events.push({ at, kind });
+
+      if (!bossWave && waveNumber >= cfg.asteroidFromWave && waveNumber % cfg.asteroidEvery === 0 && i === Math.floor(groupCount / 2)) {
+        events.push({ at: at + cfg.spawnIntervalMs / 2, kind: "asteroid" });
+      }
+    }
+
+    return events.sort((a, b) => a.at - b.at);
+  }
+
+  function aplicarDificuldadeWave(inicio: number, difficulty: number) {
+    for (const enemy of enemiesRef.current.slice(inicio)) {
+      if (enemy.kind !== "fragment") {
+        enemy.hp = Math.ceil(enemy.hp * difficulty);
+        enemy.maxHp = enemy.hp;
+      }
+
+      if (enemy.kind !== "black") {
+        enemy.vx *= Math.min(1.85, 0.92 + difficulty * 0.12);
+        enemy.vy *= Math.min(1.85, 0.92 + difficulty * 0.12);
+      }
+
+      if (enemy.kind === "red") {
+        enemy.shotCooldown = Math.max(520, enemy.shotCooldown / Math.min(2.2, difficulty));
+      }
+    }
+  }
+
+  function spawnWaveEnemy(kind: EnemyKind, difficulty: number) {
+    const before = enemiesRef.current.length;
+    spawnEnemy(kind);
+    aplicarDificuldadeWave(before, difficulty);
+  }
+
+  function iniciarWaveInfinita(waveNumber: number) {
+    const now = performance.now();
+    const cfg = CONFIG.gameplay.infiniteWaves;
+    const difficulty = Math.min(
+      cfg.maxDifficulty,
+      1 + Math.max(0, waveNumber - 1) * cfg.difficultyPerWave,
+    );
+    const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
+
+    waveStateRef.current = {
+      mode: "infinite",
+      active: true,
+      wave: waveNumber,
+      waveStartedAt: now,
+      queue: criarPlanoWaveInfinita(waveNumber),
+      nextWaveAt: 0,
+      difficulty,
+      bossWave,
+      messageUntil: now + cfg.messageMs,
+      message: bossWave ? `BOSS WAVE ${waveNumber}` : `WAVE ${waveNumber}`,
+    };
+
+    setWaveUi({
+      mode: "infinite",
+      wave: waveNumber,
+      active: true,
+      bossWave,
+      message: bossWave ? `BOSS WAVE ${waveNumber}` : `WAVE ${waveNumber}`,
+    });
+
+    tocarSom(bossWave ? CONFIG.sounds.bossIntro : CONFIG.sounds.waveStart, bossWave ? 0.6 : 0.48);
+  }
+
+  function atualizarWavesInfinitas() {
+    if (gameStateRef.current !== "playing") return;
+
+    const wave = waveStateRef.current;
+    if (wave.mode !== "infinite" || !CONFIG.gameplay.infiniteWaves.enabled) return;
+
+    const now = performance.now();
+
+    if (!wave.active) {
+      if (wave.nextWaveAt > 0 && now >= wave.nextWaveAt) {
+        iniciarWaveInfinita(wave.wave + 1);
+      } else if (wave.message && now > wave.messageUntil) {
+        wave.message = "";
+        setWaveUi((current) => ({ ...current, message: "" }));
+      }
+      return;
+    }
+
+    const elapsed = now - wave.waveStartedAt;
+
+    while (wave.queue.length > 0 && elapsed >= wave.queue[0].at) {
+      const event = wave.queue.shift();
+      if (event) spawnWaveEnemy(event.kind, wave.difficulty);
+    }
+
+    if (wave.message && now > wave.messageUntil) {
+      wave.message = "";
+      setWaveUi((current) => ({ ...current, message: "" }));
+    }
+
+    if (wave.queue.length === 0 && enemiesRef.current.length === 0) {
+      wave.active = false;
+      wave.nextWaveAt = now + CONFIG.gameplay.infiniteWaves.nextWaveDelayMs;
+      wave.message = `WAVE ${wave.wave} CONCLUÍDA`;
+      wave.messageUntil = now + CONFIG.gameplay.infiniteWaves.messageMs;
+
+      setWaveUi({
+        mode: "infinite",
+        wave: wave.wave,
+        active: false,
+        bossWave: false,
+        message: wave.message,
+      });
+    }
   }
 
   useEffect(() => {
@@ -2134,6 +2387,7 @@ export default function JogoPage() {
         .map((shot) => ({ ...shot, x: shot.x + shot.speed * speedFactor }))
         .filter((shot) => shot.x < canvas.width + 160);
 
+      atualizarWavesInfinitas();
       atualizarInimigos(delta, canvas);
       resolverColisoes();
       atualizarParticulas(delta);
@@ -2323,6 +2577,19 @@ export default function JogoPage() {
         </div>
       )}
 
+      {(gameState === "playing" || gameState === "paused") && waveUi.mode === "infinite" && (
+        <div className="game-wave-hud">
+          <strong>WAVE {waveUi.wave || 1}</strong>
+          <span>{waveUi.bossWave ? "BOSS" : waveUi.active ? "EM ANDAMENTO" : "PREPARANDO"}</span>
+        </div>
+      )}
+
+      {waveUi.message && (gameState === "playing" || gameState === "paused") && (
+        <div className={`game-wave-banner ${waveUi.bossWave ? "boss" : ""}`}>
+          {waveUi.message}
+        </div>
+      )}
+
       {gameState === "title" && (
         <section
           className={`game-screen game-title-screen ${titleLeaving ? "is-leaving" : ""}`}
@@ -2423,7 +2690,7 @@ export default function JogoPage() {
               <button
                 type="button"
                 className="game-menu-option"
-                onClick={iniciarJogo}
+                onClick={() => iniciarJogo(currentModeRef.current ?? "story")}
               >
                 PULAR E COMEÇAR
               </button>
@@ -2442,7 +2709,7 @@ export default function JogoPage() {
             <p>P ou ESC: pausar</p>
             <p>Teste: 8 vermelho • 9 preto • 0 roxo • - asteroide</p>
 
-            <button onClick={iniciarJogo}>COMEÇAR MISSÃO</button>
+            <button onClick={() => iniciarJogo(currentModeRef.current ?? "story")}>COMEÇAR MISSÃO</button>
           </div>
         </section>
       )}
