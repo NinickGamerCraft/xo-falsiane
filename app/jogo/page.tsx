@@ -28,6 +28,7 @@ type SpriteKey =
   | "enemyPurple"
   | "enemyBullet"
   | "asteroid"
+  | "asteroidCracked"
   | "asteroidFragment";
 
 type Shot = {
@@ -64,6 +65,7 @@ type Enemy = {
   sizeTier?: number;
   fragmentCount?: number;
   cracked?: boolean;
+  phase?: number;
 };
 
 type EnemyProjectile = {
@@ -183,21 +185,11 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
 
   enemyBullet: { src: "/game/shots/enemy-bullet.png" },
 
-  asteroid: {
-    src: "/game/obstacles/asteroid-sheet.png",
-    frameWidth: 96,
-    frameHeight: 96,
-    frames: 4,
-    fps: 6,
-  },
+  asteroid: { src: "/game/obstacles/asteroid.png" },
 
-  asteroidFragment: {
-    src: "/game/obstacles/asteroid-fragment-sheet.png",
-    frameWidth: 48,
-    frameHeight: 48,
-    frames: 4,
-    fps: 8,
-  },
+  asteroidCracked: { src: "/game/obstacles/asteroid-cracked.png" },
+
+  asteroidFragment: { src: "/game/obstacles/asteroid-fragment.png" },
 };
 
 const CONFIG = {
@@ -234,10 +226,17 @@ const CONFIG = {
       maxSpeedY: 6.9,
       tiltMaxDeg: 18,
       tiltResponse: 0.18,
-      stretchMax: 0.13,
+      stretchMax: 0.34,
       strongShotRecoil: 7.5,
       strongShotShake: 8,
       strongShotShakeMs: 180,
+    },
+
+    dynamicStretch: {
+      enabled: true,
+      base: 0.055,
+      max: 0.42,
+      squeeze: 0.42,
     },
 
     shots: {
@@ -264,8 +263,8 @@ const CONFIG = {
         height: 64,
         hp: 5,
         speed: 2.3,
-        waveAmplitude: 42,
-        waveFrequency: 0.0045,
+        waveAmplitude: 1,
+        waveFrequency: 0.0032,
         shootEveryMs: 1350,
         bulletSpeed: 4.7,
         edgePadding: 92,
@@ -303,7 +302,6 @@ const CONFIG = {
         fragmentSpeedMax: 5.3,
         rotationSpeedMin: 0.0015,
         rotationSpeedMax: 0.006,
-        crackedFrame: 1,
       },
     },
   },
@@ -330,8 +328,10 @@ const CONFIG = {
   },
 
   uiImages: {
-    lifeFull: "/game/ui/life-full.png",
-    lifeEmpty: "/game/ui/life-empty.png",
+    lifeFull: "/game/ui/heart-full.png",
+    lifeEmpty: "/game/ui/heart-empty.png",
+    lifeFullFallback: "/game/ui/life-full.png",
+    lifeEmptyFallback: "/game/ui/life-empty.png",
     mobileUp: "/game/ui/mobile-up.png",
     mobileDown: "/game/ui/mobile-down.png",
     mobileLeft: "/game/ui/mobile-left.png",
@@ -524,6 +524,58 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function getVelocityStretchAmount(vx: number, vy: number) {
+  if (!CONFIG.gameplay.dynamicStretch.enabled) {
+    return 0;
+  }
+
+  const speed = Math.hypot(vx, vy);
+  return clamp(speed * CONFIG.gameplay.dynamicStretch.base, 0, CONFIG.gameplay.dynamicStretch.max);
+}
+
+function applyVelocityStretch(ctx: CanvasRenderingContext2D, vx: number, vy: number, multiplier = 1) {
+  const amount = getVelocityStretchAmount(vx, vy) * multiplier;
+
+  if (amount <= 0.001) {
+    return;
+  }
+
+  const angle = Math.atan2(vy, vx || 0.0001);
+  const squeeze = CONFIG.gameplay.dynamicStretch.squeeze;
+
+  ctx.rotate(angle);
+  ctx.scale(1 + amount, Math.max(0.58, 1 - amount * squeeze));
+  ctx.rotate(-angle);
+}
+
+function drawVelocityStretchedImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement | null,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  vx: number,
+  vy: number,
+  rotation = 0,
+  fallbackColor = "#ffffff",
+  stretchMultiplier = 1.35
+) {
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2);
+  applyVelocityStretch(ctx, vx, vy, stretchMultiplier);
+  ctx.rotate(rotation);
+
+  if (CONFIG.useSprites && img) {
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  } else {
+    ctx.fillStyle = fallbackColor;
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+  }
+
+  ctx.restore();
+}
+
 export default function JogoPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -664,6 +716,7 @@ export default function JogoPage() {
     }
 
     tocarSom(CONFIG.sounds.playerDamage, 0.5);
+    criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff4d4d", 14);
 
     if (forcarHpUm) {
       player.hp = Math.max(1, Math.min(player.hp, 1));
@@ -674,6 +727,16 @@ export default function JogoPage() {
     player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
     setPlayerHp(player.hp);
     setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+
+    if (player.hp <= 1 && gameStateRef.current === "playing" && CONFIG.useSounds) {
+      if (!alarmAudioRef.current) {
+        const audio = new Audio(CONFIG.sounds.lowHpAlarm);
+        audio.loop = true;
+        audio.volume = 0.42;
+        alarmAudioRef.current = audio;
+      }
+      alarmAudioRef.current.play().catch(() => {});
+    }
 
     shakeRef.current = { intensity: 5, endAt: now + 160 };
 
@@ -814,15 +877,20 @@ export default function JogoPage() {
 
     if (kind === "red") {
       const cfg = CONFIG.gameplay.enemies.red;
-      const topY = cfg.edgePadding;
-      const bottomY = CONFIG.canvasHeight - cfg.edgePadding - cfg.height;
+      const centerY = (CONFIG.canvasHeight - cfg.height) / 2;
+      const verticalRange = Math.max(
+        40,
+        CONFIG.canvasHeight / 2 - cfg.edgePadding - cfg.height / 2
+      );
+      const topY = centerY - verticalRange;
+      const bottomY = centerY + verticalRange;
       const sharedCooldown = cfg.shootEveryMs;
 
-      const createRed = (baseY: number, offsetX: number): Enemy => ({
+      const createRed = (startY: number, phase: number): Enemy => ({
         id: enemyIdRef.current++,
         kind: "red",
-        x: CONFIG.canvasWidth + 80 + offsetX,
-        y: baseY,
+        x: CONFIG.canvasWidth + 80,
+        y: startY,
         w: cfg.width,
         h: cfg.height,
         vx: -cfg.speed,
@@ -830,16 +898,18 @@ export default function JogoPage() {
         hp: cfg.hp,
         maxHp: cfg.hp,
         age: 0,
-        waveBaseY: baseY,
+        waveBaseY: centerY,
         shotCooldown: sharedCooldown,
         windUpMs: 0,
         isDashing: false,
+        phase,
       });
 
-      enemiesRef.current.push(createRed(topY, 0));
-      enemiesRef.current.push(createRed(bottomY, cfg.pairGapX));
+      enemiesRef.current.push(createRed(topY, -Math.PI / 2));
+      enemiesRef.current.push(createRed(bottomY, Math.PI / 2));
       return;
     }
+
     if (kind === "black") {
       const cfg = CONFIG.gameplay.enemies.black;
       const player = playerRef.current;
@@ -971,10 +1041,15 @@ export default function JogoPage() {
     }
   }
 
-  function criarParticulasHit(x: number, y: number, color = "#ffe18c", amount = 7) {
+  function corParticulaQuente() {
+    const palette = ["#ffd166", "#ffb703", "#fb8500", "#ff7a18", "#fff1a8"];
+    return palette[Math.floor(rand(0, palette.length))];
+  }
+
+  function criarParticulasHit(x: number, y: number, color = "", amount = 9) {
     for (let i = 0; i < amount; i++) {
       const angle = rand(0, Math.PI * 2);
-      const speed = rand(0.8, 3.4);
+      const speed = rand(1.0, 4.1);
 
       particlesRef.current.push({
         id: enemyIdRef.current++,
@@ -982,18 +1057,18 @@ export default function JogoPage() {
         y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        size: rand(3, 8),
-        life: rand(180, 320),
-        maxLife: 320,
-        color,
+        size: rand(3, 9),
+        life: rand(180, 360),
+        maxLife: 360,
+        color: color || corParticulaQuente(),
       });
     }
   }
 
-  function criarExplosao(x: number, y: number, color = "#ffcf7a", amount = 22) {
+  function criarExplosao(x: number, y: number, color = "", amount = 26) {
     for (let i = 0; i < amount; i++) {
       const angle = rand(0, Math.PI * 2);
-      const speed = rand(1.6, 6.4);
+      const speed = rand(1.8, 7.2);
 
       particlesRef.current.push({
         id: enemyIdRef.current++,
@@ -1001,10 +1076,10 @@ export default function JogoPage() {
         y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        size: rand(4, 12),
-        life: rand(260, 520),
-        maxLife: 520,
-        color,
+        size: rand(4, 13),
+        life: rand(260, 560),
+        maxLife: 560,
+        color: color || corParticulaQuente(),
       });
     }
   }
@@ -1173,18 +1248,12 @@ export default function JogoPage() {
       const anim = playerAnimRef.current;
       const playerAsset = assetsRef.current.get("player");
       const playerConfig = ASSETS.player;
-      const speedXRatio = Math.abs(player.vx) / CONFIG.gameplay.player.maxSpeedX;
-      const speedYRatio = Math.abs(player.vy) / CONFIG.gameplay.player.maxSpeedY;
-      const stretchMax = CONFIG.gameplay.player.stretchMax;
-      const stretchX = 1 + speedXRatio * stretchMax - speedYRatio * 0.035;
-      const stretchY = 1 + speedYRatio * stretchMax - speedXRatio * 0.035;
-
       anim.update(delta);
 
       ctx.save();
       ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+      applyVelocityStretch(ctx, player.vx, player.vy, 1.15);
       ctx.rotate((player.tilt * Math.PI) / 180);
-      ctx.scale(stretchX, stretchY);
 
       if (
         CONFIG.useSprites &&
@@ -1218,19 +1287,24 @@ export default function JogoPage() {
       const key: SpriteKey =
         shot.type === "strong" ? "strongShot" : "normalShot";
 
-      const sprite = new Sprite(key, shot.x, shot.y, shot.w, shot.h);
-      const desenhou = sprite.draw(ctx, assetsRef.current);
-
-      if (desenhou) {
-        return;
-      }
-
-      ctx.fillStyle =
+      const img = assetsRef.current.get(key);
+      const color =
         shot.type === "strong"
           ? CONFIG.colors.strongShot
           : CONFIG.colors.normalShot;
 
-      ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
+      drawVelocityStretchedImage(
+        ctx,
+        img,
+        shot.x,
+        shot.y,
+        shot.w,
+        shot.h,
+        shot.speed,
+        0,
+        0,
+        color
+      );
     }
 
     function getEnemySpriteKey(kind: EnemyKind): SpriteKey {
@@ -1242,71 +1316,36 @@ export default function JogoPage() {
     }
 
     function desenharEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy) {
-      const key = getEnemySpriteKey(enemy.kind);
-      let desenhou = false;
+      const key: SpriteKey =
+        enemy.kind === "asteroid" && enemy.cracked
+          ? "asteroidCracked"
+          : getEnemySpriteKey(enemy.kind);
 
-      if (enemy.kind === "asteroid" || enemy.kind === "fragment") {
-        const asset = assetsRef.current.get(key);
-        const config = ASSETS[key];
-        const rotation = enemy.rotation ?? 0;
-        const frame =
-          enemy.kind === "asteroid" && enemy.cracked
-            ? CONFIG.gameplay.enemies.asteroid.crackedFrame
-            : 0;
+      const img = assetsRef.current.get(key);
+      const rotation = enemy.rotation ?? 0;
+      const fallbackColor =
+        enemy.kind === "red"
+          ? CONFIG.colors.redEnemy
+          : enemy.kind === "black"
+            ? CONFIG.colors.blackEnemy
+            : enemy.kind === "purple"
+              ? CONFIG.colors.purpleEnemy
+              : enemy.kind === "fragment"
+                ? "#b79a6b"
+                : CONFIG.colors.asteroid;
 
-        ctx.save();
-        ctx.translate(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
-        ctx.rotate(rotation);
-
-        if (
-          CONFIG.useSprites &&
-          asset &&
-          config.frameWidth &&
-          config.frameHeight
-        ) {
-          ctx.drawImage(
-            asset,
-            frame * config.frameWidth,
-            0,
-            config.frameWidth,
-            config.frameHeight,
-            -enemy.w / 2,
-            -enemy.h / 2,
-            enemy.w,
-            enemy.h
-          );
-          desenhou = true;
-        } else {
-          ctx.fillStyle = enemy.kind === "fragment" ? "#b79a6b" : CONFIG.colors.asteroid;
-          ctx.fillRect(-enemy.w / 2, -enemy.h / 2, enemy.w, enemy.h);
-
-          if (enemy.cracked) {
-            ctx.strokeStyle = "#2b160f";
-            ctx.lineWidth = Math.max(2, enemy.w * 0.035);
-            ctx.beginPath();
-            ctx.moveTo(-enemy.w * 0.25, -enemy.h * 0.3);
-            ctx.lineTo(enemy.w * 0.05, -enemy.h * 0.05);
-            ctx.lineTo(-enemy.w * 0.1, enemy.h * 0.28);
-            ctx.stroke();
-          }
-
-          desenhou = true;
-        }
-
-        ctx.restore();
-      } else {
-        const sprite = new Sprite(key, enemy.x, enemy.y, enemy.w, enemy.h);
-        desenhou = sprite.draw(ctx, assetsRef.current);
-      }
-
-      if (!desenhou) {
-        if (enemy.kind === "red") ctx.fillStyle = CONFIG.colors.redEnemy;
-        else if (enemy.kind === "black") ctx.fillStyle = CONFIG.colors.blackEnemy;
-        else if (enemy.kind === "purple") ctx.fillStyle = CONFIG.colors.purpleEnemy;
-        else ctx.fillStyle = CONFIG.colors.asteroid;
-
-        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
-      }
+      drawVelocityStretchedImage(
+        ctx,
+        img,
+        enemy.x,
+        enemy.y,
+        enemy.w,
+        enemy.h,
+        enemy.vx,
+        enemy.vy,
+        rotation,
+        fallbackColor
+      );
 
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.72)";
@@ -1325,13 +1364,19 @@ export default function JogoPage() {
     }
 
     function desenharEnemyProjectile(ctx: CanvasRenderingContext2D, bullet: EnemyProjectile) {
-      const sprite = new Sprite("enemyBullet", bullet.x, bullet.y, bullet.w, bullet.h);
-      const desenhou = sprite.draw(ctx, assetsRef.current);
-
-      if (!desenhou) {
-        ctx.fillStyle = CONFIG.colors.enemyBullet;
-        ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
-      }
+      const img = assetsRef.current.get("enemyBullet");
+      drawVelocityStretchedImage(
+        ctx,
+        img,
+        bullet.x,
+        bullet.y,
+        bullet.w,
+        bullet.h,
+        bullet.vx,
+        bullet.vy,
+        0,
+        CONFIG.colors.enemyBullet
+      );
     }
 
     function atualizarParticulas(delta: number) {
@@ -1355,12 +1400,15 @@ export default function JogoPage() {
         const alpha = clamp(particle.life / particle.maxLife, 0, 1);
         ctx.globalAlpha = alpha;
         ctx.fillStyle = particle.color;
+        ctx.shadowColor = particle.color;
+        ctx.shadowBlur = 10;
         ctx.fillRect(
           particle.x - particle.size / 2,
           particle.y - particle.size / 2,
           particle.size,
           particle.size
         );
+        ctx.shadowBlur = 0;
       }
 
       ctx.restore();
@@ -1402,10 +1450,20 @@ export default function JogoPage() {
 
           if (updated.kind === "red") {
             updated.x += updated.vx * speedFactor;
+
+            const centerY = (canvas.height - updated.h) / 2;
+            const amplitude = Math.max(
+              40,
+              canvas.height / 2 - redCfg.edgePadding - updated.h / 2
+            );
+
+            const previousY = updated.y;
             updated.y =
-              updated.waveBaseY +
-              Math.sin(updated.age * redCfg.waveFrequency) * redCfg.waveAmplitude;
-            updated.y = clamp(updated.y, 22, canvas.height - updated.h - 22);
+              centerY +
+              Math.sin(updated.age * redCfg.waveFrequency + (updated.phase ?? 0)) *
+                amplitude;
+            updated.y = clamp(updated.y, 18, canvas.height - updated.h - 18);
+            updated.vy = (updated.y - previousY) / Math.max(0.001, speedFactor);
             updated.shotCooldown -= delta;
 
             if (updated.shotCooldown <= 0) {
@@ -1485,7 +1543,9 @@ export default function JogoPage() {
           if (rectsCollide(shot, enemy)) {
             enemy.hp -= shot.damage;
             shotsToRemove.add(shot.id);
-            enemy.cracked = enemy.kind === "asteroid" ? true : enemy.cracked;
+            if (enemy.kind === "asteroid" && enemy.hp <= enemy.maxHp / 2) {
+              enemy.cracked = true;
+            }
             criarParticulasHit(shot.x + shot.w / 2, shot.y + shot.h / 2);
             tocarSom(CONFIG.sounds.enemyHit, 0.25);
 
@@ -1751,7 +1811,11 @@ export default function JogoPage() {
   const lifeSlots = Array.from({ length: CONFIG.gameplay.player.maxHp });
 
   return (
-    <main className="game-fullscreen-page" style={gameStyle}>
+    <main
+      className="game-fullscreen-page"
+      style={gameStyle}
+      onContextMenu={(event) => event.preventDefault()}
+    >
       <canvas ref={canvasRef} className="game-fullscreen-canvas" />
 
       <div className={`game-title-bg-transition ${titleLeaving ? "show" : ""}`} />
@@ -1766,6 +1830,17 @@ export default function JogoPage() {
               key={index}
               src={index < playerHp ? CONFIG.uiImages.lifeFull : CONFIG.uiImages.lifeEmpty}
               alt={index < playerHp ? "vida" : "vida perdida"}
+              draggable={false}
+              onContextMenu={(event) => event.preventDefault()}
+              onError={(event) => {
+                const img = event.currentTarget;
+                const fallback = index < playerHp
+                  ? CONFIG.uiImages.lifeFullFallback
+                  : CONFIG.uiImages.lifeEmptyFallback;
+
+                if (img.src.endsWith(fallback)) return;
+                img.src = fallback;
+              }}
             />
           ))}
         </div>
@@ -1896,33 +1971,37 @@ export default function JogoPage() {
               className="mobile-up"
               onPointerDown={() => (keysRef.current["arrowup"] = true)}
               onPointerUp={() => (keysRef.current["arrowup"] = false)}
+              onPointerLeave={() => (keysRef.current["arrowup"] = false)}
               onPointerCancel={() => (keysRef.current["arrowup"] = false)}
             >
-              <img src={CONFIG.uiImages.mobileUp} alt="cima" />
+              <img draggable={false} src={CONFIG.uiImages.mobileUp} alt="cima" />
             </button>
             <button
               className="mobile-left"
               onPointerDown={() => (keysRef.current["arrowleft"] = true)}
               onPointerUp={() => (keysRef.current["arrowleft"] = false)}
+              onPointerLeave={() => (keysRef.current["arrowleft"] = false)}
               onPointerCancel={() => (keysRef.current["arrowleft"] = false)}
             >
-              <img src={CONFIG.uiImages.mobileLeft} alt="esquerda" />
+              <img draggable={false} src={CONFIG.uiImages.mobileLeft} alt="esquerda" />
             </button>
             <button
               className="mobile-right"
               onPointerDown={() => (keysRef.current["arrowright"] = true)}
               onPointerUp={() => (keysRef.current["arrowright"] = false)}
+              onPointerLeave={() => (keysRef.current["arrowright"] = false)}
               onPointerCancel={() => (keysRef.current["arrowright"] = false)}
             >
-              <img src={CONFIG.uiImages.mobileRight} alt="direita" />
+              <img draggable={false} src={CONFIG.uiImages.mobileRight} alt="direita" />
             </button>
             <button
               className="mobile-down"
               onPointerDown={() => (keysRef.current["arrowdown"] = true)}
               onPointerUp={() => (keysRef.current["arrowdown"] = false)}
+              onPointerLeave={() => (keysRef.current["arrowdown"] = false)}
               onPointerCancel={() => (keysRef.current["arrowdown"] = false)}
             >
-              <img src={CONFIG.uiImages.mobileDown} alt="baixo" />
+              <img draggable={false} src={CONFIG.uiImages.mobileDown} alt="baixo" />
             </button>
           </div>
 
@@ -1930,17 +2009,18 @@ export default function JogoPage() {
             <button
               onPointerDown={() => (mobileShootRef.current = true)}
               onPointerUp={() => (mobileShootRef.current = false)}
+              onPointerLeave={() => (mobileShootRef.current = false)}
               onPointerCancel={() => (mobileShootRef.current = false)}
             >
-              <img src={CONFIG.uiImages.mobileShot} alt="tiro" />
+              <img draggable={false} src={CONFIG.uiImages.mobileShot} alt="tiro" />
             </button>
 
             <button onClick={tiroForteMobile} disabled={strongCooldown > 0}>
-              {strongCooldown > 0 ? <span>{strongCooldown}s</span> : <img src={CONFIG.uiImages.mobileStrong} alt="tiro forte" />}
+              {strongCooldown > 0 ? <span>{strongCooldown}s</span> : <img draggable={false} src={CONFIG.uiImages.mobileStrong} alt="tiro forte" />}
             </button>
 
             <button onClick={pausarOuVoltar}>
-              <img src={CONFIG.uiImages.mobilePause} alt="pause" />
+              <img draggable={false} src={CONFIG.uiImages.mobilePause} alt="pause" />
             </button>
           </div>
         </div>
