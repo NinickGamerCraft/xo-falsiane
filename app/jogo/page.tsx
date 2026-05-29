@@ -42,6 +42,22 @@ type SpriteConfig = {
   fps?: number;
 };
 
+type Player = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  normalCooldown: number;
+  strongReadyAt: number;
+};
+
+type GameCssVars = CSSProperties & {
+  "--game-menu-bg": string;
+  "--game-title-bg": string;
+  "--game-title-font": string;
+  "--game-ui-font": string;
+};
+
 const ASSETS: Record<SpriteKey, SpriteConfig> = {
   player: {
     src: "/game/player/ship.png",
@@ -165,7 +181,10 @@ class AssetManager {
       const img = new Image();
       img.src = src;
 
-      img.onload = () => resolve(img);
+      img.onload = () => {
+        resolve(img);
+      };
+
       img.onerror = () => {
         console.warn(`Asset não encontrado: ${src}`);
         resolve(null);
@@ -189,12 +208,14 @@ class Sprite {
     this.h = h;
   }
 
-  draw(ctx: CanvasRenderingContext2D, assets: AssetManager) {
+  draw(renderCtx: CanvasRenderingContext2D, assets: AssetManager) {
     const img = assets.get(this.key);
 
-    if (!CONFIG.useSprites || !img) return false;
+    if (!CONFIG.useSprites || !img) {
+      return false;
+    }
 
-    ctx.drawImage(img, this.x, this.y, this.w, this.h);
+    renderCtx.drawImage(img, this.x, this.y, this.w, this.h);
     return true;
   }
 }
@@ -206,7 +227,9 @@ class AnimatedSprite extends Sprite {
   update(delta: number) {
     const config = ASSETS[this.key];
 
-    if (!config.frames || !config.fps) return;
+    if (!config.frames || !config.fps) {
+      return;
+    }
 
     this.elapsed += delta;
 
@@ -218,7 +241,7 @@ class AnimatedSprite extends Sprite {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D, assets: AssetManager) {
+  draw(renderCtx: CanvasRenderingContext2D, assets: AssetManager) {
     const img = assets.get(this.key);
     const config = ASSETS[this.key];
 
@@ -228,10 +251,10 @@ class AnimatedSprite extends Sprite {
       !config.frameWidth ||
       !config.frameHeight
     ) {
-      return super.draw(ctx, assets);
+      return super.draw(renderCtx, assets);
     }
 
-    ctx.drawImage(
+    renderCtx.drawImage(
       img,
       this.frame * config.frameWidth,
       0,
@@ -264,7 +287,7 @@ export default function JogoPage() {
 
   const assetsRef = useRef(new AssetManager());
 
-  const playerRef = useRef({
+  const playerRef = useRef<Player>({
     x: 100,
     y: 320,
     w: 64,
@@ -288,7 +311,9 @@ export default function JogoPage() {
   }
 
   function tocarSom(src: string) {
-    if (!CONFIG.useSounds) return;
+    if (!CONFIG.useSounds) {
+      return;
+    }
 
     const audio = new Audio(src);
     audio.volume = 0.45;
@@ -361,22 +386,32 @@ export default function JogoPage() {
   }, []);
 
   useEffect(() => {
-    const canvasElement = canvasRef.current;
-    if (!canvasElement) return;
+    const gameCanvas = canvasRef.current;
 
-    const canvas = canvasElement;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!(gameCanvas instanceof HTMLCanvasElement)) {
+      return;
+    }
 
-    canvas.width = CONFIG.canvasWidth;
-    canvas.height = CONFIG.canvasHeight;
+    const renderContext = gameCanvas.getContext("2d");
+
+    if (!(renderContext instanceof CanvasRenderingContext2D)) {
+      return;
+    }
+
+    const renderCtx: CanvasRenderingContext2D = renderContext;
+
+    gameCanvas.width = CONFIG.canvasWidth;
+    gameCanvas.height = CONFIG.canvasHeight;
 
     let animationFrame = 0;
     let lastTime = performance.now();
 
     function shootNormal() {
       const player = playerRef.current;
-      if (player.normalCooldown > 0) return;
+
+      if (player.normalCooldown > 0) {
+        return;
+      }
 
       shotsRef.current.push({
         x: player.x + player.w - 4,
@@ -396,7 +431,9 @@ export default function JogoPage() {
       const player = playerRef.current;
       const now = performance.now();
 
-      if (now < player.strongReadyAt) return;
+      if (now < player.strongReadyAt) {
+        return;
+      }
 
       shotsRef.current.push({
         x: player.x + player.w - 4,
@@ -427,7 +464,10 @@ export default function JogoPage() {
       setStrongCooldown(restante);
     }, 250);
 
-    function desenharFundo() {
+    function desenharFundo(
+      ctx: CanvasRenderingContext2D,
+      canvas: HTMLCanvasElement
+    ) {
       const bg = assetsRef.current.get("background");
 
       if (CONFIG.useSprites && bg) {
@@ -447,7 +487,7 @@ export default function JogoPage() {
       }
     }
 
-    function desenharPlayer(delta: number) {
+    function desenharPlayer(ctx: CanvasRenderingContext2D, delta: number) {
       const player = playerRef.current;
       const anim = playerAnimRef.current;
 
@@ -460,7 +500,9 @@ export default function JogoPage() {
 
       const desenhou = anim.draw(ctx, assetsRef.current);
 
-      if (desenhou) return;
+      if (desenhou) {
+        return;
+      }
 
       ctx.fillStyle = CONFIG.colors.player;
       ctx.fillRect(player.x, player.y, player.w, player.h);
@@ -469,14 +511,16 @@ export default function JogoPage() {
       ctx.fillRect(player.x + 40, player.y + 22, 14, 14);
     }
 
-    function desenharTiro(shot: Shot) {
+    function desenharTiro(ctx: CanvasRenderingContext2D, shot: Shot) {
       const key: SpriteKey =
         shot.type === "strong" ? "strongShot" : "normalShot";
 
       const sprite = new Sprite(key, shot.x, shot.y, shot.w, shot.h);
       const desenhou = sprite.draw(ctx, assetsRef.current);
 
-      if (desenhou) return;
+      if (desenhou) {
+        return;
+      }
 
       ctx.fillStyle =
         shot.type === "strong"
@@ -486,8 +530,10 @@ export default function JogoPage() {
       ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
     }
 
-    function desenharHUD() {
-      if (gameStateRef.current !== "playing") return;
+    function desenharHUD(ctx: CanvasRenderingContext2D) {
+      if (gameStateRef.current !== "playing") {
+        return;
+      }
 
       ctx.save();
 
@@ -512,8 +558,10 @@ export default function JogoPage() {
       ctx.restore();
     }
 
-    function atualizar(delta: number) {
-      if (gameStateRef.current !== "playing") return;
+    function atualizar(delta: number, canvas: HTMLCanvasElement) {
+      if (gameStateRef.current !== "playing") {
+        return;
+      }
 
       const player = playerRef.current;
       const speedFactor = delta / 16.67;
@@ -523,13 +571,29 @@ export default function JogoPage() {
       const left = keysRef.current["arrowleft"] || keysRef.current["a"];
       const right = keysRef.current["arrowright"] || keysRef.current["d"];
 
-      if (up) player.y -= CONFIG.playerSpeed * speedFactor;
-      if (down) player.y += CONFIG.playerSpeed * speedFactor;
-      if (left) player.x -= CONFIG.playerSpeed * speedFactor;
-      if (right) player.x += CONFIG.playerSpeed * speedFactor;
+      if (up) {
+        player.y -= CONFIG.playerSpeed * speedFactor;
+      }
 
-      if (keysRef.current["z"] || mobileShootRef.current) shootNormal();
-      if (keysRef.current["x"]) shootStrong();
+      if (down) {
+        player.y += CONFIG.playerSpeed * speedFactor;
+      }
+
+      if (left) {
+        player.x -= CONFIG.playerSpeed * speedFactor;
+      }
+
+      if (right) {
+        player.x += CONFIG.playerSpeed * speedFactor;
+      }
+
+      if (keysRef.current["z"] || mobileShootRef.current) {
+        shootNormal();
+      }
+
+      if (keysRef.current["x"]) {
+        shootStrong();
+      }
 
       player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
       player.y = Math.max(0, Math.min(canvas.height - player.h, player.y));
@@ -550,23 +614,25 @@ export default function JogoPage() {
       const delta = Math.min(32, time - lastTime);
       lastTime = time;
 
-      atualizar(delta);
-      desenharFundo();
+      const activeCanvas = gameCanvas as HTMLCanvasElement;
+const activeCtx = renderCtx as CanvasRenderingContext2D;
 
+atualizar(delta, activeCanvas);
+desenharFundo(activeCtx, activeCanvas);
       for (const shot of shotsRef.current) {
-        desenharTiro(shot);
+        desenharTiro(renderCtx, shot);
       }
 
       if (
         gameStateRef.current === "playing" ||
         gameStateRef.current === "paused"
       ) {
-        desenharPlayer(delta);
+        desenharPlayer(renderCtx, delta);
       }
 
-      desenharHUD();
+      desenharHUD(renderCtx);
 
-      animationFrame = requestAnimationFrame(loop);
+      animationFrame = window.requestAnimationFrame(loop);
     }
 
     function keyDown(e: KeyboardEvent) {
@@ -605,22 +671,22 @@ export default function JogoPage() {
     window.addEventListener("keydown", keyDown);
     window.addEventListener("keyup", keyUp);
 
-    animationFrame = requestAnimationFrame(loop);
+    animationFrame = window.requestAnimationFrame(loop);
 
     return () => {
-      cancelAnimationFrame(animationFrame);
+      window.cancelAnimationFrame(animationFrame);
       window.clearInterval(cooldownTimer);
       window.removeEventListener("keydown", keyDown);
       window.removeEventListener("keyup", keyUp);
     };
   }, []);
 
-  const gameStyle = {
+  const gameStyle: GameCssVars = {
     "--game-menu-bg": `url(${ASSETS.menuBackground.src})`,
     "--game-title-bg": `url(${ASSETS.titleBackground.src})`,
     "--game-title-font": CONFIG.fonts.title,
     "--game-ui-font": CONFIG.fonts.ui,
-  } as CSSProperties;
+  };
 
   return (
     <main className="game-fullscreen-page" style={gameStyle}>
