@@ -22,9 +22,16 @@ type SpriteKey =
   | "menuBackground"
   | "titleBackground"
   | "portal"
-  | "chocado";
+  | "chocado"
+  | "enemyRed"
+  | "enemyBlack"
+  | "enemyPurple"
+  | "enemyBullet"
+  | "asteroid"
+  | "asteroidFragment";
 
 type Shot = {
+  id: number;
   x: number;
   y: number;
   w: number;
@@ -32,6 +39,54 @@ type Shot = {
   speed: number;
   damage: number;
   type: "normal" | "strong";
+};
+
+type EnemyKind = "red" | "black" | "purple" | "asteroid" | "fragment";
+
+type Enemy = {
+  id: number;
+  kind: EnemyKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  vx: number;
+  vy: number;
+  hp: number;
+  maxHp: number;
+  age: number;
+  waveBaseY: number;
+  shotCooldown: number;
+  windUpMs: number;
+  isDashing: boolean;
+  rotation?: number;
+  rotationSpeed?: number;
+  sizeTier?: number;
+  fragmentCount?: number;
+  cracked?: boolean;
+};
+
+type EnemyProjectile = {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  vx: number;
+  vy: number;
+  damage: number;
+};
+
+type Particle = {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  life: number;
+  maxLife: number;
+  color: string;
 };
 
 type SpriteConfig = {
@@ -50,6 +105,8 @@ type Player = {
   vx: number;
   vy: number;
   tilt: number;
+  hp: number;
+  invincibleUntil: number;
   normalCooldown: number;
   strongReadyAt: number;
 };
@@ -78,25 +135,11 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     fps: 8,
   },
 
-  normalShot: {
-    src: "/game/shots/normal.png",
-  },
-
-  strongShot: {
-    src: "/game/shots/strong.png",
-  },
-
-  background: {
-    src: "/game/backgrounds/space.png",
-  },
-
-  menuBackground: {
-    src: "/game/backgrounds/menu-bg.png",
-  },
-
-  titleBackground: {
-    src: "/game/backgrounds/title-bg.png",
-  },
+  normalShot: { src: "/game/shots/normal.png" },
+  strongShot: { src: "/game/shots/strong.png" },
+  background: { src: "/game/backgrounds/space.png" },
+  menuBackground: { src: "/game/backgrounds/menu-bg.png" },
+  titleBackground: { src: "/game/backgrounds/title-bg.png" },
 
   portal: {
     src: "/game/enemies/portal-sheet.png",
@@ -113,6 +156,48 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     frames: 6,
     fps: 7,
   },
+
+  enemyRed: {
+    src: "/game/enemies/red-sheet.png",
+    frameWidth: 64,
+    frameHeight: 64,
+    frames: 4,
+    fps: 8,
+  },
+
+  enemyBlack: {
+    src: "/game/enemies/black-sheet.png",
+    frameWidth: 64,
+    frameHeight: 64,
+    frames: 4,
+    fps: 10,
+  },
+
+  enemyPurple: {
+    src: "/game/enemies/purple-sheet.png",
+    frameWidth: 64,
+    frameHeight: 64,
+    frames: 4,
+    fps: 8,
+  },
+
+  enemyBullet: { src: "/game/shots/enemy-bullet.png" },
+
+  asteroid: {
+    src: "/game/obstacles/asteroid-sheet.png",
+    frameWidth: 96,
+    frameHeight: 96,
+    frames: 4,
+    fps: 6,
+  },
+
+  asteroidFragment: {
+    src: "/game/obstacles/asteroid-fragment-sheet.png",
+    frameWidth: 48,
+    frameHeight: 48,
+    frames: 4,
+    fps: 8,
+  },
 };
 
 const CONFIG = {
@@ -121,6 +206,7 @@ const CONFIG = {
 
   useSprites: true,
   useSounds: true,
+  forceFullscreen: true,
 
   fonts: {
     title: "Pixel Game",
@@ -140,12 +226,15 @@ const CONFIG = {
     player: {
       width: 72,
       height: 72,
-      acceleration: 0.42,
-      friction: 0.86,
-      maxSpeedX: 7.2,
-      maxSpeedY: 6.6,
-      tiltMaxDeg: 16,
-      tiltResponse: 0.16,
+      maxHp: 5,
+      invincibleMs: 2000,
+      acceleration: 0.36,
+      friction: 0.94,
+      maxSpeedX: 7.5,
+      maxSpeedY: 6.9,
+      tiltMaxDeg: 18,
+      tiltResponse: 0.18,
+      stretchMax: 0.13,
       strongShotRecoil: 7.5,
       strongShotShake: 8,
       strongShotShakeMs: 180,
@@ -168,6 +257,55 @@ const CONFIG = {
         cooldownMs: 8000,
       },
     },
+
+    enemies: {
+      red: {
+        width: 64,
+        height: 64,
+        hp: 5,
+        speed: 2.3,
+        waveAmplitude: 42,
+        waveFrequency: 0.0045,
+        shootEveryMs: 1350,
+        bulletSpeed: 4.7,
+        edgePadding: 92,
+        pairGapX: 0,
+      },
+
+      black: {
+        width: 72,
+        height: 72,
+        hp: 8,
+        appearX: 1040,
+        windUpMs: 820,
+        dashSpeed: 10.5,
+      },
+
+      purple: {
+        width: 70,
+        height: 70,
+        hp: 5,
+        speed: 3.4,
+      },
+
+      asteroid: {
+        sizeTierMin: 3,
+        sizeTierMax: 12,
+        sizeUnit: 16,
+        hpPerTier: 0.5,
+        baseSpeed: 2.8,
+        speedLossPerTier: 0.08,
+        minSpeed: 1.35,
+        fragmentsPerTier: 0.55,
+        fragmentBaseSize: 24,
+        fragmentHp: 1,
+        fragmentSpeedMin: 2.2,
+        fragmentSpeedMax: 5.3,
+        rotationSpeedMin: 0.0015,
+        rotationSpeedMax: 0.006,
+        crackedFrame: 1,
+      },
+    },
   },
 
   sounds: {
@@ -181,11 +319,26 @@ const CONFIG = {
     normalShot: "/sounds/game-shot.mp3",
     strongShot: "/sounds/game-strong-shot.mp3",
     explosion: "/sounds/game-explosion.mp3",
+    enemyShot: "/sounds/enemy-shot.mp3",
     enemyHit: "/sounds/enemy-hit.mp3",
     enemyDeath: "/sounds/enemy-death.mp3",
     playerDamage: "/sounds/player-damage.mp3",
+    lowHpAlarm: "/sounds/low-hp-alarm.mp3",
+    asteroidBreak: "/sounds/asteroid-break.mp3",
     waveStart: "/sounds/wave-start.mp3",
     bossIntro: "/sounds/boss-intro.mp3",
+  },
+
+  uiImages: {
+    lifeFull: "/game/ui/life-full.png",
+    lifeEmpty: "/game/ui/life-empty.png",
+    mobileUp: "/game/ui/mobile-up.png",
+    mobileDown: "/game/ui/mobile-down.png",
+    mobileLeft: "/game/ui/mobile-left.png",
+    mobileRight: "/game/ui/mobile-right.png",
+    mobileShot: "/game/ui/mobile-shot.png",
+    mobileStrong: "/game/ui/mobile-strong.png",
+    mobilePause: "/game/ui/mobile-pause.png",
   },
 
   colors: {
@@ -194,6 +347,11 @@ const CONFIG = {
     playerDetail: "#dbeafe",
     normalShot: "#60a5fa",
     strongShot: "#facc15",
+    redEnemy: "#ef4444",
+    blackEnemy: "#111827",
+    purpleEnemy: "#a855f7",
+    asteroid: "#8b7355",
+    enemyBullet: "#ff6b6b",
   },
 };
 
@@ -344,9 +502,26 @@ function createInitialPlayer(): Player {
     vx: 0,
     vy: 0,
     tilt: 0,
+    hp: CONFIG.gameplay.player.maxHp,
+    invincibleUntil: 0,
     normalCooldown: 0,
     strongReadyAt: 0,
   };
+}
+
+function rectsCollide(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number }
+) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function rand(min: number, max: number) {
+  return Math.random() * (max - min) + min;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 export default function JogoPage() {
@@ -376,7 +551,12 @@ export default function JogoPage() {
   const strongCooldownRef = useRef(0);
   const [strongCooldown, setStrongCooldown] = useState(0);
 
+  const [playerHp, setPlayerHp] = useState(CONFIG.gameplay.player.maxHp);
+  const [isLowHp, setIsLowHp] = useState(false);
+
   const assetsRef = useRef(new AssetManager());
+  const enemyIdRef = useRef(0);
+  const shotIdRef = useRef(0);
 
   const playerRef = useRef<Player>(createInitialPlayer());
   const playerAnimRef = useRef(
@@ -390,11 +570,12 @@ export default function JogoPage() {
   );
 
   const shotsRef = useRef<Shot[]>([]);
+  const enemiesRef = useRef<Enemy[]>([]);
+  const enemyProjectilesRef = useRef<EnemyProjectile[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
 
-  const shakeRef = useRef({
-    intensity: 0,
-    endAt: 0,
-  });
+  const shakeRef = useRef({ intensity: 0, endAt: 0 });
+  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
 
   function setEstado(estado: GameState) {
     gameStateRef.current = estado;
@@ -436,34 +617,98 @@ export default function JogoPage() {
     audio.play().catch(() => {});
   }
 
-  function iniciarJogo() {
-    playerRef.current = createInitialPlayer();
+  async function solicitarFullscreen() {
+    if (!CONFIG.forceFullscreen) {
+      return;
+    }
+
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+      // Alguns navegadores bloqueiam fullscreen fora de gesto do usuário.
+    }
+  }
+
+  function limparCombate() {
     shotsRef.current = [];
+    enemiesRef.current = [];
+    enemyProjectilesRef.current = [];
+    particlesRef.current = [];
+    shakeRef.current = { intensity: 0, endAt: 0 };
+  }
+
+  function iniciarJogo() {
+    solicitarFullscreen();
+
+    const player = createInitialPlayer();
+    playerRef.current = player;
+
+    limparCombate();
+
     strongCooldownRef.current = 0;
     setStrongCooldown(0);
+    setPlayerHp(player.hp);
+    setIsLowHp(false);
+
     setEstado("playing");
+  }
+
+  function receberDano(dano: number, forcarHpUm = false) {
+    const player = playerRef.current;
+    const now = performance.now();
+
+    if (now < player.invincibleUntil) {
+      return;
+    }
+
+    tocarSom(CONFIG.sounds.playerDamage, 0.5);
+
+    if (forcarHpUm) {
+      player.hp = Math.max(1, Math.min(player.hp, 1));
+    } else {
+      player.hp = Math.max(0, player.hp - dano);
+    }
+
+    player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+    setPlayerHp(player.hp);
+    setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+
+    shakeRef.current = { intensity: 5, endAt: now + 160 };
+
+    if (player.hp <= 0) {
+      player.hp = CONFIG.gameplay.player.maxHp;
+      player.x = 100;
+      player.y = 320;
+      player.vx = 0;
+      player.vy = 0;
+      player.invincibleUntil = now + 2500;
+      setPlayerHp(player.hp);
+      setIsLowHp(false);
+      setEstado("paused");
+    }
   }
 
   function pausarOuVoltar() {
     if (gameStateRef.current === "playing") {
       tocarSom(CONFIG.sounds.pause, 0.45);
       setEstado("paused");
+      setIsLowHp(false);
       return;
     }
 
     if (gameStateRef.current === "paused") {
       tocarSom(CONFIG.sounds.menuConfirm, 0.4);
       setEstado("playing");
+      setIsLowHp(playerRef.current.hp <= 1);
     }
   }
 
   function voltarAoMenuPrincipal() {
     tocarSom(CONFIG.sounds.menuBack, 0.45);
-
-    shotsRef.current = [];
-    strongCooldownRef.current = 0;
-    setStrongCooldown(0);
-
+    limparCombate();
+    setIsLowHp(false);
     setEstado("mainMenu");
     setIndiceMenu(0);
     setEscurecendo(false);
@@ -482,6 +727,8 @@ export default function JogoPage() {
   }
 
   function abrirMenuPrincipal() {
+    solicitarFullscreen();
+
     if (gameStateRef.current !== "title" || titleLeavingRef.current) {
       return;
     }
@@ -502,11 +749,11 @@ export default function JogoPage() {
 
   function voltarParaTitulo() {
     tocarSom(CONFIG.sounds.menuBack, 0.45);
-
     setMenuAberto(false);
     setEscurecendo(true);
 
     window.setTimeout(() => {
+      limparCombate();
       setEstado("title");
       setIndiceMenu(0);
       setSaindoTitulo(false);
@@ -516,7 +763,6 @@ export default function JogoPage() {
 
   function executarEscolhaDeModo(mode: GameMode) {
     tocarSom(CONFIG.sounds.menuConfirm, 0.52);
-
     setMenuAberto(false);
     setEscurecendo(true);
 
@@ -562,8 +808,243 @@ export default function JogoPage() {
     setEstado("tutorialChoice");
   }
 
+  function spawnEnemy(kind: EnemyKind, y?: number) {
+    const id = enemyIdRef.current++;
+    const spawnY = y ?? rand(80, CONFIG.canvasHeight - 140);
+
+    if (kind === "red") {
+      const cfg = CONFIG.gameplay.enemies.red;
+      const topY = cfg.edgePadding;
+      const bottomY = CONFIG.canvasHeight - cfg.edgePadding - cfg.height;
+      const sharedCooldown = cfg.shootEveryMs;
+
+      const createRed = (baseY: number, offsetX: number): Enemy => ({
+        id: enemyIdRef.current++,
+        kind: "red",
+        x: CONFIG.canvasWidth + 80 + offsetX,
+        y: baseY,
+        w: cfg.width,
+        h: cfg.height,
+        vx: -cfg.speed,
+        vy: 0,
+        hp: cfg.hp,
+        maxHp: cfg.hp,
+        age: 0,
+        waveBaseY: baseY,
+        shotCooldown: sharedCooldown,
+        windUpMs: 0,
+        isDashing: false,
+      });
+
+      enemiesRef.current.push(createRed(topY, 0));
+      enemiesRef.current.push(createRed(bottomY, cfg.pairGapX));
+      return;
+    }
+    if (kind === "black") {
+      const cfg = CONFIG.gameplay.enemies.black;
+      const player = playerRef.current;
+
+      enemiesRef.current.push({
+        id,
+        kind: "black",
+        x: cfg.appearX,
+        y: spawnY,
+        w: cfg.width,
+        h: cfg.height,
+        vx: 0,
+        vy: 0,
+        hp: cfg.hp,
+        maxHp: cfg.hp,
+        age: 0,
+        waveBaseY: spawnY,
+        shotCooldown: 0,
+        windUpMs: cfg.windUpMs,
+        isDashing: false,
+      });
+
+      const last = enemiesRef.current[enemiesRef.current.length - 1];
+      const dx = player.x - last.x;
+      const dy = player.y - last.y;
+      const length = Math.max(1, Math.hypot(dx, dy));
+      last.vx = (dx / length) * cfg.dashSpeed;
+      last.vy = (dy / length) * cfg.dashSpeed;
+      return;
+    }
+
+    if (kind === "purple") {
+      const cfg = CONFIG.gameplay.enemies.purple;
+
+      enemiesRef.current.push({
+        id,
+        kind: "purple",
+        x: CONFIG.canvasWidth + 70,
+        y: spawnY,
+        w: cfg.width,
+        h: cfg.height,
+        vx: -cfg.speed,
+        vy: 0,
+        hp: cfg.hp,
+        maxHp: cfg.hp,
+        age: 0,
+        waveBaseY: spawnY,
+        shotCooldown: 0,
+        windUpMs: 0,
+        isDashing: false,
+      });
+      return;
+    }
+
+    if (kind === "asteroid") {
+      const cfg = CONFIG.gameplay.enemies.asteroid;
+      const sizeTier = Math.floor(rand(cfg.sizeTierMin, cfg.sizeTierMax + 1));
+      const size = sizeTier * cfg.sizeUnit;
+      const hp = Math.max(2, Math.ceil(sizeTier * cfg.hpPerTier));
+      const speed = Math.max(
+        cfg.minSpeed,
+        cfg.baseSpeed - sizeTier * cfg.speedLossPerTier
+      );
+      const fragmentCount = Math.max(2, Math.ceil(sizeTier * cfg.fragmentsPerTier));
+      const rotationDirection = Math.random() > 0.5 ? 1 : -1;
+
+      enemiesRef.current.push({
+        id,
+        kind: "asteroid",
+        x: CONFIG.canvasWidth + size,
+        y: clamp(spawnY, 40, CONFIG.canvasHeight - size - 40),
+        w: size,
+        h: size,
+        vx: -speed,
+        vy: rand(-0.22, 0.22),
+        hp,
+        maxHp: hp,
+        age: 0,
+        waveBaseY: spawnY,
+        shotCooldown: 0,
+        windUpMs: 0,
+        isDashing: false,
+        rotation: rand(0, Math.PI * 2),
+        rotationSpeed:
+          rotationDirection *
+          rand(cfg.rotationSpeedMin, cfg.rotationSpeedMax),
+        sizeTier,
+        fragmentCount,
+        cracked: false,
+      });
+    }
+  }
+
+  function spawnAsteroidFragments(enemy: Enemy) {
+    const cfg = CONFIG.gameplay.enemies.asteroid;
+    const fragmentCount = enemy.fragmentCount ?? 4;
+    const tier = enemy.sizeTier ?? 6;
+    const fragmentSize = clamp(cfg.fragmentBaseSize + tier * 2, 24, 52);
+
+    tocarSom(CONFIG.sounds.asteroidBreak, 0.55);
+    criarExplosao(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#d6b27a", 18);
+
+    for (let i = 0; i < fragmentCount; i++) {
+      const angle = rand(Math.PI * 0.65, Math.PI * 1.35);
+      const speed = rand(cfg.fragmentSpeedMin, cfg.fragmentSpeedMax);
+
+      enemiesRef.current.push({
+        id: enemyIdRef.current++,
+        kind: "fragment",
+        x: enemy.x + enemy.w / 2 - fragmentSize / 2,
+        y: enemy.y + enemy.h / 2 - fragmentSize / 2,
+        w: fragmentSize,
+        h: fragmentSize,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        hp: cfg.fragmentHp,
+        maxHp: cfg.fragmentHp,
+        age: 0,
+        waveBaseY: enemy.y,
+        shotCooldown: 0,
+        windUpMs: 0,
+        isDashing: true,
+        rotation: rand(0, Math.PI * 2),
+        rotationSpeed: rand(-0.012, 0.012),
+        sizeTier: Math.max(1, Math.floor(tier / 3)),
+        fragmentCount: 0,
+        cracked: false,
+      });
+    }
+  }
+
+  function criarParticulasHit(x: number, y: number, color = "#ffe18c", amount = 7) {
+    for (let i = 0; i < amount; i++) {
+      const angle = rand(0, Math.PI * 2);
+      const speed = rand(0.8, 3.4);
+
+      particlesRef.current.push({
+        id: enemyIdRef.current++,
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: rand(3, 8),
+        life: rand(180, 320),
+        maxLife: 320,
+        color,
+      });
+    }
+  }
+
+  function criarExplosao(x: number, y: number, color = "#ffcf7a", amount = 22) {
+    for (let i = 0; i < amount; i++) {
+      const angle = rand(0, Math.PI * 2);
+      const speed = rand(1.6, 6.4);
+
+      particlesRef.current.push({
+        id: enemyIdRef.current++,
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: rand(4, 12),
+        life: rand(260, 520),
+        maxLife: 520,
+        color,
+      });
+    }
+  }
+
   useEffect(() => {
     assetsRef.current.loadAll();
+  }, []);
+
+  useEffect(() => {
+    const shouldPlayAlarm = playerHp <= 1 && gameState === "playing";
+
+    if (shouldPlayAlarm) {
+      if (!alarmAudioRef.current) {
+        const audio = new Audio(CONFIG.sounds.lowHpAlarm);
+        audio.loop = true;
+        audio.volume = 0.42;
+        alarmAudioRef.current = audio;
+      }
+
+      alarmAudioRef.current.play().catch(() => {});
+    } else if (alarmAudioRef.current) {
+      alarmAudioRef.current.pause();
+      alarmAudioRef.current.currentTime = 0;
+    }
+  }, [playerHp, gameState]);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden && gameStateRef.current === "playing") {
+        tocarSom(CONFIG.sounds.pause, 0.35);
+        setEstado("paused");
+        setIsLowHp(false);
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -596,6 +1077,7 @@ export default function JogoPage() {
       }
 
       shotsRef.current.push({
+        id: shotIdRef.current++,
         x: player.x + player.w - 2,
         y: player.y + player.h / 2 - CONFIG.gameplay.shots.normal.height / 2,
         w: CONFIG.gameplay.shots.normal.width,
@@ -618,6 +1100,7 @@ export default function JogoPage() {
       }
 
       shotsRef.current.push({
+        id: shotIdRef.current++,
         x: player.x + player.w - 2,
         y: player.y + player.h / 2 - CONFIG.gameplay.shots.strong.height / 2,
         w: CONFIG.gameplay.shots.strong.width,
@@ -630,7 +1113,6 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.strongShot);
 
       player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
-
       player.vx -= CONFIG.gameplay.player.strongShotRecoil;
 
       shakeRef.current = {
@@ -681,15 +1163,28 @@ export default function JogoPage() {
 
     function desenharPlayer(ctx: CanvasRenderingContext2D, delta: number) {
       const player = playerRef.current;
+      const now = performance.now();
+      const invincible = now < player.invincibleUntil;
+
+      if (invincible && Math.floor(now / 100) % 2 === 0) {
+        return;
+      }
+
       const anim = playerAnimRef.current;
       const playerAsset = assetsRef.current.get("player");
       const playerConfig = ASSETS.player;
+      const speedXRatio = Math.abs(player.vx) / CONFIG.gameplay.player.maxSpeedX;
+      const speedYRatio = Math.abs(player.vy) / CONFIG.gameplay.player.maxSpeedY;
+      const stretchMax = CONFIG.gameplay.player.stretchMax;
+      const stretchX = 1 + speedXRatio * stretchMax - speedYRatio * 0.035;
+      const stretchY = 1 + speedYRatio * stretchMax - speedXRatio * 0.035;
 
       anim.update(delta);
 
       ctx.save();
       ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
       ctx.rotate((player.tilt * Math.PI) / 180);
+      ctx.scale(stretchX, stretchY);
 
       if (
         CONFIG.useSprites &&
@@ -738,32 +1233,315 @@ export default function JogoPage() {
       ctx.fillRect(shot.x, shot.y, shot.w, shot.h);
     }
 
+    function getEnemySpriteKey(kind: EnemyKind): SpriteKey {
+      if (kind === "red") return "enemyRed";
+      if (kind === "black") return "enemyBlack";
+      if (kind === "purple") return "enemyPurple";
+      if (kind === "fragment") return "asteroidFragment";
+      return "asteroid";
+    }
+
+    function desenharEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy) {
+      const key = getEnemySpriteKey(enemy.kind);
+      let desenhou = false;
+
+      if (enemy.kind === "asteroid" || enemy.kind === "fragment") {
+        const asset = assetsRef.current.get(key);
+        const config = ASSETS[key];
+        const rotation = enemy.rotation ?? 0;
+        const frame =
+          enemy.kind === "asteroid" && enemy.cracked
+            ? CONFIG.gameplay.enemies.asteroid.crackedFrame
+            : 0;
+
+        ctx.save();
+        ctx.translate(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+        ctx.rotate(rotation);
+
+        if (
+          CONFIG.useSprites &&
+          asset &&
+          config.frameWidth &&
+          config.frameHeight
+        ) {
+          ctx.drawImage(
+            asset,
+            frame * config.frameWidth,
+            0,
+            config.frameWidth,
+            config.frameHeight,
+            -enemy.w / 2,
+            -enemy.h / 2,
+            enemy.w,
+            enemy.h
+          );
+          desenhou = true;
+        } else {
+          ctx.fillStyle = enemy.kind === "fragment" ? "#b79a6b" : CONFIG.colors.asteroid;
+          ctx.fillRect(-enemy.w / 2, -enemy.h / 2, enemy.w, enemy.h);
+
+          if (enemy.cracked) {
+            ctx.strokeStyle = "#2b160f";
+            ctx.lineWidth = Math.max(2, enemy.w * 0.035);
+            ctx.beginPath();
+            ctx.moveTo(-enemy.w * 0.25, -enemy.h * 0.3);
+            ctx.lineTo(enemy.w * 0.05, -enemy.h * 0.05);
+            ctx.lineTo(-enemy.w * 0.1, enemy.h * 0.28);
+            ctx.stroke();
+          }
+
+          desenhou = true;
+        }
+
+        ctx.restore();
+      } else {
+        const sprite = new Sprite(key, enemy.x, enemy.y, enemy.w, enemy.h);
+        desenhou = sprite.draw(ctx, assetsRef.current);
+      }
+
+      if (!desenhou) {
+        if (enemy.kind === "red") ctx.fillStyle = CONFIG.colors.redEnemy;
+        else if (enemy.kind === "black") ctx.fillStyle = CONFIG.colors.blackEnemy;
+        else if (enemy.kind === "purple") ctx.fillStyle = CONFIG.colors.purpleEnemy;
+        else ctx.fillStyle = CONFIG.colors.asteroid;
+
+        ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      }
+
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.72)";
+      ctx.fillRect(enemy.x, enemy.y - 10, enemy.w, 5);
+      ctx.fillStyle = "#f8e7b0";
+      ctx.fillRect(enemy.x, enemy.y - 10, enemy.w * (enemy.hp / enemy.maxHp), 5);
+      ctx.restore();
+
+      if (enemy.kind === "black" && enemy.age < enemy.windUpMs) {
+        ctx.save();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(enemy.x - 8, enemy.y - 8, enemy.w + 16, enemy.h + 16);
+        ctx.restore();
+      }
+    }
+
+    function desenharEnemyProjectile(ctx: CanvasRenderingContext2D, bullet: EnemyProjectile) {
+      const sprite = new Sprite("enemyBullet", bullet.x, bullet.y, bullet.w, bullet.h);
+      const desenhou = sprite.draw(ctx, assetsRef.current);
+
+      if (!desenhou) {
+        ctx.fillStyle = CONFIG.colors.enemyBullet;
+        ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+      }
+    }
+
+    function atualizarParticulas(delta: number) {
+      const speedFactor = delta / 16.67;
+
+      particlesRef.current = particlesRef.current
+        .map((particle) => ({
+          ...particle,
+          x: particle.x + particle.vx * speedFactor,
+          y: particle.y + particle.vy * speedFactor,
+          vy: particle.vy + 0.035 * speedFactor,
+          life: particle.life - delta,
+        }))
+        .filter((particle) => particle.life > 0);
+    }
+
+    function desenharParticulas(ctx: CanvasRenderingContext2D) {
+      ctx.save();
+
+      for (const particle of particlesRef.current) {
+        const alpha = clamp(particle.life / particle.maxLife, 0, 1);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(
+          particle.x - particle.size / 2,
+          particle.y - particle.size / 2,
+          particle.size,
+          particle.size
+        );
+      }
+
+      ctx.restore();
+    }
+
     function desenharHUD(ctx: CanvasRenderingContext2D) {
       if (gameStateRef.current !== "playing") {
         return;
       }
 
       ctx.save();
-
       ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
-      ctx.fillRect(18, 18, 340, 112);
-
+      ctx.fillRect(18, 82, 340, 112);
       ctx.fillStyle = "white";
       ctx.font = `24px ${CONFIG.fonts.ui}`;
-
-      ctx.fillText("Z: tiro normal", 34, 52);
-
+      ctx.fillText("Z: tiro normal", 34, 116);
       ctx.fillText(
         strongCooldownRef.current > 0
           ? `X: forte ${strongCooldownRef.current}s`
           : "X: forte pronto",
         34,
-        84
+        148
       );
-
-      ctx.fillText("P/ESC: pausar", 34, 116);
-
+      ctx.fillText("8/9/0/-: testes", 34, 180);
       ctx.restore();
+    }
+
+    function atualizarInimigos(delta: number, canvas: HTMLCanvasElement) {
+      if (gameStateRef.current !== "playing") {
+        return;
+      }
+
+      const speedFactor = delta / 16.67;
+      const redCfg = CONFIG.gameplay.enemies.red;
+
+      enemiesRef.current = enemiesRef.current
+        .map((enemy) => {
+          const updated = { ...enemy, age: enemy.age + delta };
+
+          if (updated.kind === "red") {
+            updated.x += updated.vx * speedFactor;
+            updated.y =
+              updated.waveBaseY +
+              Math.sin(updated.age * redCfg.waveFrequency) * redCfg.waveAmplitude;
+            updated.y = clamp(updated.y, 22, canvas.height - updated.h - 22);
+            updated.shotCooldown -= delta;
+
+            if (updated.shotCooldown <= 0) {
+              updated.shotCooldown = redCfg.shootEveryMs;
+              enemyProjectilesRef.current.push({
+                id: enemyIdRef.current++,
+                x: updated.x - 18,
+                y: updated.y + updated.h / 2 - 7,
+                w: 18,
+                h: 14,
+                vx: -redCfg.bulletSpeed,
+                vy: 0,
+                damage: 1,
+              });
+              tocarSom(CONFIG.sounds.enemyShot, 0.26);
+            }
+          }
+
+          if (updated.kind === "black") {
+            if (updated.age >= updated.windUpMs) {
+              updated.isDashing = true;
+              updated.x += updated.vx * speedFactor;
+              updated.y += updated.vy * speedFactor;
+            }
+          }
+
+          if (updated.kind === "purple" || updated.kind === "asteroid") {
+            updated.x += updated.vx * speedFactor;
+            updated.y += updated.vy * speedFactor;
+
+            if (updated.kind === "asteroid") {
+              updated.rotation =
+                (updated.rotation ?? 0) +
+                (updated.rotationSpeed ?? 0) * delta;
+            }
+          }
+
+          if (updated.kind === "fragment") {
+            updated.x += updated.vx * speedFactor;
+            updated.y += updated.vy * speedFactor;
+            updated.vy += 0.015 * speedFactor;
+            updated.rotation =
+              (updated.rotation ?? 0) +
+              (updated.rotationSpeed ?? 0) * delta;
+          }
+
+          return updated;
+        })
+        .filter(
+          (enemy) =>
+            enemy.x > -180 &&
+            enemy.x < canvas.width + 220 &&
+            enemy.y > -180 &&
+            enemy.y < canvas.height + 180 &&
+            enemy.hp > 0
+        );
+
+      enemyProjectilesRef.current = enemyProjectilesRef.current
+        .map((bullet) => ({
+          ...bullet,
+          x: bullet.x + bullet.vx * speedFactor,
+          y: bullet.y + bullet.vy * speedFactor,
+        }))
+        .filter((bullet) => bullet.x > -80 && bullet.x < canvas.width + 120);
+    }
+
+    function resolverColisoes() {
+      const player = playerRef.current;
+      const enemiesToRemove = new Set<number>();
+      const shotsToRemove = new Set<number>();
+      const projectilesToRemove = new Set<number>();
+
+      for (const shot of shotsRef.current) {
+        for (const enemy of enemiesRef.current) {
+          if (enemiesToRemove.has(enemy.id)) continue;
+
+          if (rectsCollide(shot, enemy)) {
+            enemy.hp -= shot.damage;
+            shotsToRemove.add(shot.id);
+            enemy.cracked = enemy.kind === "asteroid" ? true : enemy.cracked;
+            criarParticulasHit(shot.x + shot.w / 2, shot.y + shot.h / 2);
+            tocarSom(CONFIG.sounds.enemyHit, 0.25);
+
+            if (enemy.hp <= 0) {
+              enemiesToRemove.add(enemy.id);
+
+              if (enemy.kind === "asteroid") {
+                spawnAsteroidFragments(enemy);
+              } else {
+                criarExplosao(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#ffe18c", 16);
+                tocarSom(CONFIG.sounds.enemyDeath, 0.38);
+              }
+            }
+
+            break;
+          }
+        }
+      }
+
+      for (const enemy of enemiesRef.current) {
+        if (enemiesToRemove.has(enemy.id)) continue;
+
+        if (rectsCollide(player, enemy)) {
+          enemiesToRemove.add(enemy.id);
+
+          if (enemy.kind === "asteroid") {
+            receberDano(0, true);
+            spawnAsteroidFragments(enemy);
+          } else {
+            criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 10);
+            receberDano(1);
+          }
+        }
+      }
+
+      for (const bullet of enemyProjectilesRef.current) {
+        if (rectsCollide(player, bullet)) {
+          projectilesToRemove.add(bullet.id);
+          criarParticulasHit(bullet.x + bullet.w / 2, bullet.y + bullet.h / 2, "#ff6b6b", 8);
+          receberDano(bullet.damage);
+        }
+      }
+
+      if (shotsToRemove.size > 0) {
+        shotsRef.current = shotsRef.current.filter((shot) => !shotsToRemove.has(shot.id));
+      }
+
+      if (enemiesToRemove.size > 0) {
+        enemiesRef.current = enemiesRef.current.filter((enemy) => !enemiesToRemove.has(enemy.id));
+      }
+
+      if (projectilesToRemove.size > 0) {
+        enemyProjectilesRef.current = enemyProjectilesRef.current.filter(
+          (bullet) => !projectilesToRemove.has(bullet.id)
+        );
+      }
     }
 
     function atualizar(delta: number, canvas: HTMLCanvasElement) {
@@ -783,36 +1561,22 @@ export default function JogoPage() {
         (keysRef.current["arrowup"] || keysRef.current["w"] ? 1 : 0);
 
       if (inputX !== 0) {
-        player.vx +=
-          inputX * CONFIG.gameplay.player.acceleration * speedFactor;
+        player.vx += inputX * CONFIG.gameplay.player.acceleration * speedFactor;
       } else {
         player.vx *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
       }
 
       if (inputY !== 0) {
-        player.vy +=
-          inputY * CONFIG.gameplay.player.acceleration * speedFactor;
+        player.vy += inputY * CONFIG.gameplay.player.acceleration * speedFactor;
       } else {
         player.vy *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
       }
 
-      player.vx = Math.max(
-        -CONFIG.gameplay.player.maxSpeedX,
-        Math.min(CONFIG.gameplay.player.maxSpeedX, player.vx)
-      );
+      player.vx = clamp(player.vx, -CONFIG.gameplay.player.maxSpeedX, CONFIG.gameplay.player.maxSpeedX);
+      player.vy = clamp(player.vy, -CONFIG.gameplay.player.maxSpeedY, CONFIG.gameplay.player.maxSpeedY);
 
-      player.vy = Math.max(
-        -CONFIG.gameplay.player.maxSpeedY,
-        Math.min(CONFIG.gameplay.player.maxSpeedY, player.vy)
-      );
-
-      if (Math.abs(player.vx) < 0.02) {
-        player.vx = 0;
-      }
-
-      if (Math.abs(player.vy) < 0.02) {
-        player.vy = 0;
-      }
+      if (Math.abs(player.vx) < 0.02) player.vx = 0;
+      if (Math.abs(player.vy) < 0.02) player.vy = 0;
 
       player.x += player.vx * speedFactor;
       player.y += player.vy * speedFactor;
@@ -845,9 +1609,13 @@ export default function JogoPage() {
         player.vy = 0;
       }
 
-      const targetTilt =
-        (player.vx / CONFIG.gameplay.player.maxSpeedX) *
+      const verticalTilt =
+        (player.vy / CONFIG.gameplay.player.maxSpeedY) *
         CONFIG.gameplay.player.tiltMaxDeg;
+      const horizontalAssist =
+        (player.vx / CONFIG.gameplay.player.maxSpeedX) *
+        (CONFIG.gameplay.player.tiltMaxDeg * 0.18);
+      const targetTilt = verticalTilt + horizontalAssist;
 
       player.tilt +=
         (targetTilt - player.tilt) * CONFIG.gameplay.player.tiltResponse;
@@ -857,11 +1625,13 @@ export default function JogoPage() {
       }
 
       shotsRef.current = shotsRef.current
-        .map((shot) => ({
-          ...shot,
-          x: shot.x + shot.speed * speedFactor,
-        }))
+        .map((shot) => ({ ...shot, x: shot.x + shot.speed * speedFactor }))
         .filter((shot) => shot.x < canvas.width + 160);
+
+      atualizarInimigos(delta, canvas);
+      resolverColisoes();
+      atualizarParticulas(delta);
+      setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
     }
 
     function loop(time: number) {
@@ -883,19 +1653,16 @@ export default function JogoPage() {
 
       desenharFundo(renderCtx, renderCanvas);
 
-      for (const shot of shotsRef.current) {
-        desenharTiro(renderCtx, shot);
-      }
+      for (const shot of shotsRef.current) desenharTiro(renderCtx, shot);
+      for (const enemy of enemiesRef.current) desenharEnemy(renderCtx, enemy);
+      for (const bullet of enemyProjectilesRef.current) desenharEnemyProjectile(renderCtx, bullet);
+      desenharParticulas(renderCtx);
 
-      if (
-        gameStateRef.current === "playing" ||
-        gameStateRef.current === "paused"
-      ) {
+      if (gameStateRef.current === "playing" || gameStateRef.current === "paused") {
         desenharPlayer(renderCtx, delta);
       }
 
       renderCtx.restore();
-
       desenharHUD(renderCtx);
 
       animationFrame = window.requestAnimationFrame(loop);
@@ -905,16 +1672,11 @@ export default function JogoPage() {
       const key = e.key.toLowerCase();
       keysRef.current[key] = true;
 
-      if (
-        ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
-      ) {
+      if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
         e.preventDefault();
       }
 
-      if (
-        gameStateRef.current === "title" &&
-        (key === "enter" || key === " ")
-      ) {
+      if (gameStateRef.current === "title" && (key === "enter" || key === " ")) {
         abrirMenuPrincipal();
         return;
       }
@@ -927,11 +1689,7 @@ export default function JogoPage() {
 
         if (key === "arrowup" || key === "w") {
           tocarSom(CONFIG.sounds.menuMove, 0.32);
-
-          setIndiceMenu(
-            (menuIndexRef.current - 1 + MAIN_MENU_OPTIONS.length) %
-              MAIN_MENU_OPTIONS.length
-          );
+          setIndiceMenu((menuIndexRef.current - 1 + MAIN_MENU_OPTIONS.length) % MAIN_MENU_OPTIONS.length);
           return;
         }
 
@@ -947,12 +1705,16 @@ export default function JogoPage() {
         }
       }
 
-      if (
-        gameStateRef.current === "storyCutscene" &&
-        (key === "enter" || key === " ")
-      ) {
+      if (gameStateRef.current === "storyCutscene" && (key === "enter" || key === " ")) {
         avancarHistoria();
         return;
+      }
+
+      if (gameStateRef.current === "playing") {
+        if (key === "8") spawnEnemy("red");
+        if (key === "9") spawnEnemy("black");
+        if (key === "0") spawnEnemy("purple");
+        if (key === "-") spawnEnemy("asteroid");
       }
 
       if (key === "p" || key === "escape") {
@@ -977,22 +1739,6 @@ export default function JogoPage() {
     };
   }, []);
 
-
-  useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.hidden && gameStateRef.current === "playing") {
-        tocarSom(CONFIG.sounds.pause, 0.35);
-        setEstado("paused");
-      }
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, []);
-
   const gameStyle: GameCssVars = {
     "--game-menu-bg": `url(${ASSETS.menuBackground.src})`,
     "--game-title-bg": `url(${ASSETS.titleBackground.src})`,
@@ -1002,21 +1748,32 @@ export default function JogoPage() {
     "--game-ui-font": CONFIG.fonts.ui,
   };
 
+  const lifeSlots = Array.from({ length: CONFIG.gameplay.player.maxHp });
+
   return (
     <main className="game-fullscreen-page" style={gameStyle}>
       <canvas ref={canvasRef} className="game-fullscreen-canvas" />
 
-      <div
-        className={`game-title-bg-transition ${titleLeaving ? "show" : ""}`}
-      />
-
+      <div className={`game-title-bg-transition ${titleLeaving ? "show" : ""}`} />
       <div className={`game-screen-fade ${screenFade ? "show" : ""}`} />
+
+      {isLowHp && gameState === "playing" && <div className="game-low-hp-vignette" />}
+
+      {(gameState === "playing" || gameState === "paused") && (
+        <div className="game-life-hud">
+          {lifeSlots.map((_, index) => (
+            <img
+              key={index}
+              src={index < playerHp ? CONFIG.uiImages.lifeFull : CONFIG.uiImages.lifeEmpty}
+              alt={index < playerHp ? "vida" : "vida perdida"}
+            />
+          ))}
+        </div>
+      )}
 
       {gameState === "title" && (
         <section
-          className={`game-screen game-title-screen ${
-            titleLeaving ? "is-leaving" : ""
-          }`}
+          className={`game-screen game-title-screen ${titleLeaving ? "is-leaving" : ""}`}
           onClick={abrirMenuPrincipal}
         >
           <div className="game-title-content">
@@ -1028,11 +1785,8 @@ export default function JogoPage() {
 
       {gameState === "mainMenu" && (
         <section className="game-screen game-main-menu-screen">
-          <aside
-            className={`game-retro-panel ${menuOpen ? "is-open" : "is-closed"}`}
-          >
+          <aside className={`game-retro-panel ${menuOpen ? "is-open" : "is-closed"}`}>
             <p className="game-panel-label">MENU PRINCIPAL</p>
-            <p className="game-menu-help">ESC/Q: voltar</p>
 
             <div className="game-retro-menu-list">
               {MAIN_MENU_OPTIONS.map((option, index) => {
@@ -1042,23 +1796,15 @@ export default function JogoPage() {
                   <button
                     key={option.label}
                     type="button"
-                    className={`game-menu-option ${
-                      selected ? "is-selected" : ""
-                    } ${option.disabled ? "is-disabled" : ""}`}
+                    className={`game-menu-option ${selected ? "is-selected" : ""} ${option.disabled ? "is-disabled" : ""}`}
                     onMouseEnter={() => {
-                      if (menuIndex !== index) {
-                        tocarSom(CONFIG.sounds.menuMove, 0.24);
-                      }
-
+                      if (menuIndex !== index) tocarSom(CONFIG.sounds.menuMove, 0.24);
                       setIndiceMenu(index);
                     }}
                     onFocus={() => setIndiceMenu(index)}
                     onClick={() => {
-                      if (!option.disabled && option.mode) {
-                        escolherModo(option.mode);
-                      } else {
-                        tocarSom(CONFIG.sounds.menuBack, 0.3);
-                      }
+                      if (!option.disabled && option.mode) escolherModo(option.mode);
+                      else tocarSom(CONFIG.sounds.menuBack, 0.3);
                     }}
                     disabled={option.disabled}
                   >
@@ -1067,6 +1813,8 @@ export default function JogoPage() {
                 );
               })}
             </div>
+
+            <p className="game-menu-help">ESC/Q: voltar</p>
           </aside>
 
           <div className="game-menu-logo">
@@ -1090,9 +1838,7 @@ export default function JogoPage() {
               <p>{STORY_FRAMES[storyIndex].text}</p>
 
               <button onClick={avancarHistoria}>
-                {storyIndex < STORY_FRAMES.length - 1
-                  ? "Avançar"
-                  : "Continuar"}
+                {storyIndex < STORY_FRAMES.length - 1 ? "Avançar" : "Continuar"}
               </button>
             </div>
           </div>
@@ -1105,19 +1851,11 @@ export default function JogoPage() {
             <p className="game-panel-label">TUTORIAL</p>
 
             <div className="game-retro-menu-list">
-              <button
-                type="button"
-                className="game-menu-option is-selected"
-                onClick={() => setEstado("tutorial")}
-              >
+              <button type="button" className="game-menu-option is-selected" onClick={() => setEstado("tutorial")}>
                 FAZER TUTORIAL
               </button>
 
-              <button
-                type="button"
-                className="game-menu-option"
-                onClick={iniciarJogo}
-              >
+              <button type="button" className="game-menu-option" onClick={iniciarJogo}>
                 PULAR E COMEÇAR
               </button>
             </div>
@@ -1129,11 +1867,11 @@ export default function JogoPage() {
         <section className="game-screen game-tutorial-screen">
           <div className="game-tutorial-card">
             <h2>CONTROLES</h2>
-
             <p>WASD ou Setas: mover</p>
             <p>Z: tiro normal</p>
             <p>X: tiro forte</p>
             <p>P ou ESC: pausar</p>
+            <p>Teste: 8 vermelho • 9 preto • 0 roxo • - asteroide</p>
 
             <button onClick={iniciarJogo}>COMEÇAR MISSÃO</button>
           </div>
@@ -1145,7 +1883,6 @@ export default function JogoPage() {
           <div className="game-pause-card">
             <p className="game-panel-label">JOGO PAUSADO</p>
             <h2>PAUSADO</h2>
-
             <button onClick={pausarOuVoltar}>CONTINUAR</button>
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
@@ -1154,28 +1891,58 @@ export default function JogoPage() {
 
       {gameState === "playing" && (
         <div className="game-mobile-controls">
-          <button
-            onTouchStart={() => {
-              mobileShootRef.current = true;
-            }}
-            onTouchEnd={() => {
-              mobileShootRef.current = false;
-            }}
-            onMouseDown={() => {
-              mobileShootRef.current = true;
-            }}
-            onMouseUp={() => {
-              mobileShootRef.current = false;
-            }}
-          >
-            🔫
-          </button>
+          <div className="game-mobile-dpad">
+            <button
+              className="mobile-up"
+              onPointerDown={() => (keysRef.current["arrowup"] = true)}
+              onPointerUp={() => (keysRef.current["arrowup"] = false)}
+              onPointerCancel={() => (keysRef.current["arrowup"] = false)}
+            >
+              <img src={CONFIG.uiImages.mobileUp} alt="cima" />
+            </button>
+            <button
+              className="mobile-left"
+              onPointerDown={() => (keysRef.current["arrowleft"] = true)}
+              onPointerUp={() => (keysRef.current["arrowleft"] = false)}
+              onPointerCancel={() => (keysRef.current["arrowleft"] = false)}
+            >
+              <img src={CONFIG.uiImages.mobileLeft} alt="esquerda" />
+            </button>
+            <button
+              className="mobile-right"
+              onPointerDown={() => (keysRef.current["arrowright"] = true)}
+              onPointerUp={() => (keysRef.current["arrowright"] = false)}
+              onPointerCancel={() => (keysRef.current["arrowright"] = false)}
+            >
+              <img src={CONFIG.uiImages.mobileRight} alt="direita" />
+            </button>
+            <button
+              className="mobile-down"
+              onPointerDown={() => (keysRef.current["arrowdown"] = true)}
+              onPointerUp={() => (keysRef.current["arrowdown"] = false)}
+              onPointerCancel={() => (keysRef.current["arrowdown"] = false)}
+            >
+              <img src={CONFIG.uiImages.mobileDown} alt="baixo" />
+            </button>
+          </div>
 
-          <button onClick={tiroForteMobile} disabled={strongCooldown > 0}>
-            {strongCooldown > 0 ? `${strongCooldown}s` : "💥"}
-          </button>
+          <div className="game-mobile-actions">
+            <button
+              onPointerDown={() => (mobileShootRef.current = true)}
+              onPointerUp={() => (mobileShootRef.current = false)}
+              onPointerCancel={() => (mobileShootRef.current = false)}
+            >
+              <img src={CONFIG.uiImages.mobileShot} alt="tiro" />
+            </button>
 
-          <button onClick={pausarOuVoltar}>⏸</button>
+            <button onClick={tiroForteMobile} disabled={strongCooldown > 0}>
+              {strongCooldown > 0 ? <span>{strongCooldown}s</span> : <img src={CONFIG.uiImages.mobileStrong} alt="tiro forte" />}
+            </button>
+
+            <button onClick={pausarOuVoltar}>
+              <img src={CONFIG.uiImages.mobilePause} alt="pause" />
+            </button>
+          </div>
         </div>
       )}
     </main>
