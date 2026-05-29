@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
-type GameState = "menu" | "playing" | "paused";
+type GameState =
+  | "title"
+  | "mainMenu"
+  | "storyCutscene"
+  | "tutorialChoice"
+  | "tutorial"
+  | "playing"
+  | "paused";
+
+type GameMode = "story" | "infinite";
 
 type SpriteKey =
   | "player"
@@ -10,6 +20,7 @@ type SpriteKey =
   | "strongShot"
   | "background"
   | "menuBackground"
+  | "titleBackground"
   | "portal"
   | "chocado";
 
@@ -56,6 +67,10 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     src: "/game/backgrounds/menu-bg.png",
   },
 
+  titleBackground: {
+    src: "/game/backgrounds/title-bg.png",
+  },
+
   portal: {
     src: "/game/enemies/portal-sheet.png",
     frameWidth: 64,
@@ -95,15 +110,6 @@ const CONFIG = {
     ui: "SpaceNewsUI",
   },
 
-  menu: {
-    title: "SPACE NEWS",
-    subtitle: "Defenda a Terra!",
-    description:
-      "Portais falsos querem invadir o planeta e espalhar fake news.",
-    playButton: "JOGAR!",
-    controls: "WASD / Setas: mover • Z: tiro • X: tiro forte • P/ESC: pause",
-  },
-
   sounds: {
     normalShot: "/sounds/game-shot.mp3",
     strongShot: "/sounds/game-strong-shot.mp3",
@@ -116,6 +122,25 @@ const CONFIG = {
     strongShot: "#facc15",
   },
 };
+
+const STORY_FRAMES = [
+  {
+    title: "Quadro 1",
+    text: "Cleber era estudante da Escola I. Ele gostava de aprender, pesquisar e descobrir a verdade.",
+  },
+  {
+    title: "Quadro 2",
+    text: "Em uma noite estranha, Cleber percebeu que sua terra estava sendo invadida pelo exército de Chocado.",
+  },
+  {
+    title: "Quadro 3",
+    text: "Robôs da desinformação saíram dos portais, espalhando mentiras por todos os lados.",
+  },
+  {
+    title: "Quadro 4",
+    text: "Cleber entrou em sua nave Space News e partiu em direção à missão: salvar a Terra.",
+  },
+];
 
 class AssetManager {
   private images = new Map<SpriteKey, HTMLImageElement | null>();
@@ -223,13 +248,16 @@ class AnimatedSprite extends Sprite {
 }
 
 export default function JogoPage() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const keysRef = useRef<Record<string, boolean>>({});
   const mobileShootRef = useRef(false);
 
-  const gameStateRef = useRef<GameState>("menu");
-  const [gameState, setGameState] = useState<GameState>("menu");
+  const gameStateRef = useRef<GameState>("title");
+  const [gameState, setGameState] = useState<GameState>("title");
+
+  const storyIndexRef = useRef(0);
+  const [storyIndex, setStoryIndex] = useState(0);
 
   const strongCooldownRef = useRef(0);
   const [strongCooldown, setStrongCooldown] = useState(0);
@@ -245,9 +273,7 @@ export default function JogoPage() {
     strongReadyAt: 0,
   });
 
-  const playerAnimRef = useRef(
-    new AnimatedSprite("player", 100, 320, 64, 64)
-  );
+  const playerAnimRef = useRef(new AnimatedSprite("player", 100, 320, 64, 64));
 
   const shotsRef = useRef<Shot[]>([]);
 
@@ -256,12 +282,42 @@ export default function JogoPage() {
     setGameState(estado);
   }
 
+  function setHistoriaIndex(index: number) {
+    storyIndexRef.current = index;
+    setStoryIndex(index);
+  }
+
   function tocarSom(src: string) {
     if (!CONFIG.useSounds) return;
 
     const audio = new Audio(src);
     audio.volume = 0.45;
     audio.play().catch(() => {});
+  }
+
+  function abrirMenuPrincipal() {
+    setEstado("mainMenu");
+  }
+
+  function escolherModo(mode: GameMode) {
+    if (mode === "story") {
+      setHistoriaIndex(0);
+      setEstado("storyCutscene");
+      return;
+    }
+
+    iniciarJogo();
+  }
+
+  function avancarHistoria() {
+    const atual = storyIndexRef.current;
+
+    if (atual < STORY_FRAMES.length - 1) {
+      setHistoriaIndex(atual + 1);
+      return;
+    }
+
+    setEstado("tutorialChoice");
   }
 
   function iniciarJogo() {
@@ -277,18 +333,25 @@ export default function JogoPage() {
     shotsRef.current = [];
     strongCooldownRef.current = 0;
     setStrongCooldown(0);
+
     setEstado("playing");
   }
 
   function pausarOuVoltar() {
-    if (gameStateRef.current === "playing") setEstado("paused");
-    else if (gameStateRef.current === "paused") setEstado("playing");
+    if (gameStateRef.current === "playing") {
+      setEstado("paused");
+      return;
+    }
+
+    if (gameStateRef.current === "paused") {
+      setEstado("playing");
+    }
   }
 
   function tiroForteMobile() {
     keysRef.current["x"] = true;
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       keysRef.current["x"] = false;
     }, 80);
   }
@@ -298,9 +361,10 @@ export default function JogoPage() {
   }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
 
+    const canvas = canvasElement;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -351,7 +415,7 @@ export default function JogoPage() {
       setStrongCooldown(strongCooldownRef.current);
     }
 
-    const cooldownTimer = setInterval(() => {
+    const cooldownTimer = window.setInterval(() => {
       const player = playerRef.current;
 
       const restante = Math.max(
@@ -406,7 +470,8 @@ export default function JogoPage() {
     }
 
     function desenharTiro(shot: Shot) {
-      const key = shot.type === "strong" ? "strongShot" : "normalShot";
+      const key: SpriteKey =
+        shot.type === "strong" ? "strongShot" : "normalShot";
 
       const sprite = new Sprite(key, shot.x, shot.y, shot.w, shot.h);
       const desenhou = sprite.draw(ctx, assetsRef.current);
@@ -427,7 +492,7 @@ export default function JogoPage() {
       ctx.save();
 
       ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-      ctx.fillRect(18, 18, 260, 100);
+      ctx.fillRect(18, 18, 285, 100);
 
       ctx.fillStyle = "white";
       ctx.font = `24px ${CONFIG.fonts.ui}`;
@@ -486,14 +551,19 @@ export default function JogoPage() {
       lastTime = time;
 
       atualizar(delta);
-
       desenharFundo();
 
       for (const shot of shotsRef.current) {
         desenharTiro(shot);
       }
 
-      desenharPlayer(delta);
+      if (
+        gameStateRef.current === "playing" ||
+        gameStateRef.current === "paused"
+      ) {
+        desenharPlayer(delta);
+      }
+
       desenharHUD();
 
       animationFrame = requestAnimationFrame(loop);
@@ -507,6 +577,20 @@ export default function JogoPage() {
         ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
       ) {
         e.preventDefault();
+      }
+
+      if (
+        gameStateRef.current === "title" &&
+        (key === "enter" || key === " ")
+      ) {
+        abrirMenuPrincipal();
+      }
+
+      if (
+        gameStateRef.current === "storyCutscene" &&
+        (key === "enter" || key === " ")
+      ) {
+        avancarHistoria();
       }
 
       if (key === "p" || key === "escape") {
@@ -525,55 +609,107 @@ export default function JogoPage() {
 
     return () => {
       cancelAnimationFrame(animationFrame);
-      clearInterval(cooldownTimer);
+      window.clearInterval(cooldownTimer);
       window.removeEventListener("keydown", keyDown);
       window.removeEventListener("keyup", keyUp);
     };
   }, []);
 
+  const gameStyle = {
+    "--game-menu-bg": `url(${ASSETS.menuBackground.src})`,
+    "--game-title-bg": `url(${ASSETS.titleBackground.src})`,
+    "--game-title-font": CONFIG.fonts.title,
+    "--game-ui-font": CONFIG.fonts.ui,
+  } as CSSProperties;
+
   return (
-    <main
-      className="game-fullscreen-page"
-      style={
-        {
-          "--game-menu-bg": `url(${ASSETS.menuBackground.src})`,
-          "--game-title-font": CONFIG.fonts.title,
-          "--game-ui-font": CONFIG.fonts.ui,
-        } as React.CSSProperties
-      }
-    >
+    <main className="game-fullscreen-page" style={gameStyle}>
       <canvas ref={canvasRef} className="game-fullscreen-canvas" />
 
-      {gameState === "menu" && (
-        <section className="game-overlay game-menu-screen">
-          <div className="game-menu-card">
-            <p className="game-present">VERIFIQUE.AI apresenta</p>
+      {gameState === "title" && (
+        <section
+          className="game-screen game-title-screen"
+          onClick={abrirMenuPrincipal}
+        >
+          <div className="game-title-content">
+            <h1>SPACE NEWS</h1>
+            <p>PRESSIONE ENTER</p>
+          </div>
+        </section>
+      )}
 
-            <h1>{CONFIG.menu.title}</h1>
+      {gameState === "mainMenu" && (
+        <section className="game-screen game-main-menu-screen">
+          <aside className="game-retro-panel">
+            <p className="game-panel-label">Menu Principal</p>
 
-            <h2>{CONFIG.menu.subtitle}</h2>
+            <h2>SPACE NEWS</h2>
 
-            <p className="game-menu-description">{CONFIG.menu.description}</p>
+            <button onClick={() => escolherModo("story")}>História</button>
+            <button onClick={() => escolherModo("infinite")}>Infinito</button>
+            <button disabled>Opções</button>
+            <button disabled>Créditos</button>
+          </aside>
+        </section>
+      )}
 
-            <button onClick={iniciarJogo} className="game-play-button">
-              {CONFIG.menu.playButton}
-            </button>
+      {gameState === "storyCutscene" && (
+        <section className="game-screen game-cutscene-screen">
+          <div className="game-cutscene-frame">
+            <div className="game-cutscene-art">
+              <div className="game-cutscene-layer layer-stars" />
+              <div className="game-cutscene-layer layer-earth" />
+              <div className="game-cutscene-layer layer-ship" />
+            </div>
 
-            <p className="game-menu-controls">{CONFIG.menu.controls}</p>
+            <div className="game-dialog-box">
+              <strong>{STORY_FRAMES[storyIndex].title}</strong>
+              <p>{STORY_FRAMES[storyIndex].text}</p>
+
+              <button onClick={avancarHistoria}>
+                {storyIndex < STORY_FRAMES.length - 1
+                  ? "Avançar"
+                  : "Continuar"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {gameState === "tutorialChoice" && (
+        <section className="game-screen game-main-menu-screen">
+          <aside className="game-retro-panel">
+            <p className="game-panel-label">Tutorial</p>
+
+            <h2>Fazer tutorial?</h2>
+
+            <button onClick={() => setEstado("tutorial")}>Sim</button>
+            <button onClick={iniciarJogo}>Não</button>
+          </aside>
+        </section>
+      )}
+
+      {gameState === "tutorial" && (
+        <section className="game-screen game-tutorial-screen">
+          <div className="game-tutorial-card">
+            <h2>Controles</h2>
+
+            <p>WASD ou Setas: mover</p>
+            <p>Z: tiro normal</p>
+            <p>X: tiro forte</p>
+            <p>P ou ESC: pausar</p>
+
+            <button onClick={iniciarJogo}>Começar missão</button>
           </div>
         </section>
       )}
 
       {gameState === "paused" && (
-        <section className="game-overlay game-pause-screen">
+        <section className="game-screen game-pause-screen">
           <div className="game-pause-card">
-            <p className="game-present">Jogo pausado</p>
-
-            <h1>PAUSADO</h1>
-
-            <button onClick={pausarOuVoltar} className="game-play-button">
-              CONTINUAR
-            </button>
+            <p className="game-panel-label">Jogo pausado</p>
+            <h2>PAUSADO</h2>
+            <button onClick={pausarOuVoltar}>Continuar</button>
           </div>
         </section>
       )}
@@ -581,10 +717,18 @@ export default function JogoPage() {
       {gameState === "playing" && (
         <div className="game-mobile-controls">
           <button
-            onTouchStart={() => (mobileShootRef.current = true)}
-            onTouchEnd={() => (mobileShootRef.current = false)}
-            onMouseDown={() => (mobileShootRef.current = true)}
-            onMouseUp={() => (mobileShootRef.current = false)}
+            onTouchStart={() => {
+              mobileShootRef.current = true;
+            }}
+            onTouchEnd={() => {
+              mobileShootRef.current = false;
+            }}
+            onMouseDown={() => {
+              mobileShootRef.current = true;
+            }}
+            onMouseUp={() => {
+              mobileShootRef.current = false;
+            }}
           >
             🔫
           </button>
