@@ -47,6 +47,9 @@ type Player = {
   y: number;
   w: number;
   h: number;
+  vx: number;
+  vy: number;
+  tilt: number;
   normalCooldown: number;
   strongReadyAt: number;
 };
@@ -55,7 +58,15 @@ type GameCssVars = CSSProperties & {
   "--game-menu-bg": string;
   "--game-title-bg": string;
   "--game-title-font": string;
+  "--game-prompt-font": string;
+  "--game-menu-font": string;
   "--game-ui-font": string;
+};
+
+type MenuOption = {
+  label: string;
+  mode?: GameMode;
+  disabled?: boolean;
 };
 
 const ASSETS: Record<SpriteKey, SpriteConfig> = {
@@ -108,32 +119,79 @@ const CONFIG = {
   canvasWidth: 1280,
   canvasHeight: 720,
 
-  playerSpeed: 6,
-
-  normalShotSpeed: 7,
-  normalShotCooldownFrames: 14,
-  normalShotDamage: 1,
-
-  strongShotSpeed: 5,
-  strongShotDamage: 5,
-  strongShotCooldownMs: 8000,
-
   useSprites: true,
   useSounds: true,
 
   fonts: {
-    title: "SpaceNewsTitle",
-    ui: "SpaceNewsUI",
+    title: "Pixel Game",
+    prompt: "ByteBounce",
+    menu: "Pixel Game",
+    ui: "ByteBounce",
+  },
+
+  transitions: {
+    titleExitMs: 900,
+    menuOpenDelayMs: 120,
+    modeSelectMs: 650,
+    fadeOutMs: 260,
+  },
+
+  gameplay: {
+    player: {
+      width: 72,
+      height: 72,
+      acceleration: 0.42,
+      friction: 0.86,
+      maxSpeedX: 7.2,
+      maxSpeedY: 6.6,
+      tiltMaxDeg: 16,
+      tiltResponse: 0.16,
+      strongShotRecoil: 7.5,
+      strongShotShake: 8,
+      strongShotShakeMs: 180,
+    },
+
+    shots: {
+      normal: {
+        width: 60,
+        height: 60,
+        speed: 8.2,
+        damage: 1,
+        cooldownFrames: 28,
+      },
+
+      strong: {
+        width: 72,
+        height: 72,
+        speed: 10,
+        damage: 5,
+        cooldownMs: 8000,
+      },
+    },
   },
 
   sounds: {
+    menuMove: "/sounds/menu-move.mp3",
+    menuConfirm: "/sounds/menu-confirm.mp3",
+    menuBack: "/sounds/menu-back.mp3",
+    pause: "/sounds/game-pause.mp3",
+    cutsceneNext: "/sounds/cutscene-next.mp3",
+    transition: "/sounds/game-transition.mp3",
+
     normalShot: "/sounds/game-shot.mp3",
     strongShot: "/sounds/game-strong-shot.mp3",
+    explosion: "/sounds/game-explosion.mp3",
+    enemyHit: "/sounds/enemy-hit.mp3",
+    enemyDeath: "/sounds/enemy-death.mp3",
+    playerDamage: "/sounds/player-damage.mp3",
+    waveStart: "/sounds/wave-start.mp3",
+    bossIntro: "/sounds/boss-intro.mp3",
   },
 
   colors: {
     fallbackBackground: "#020617",
     player: "#60a5fa",
+    playerDetail: "#dbeafe",
     normalShot: "#60a5fa",
     strongShot: "#facc15",
   },
@@ -156,6 +214,13 @@ const STORY_FRAMES = [
     title: "Quadro 4",
     text: "Cleber entrou em sua nave Space News e partiu em direção à missão: salvar a Terra.",
   },
+];
+
+const MAIN_MENU_OPTIONS: MenuOption[] = [
+  { label: "HISTÓRIA", mode: "story" },
+  { label: "INFINITO", mode: "infinite" },
+  { label: "CONFIGURAÇÕES", disabled: true },
+  { label: "CRÉDITOS", disabled: true },
 ];
 
 class AssetManager {
@@ -270,6 +335,20 @@ class AnimatedSprite extends Sprite {
   }
 }
 
+function createInitialPlayer(): Player {
+  return {
+    x: 100,
+    y: 320,
+    w: CONFIG.gameplay.player.width,
+    h: CONFIG.gameplay.player.height,
+    vx: 0,
+    vy: 0,
+    tilt: 0,
+    normalCooldown: 0,
+    strongReadyAt: 0,
+  };
+}
+
 export default function JogoPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -279,6 +358,18 @@ export default function JogoPage() {
   const gameStateRef = useRef<GameState>("title");
   const [gameState, setGameState] = useState<GameState>("title");
 
+  const titleLeavingRef = useRef(false);
+  const [titleLeaving, setTitleLeaving] = useState(false);
+
+  const menuOpenRef = useRef(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const screenFadeRef = useRef(false);
+  const [screenFade, setScreenFade] = useState(false);
+
+  const menuIndexRef = useRef(0);
+  const [menuIndex, setMenuIndex] = useState(0);
+
   const storyIndexRef = useRef(0);
   const [storyIndex, setStoryIndex] = useState(0);
 
@@ -287,22 +378,47 @@ export default function JogoPage() {
 
   const assetsRef = useRef(new AssetManager());
 
-  const playerRef = useRef<Player>({
-    x: 100,
-    y: 320,
-    w: 64,
-    h: 64,
-    normalCooldown: 0,
-    strongReadyAt: 0,
-  });
-
-  const playerAnimRef = useRef(new AnimatedSprite("player", 100, 320, 64, 64));
+  const playerRef = useRef<Player>(createInitialPlayer());
+  const playerAnimRef = useRef(
+    new AnimatedSprite(
+      "player",
+      0,
+      0,
+      CONFIG.gameplay.player.width,
+      CONFIG.gameplay.player.height
+    )
+  );
 
   const shotsRef = useRef<Shot[]>([]);
+
+  const shakeRef = useRef({
+    intensity: 0,
+    endAt: 0,
+  });
 
   function setEstado(estado: GameState) {
     gameStateRef.current = estado;
     setGameState(estado);
+  }
+
+  function setSaindoTitulo(valor: boolean) {
+    titleLeavingRef.current = valor;
+    setTitleLeaving(valor);
+  }
+
+  function setMenuAberto(valor: boolean) {
+    menuOpenRef.current = valor;
+    setMenuOpen(valor);
+  }
+
+  function setEscurecendo(valor: boolean) {
+    screenFadeRef.current = valor;
+    setScreenFade(valor);
+  }
+
+  function setIndiceMenu(index: number) {
+    menuIndexRef.current = index;
+    setMenuIndex(index);
   }
 
   function setHistoriaIndex(index: number) {
@@ -310,67 +426,51 @@ export default function JogoPage() {
     setStoryIndex(index);
   }
 
-  function tocarSom(src: string) {
-    if (!CONFIG.useSounds) {
+  function tocarSom(src: string, volume = 0.45) {
+    if (!CONFIG.useSounds || !src) {
       return;
     }
 
     const audio = new Audio(src);
-    audio.volume = 0.45;
+    audio.volume = volume;
     audio.play().catch(() => {});
   }
 
-  function abrirMenuPrincipal() {
-    setEstado("mainMenu");
-  }
-
-  function escolherModo(mode: GameMode) {
-    if (mode === "story") {
-      setHistoriaIndex(0);
-      setEstado("storyCutscene");
-      return;
-    }
-
-    iniciarJogo();
-  }
-
-  function avancarHistoria() {
-    const atual = storyIndexRef.current;
-
-    if (atual < STORY_FRAMES.length - 1) {
-      setHistoriaIndex(atual + 1);
-      return;
-    }
-
-    setEstado("tutorialChoice");
-  }
-
   function iniciarJogo() {
-    playerRef.current = {
-      x: 100,
-      y: 320,
-      w: 64,
-      h: 64,
-      normalCooldown: 0,
-      strongReadyAt: 0,
-    };
-
+    playerRef.current = createInitialPlayer();
     shotsRef.current = [];
     strongCooldownRef.current = 0;
     setStrongCooldown(0);
-
     setEstado("playing");
   }
 
   function pausarOuVoltar() {
     if (gameStateRef.current === "playing") {
+      tocarSom(CONFIG.sounds.pause, 0.45);
       setEstado("paused");
       return;
     }
 
     if (gameStateRef.current === "paused") {
+      tocarSom(CONFIG.sounds.menuConfirm, 0.4);
       setEstado("playing");
     }
+  }
+
+  function voltarAoMenuPrincipal() {
+    tocarSom(CONFIG.sounds.menuBack, 0.45);
+
+    shotsRef.current = [];
+    strongCooldownRef.current = 0;
+    setStrongCooldown(0);
+
+    setEstado("mainMenu");
+    setIndiceMenu(0);
+    setEscurecendo(false);
+
+    window.setTimeout(() => {
+      setMenuAberto(true);
+    }, 80);
   }
 
   function tiroForteMobile() {
@@ -381,27 +481,109 @@ export default function JogoPage() {
     }, 80);
   }
 
+  function abrirMenuPrincipal() {
+    if (gameStateRef.current !== "title" || titleLeavingRef.current) {
+      return;
+    }
+
+    tocarSom(CONFIG.sounds.transition, 0.55);
+    setSaindoTitulo(true);
+
+    window.setTimeout(() => {
+      setEstado("mainMenu");
+      setIndiceMenu(0);
+      setSaindoTitulo(false);
+
+      window.setTimeout(() => {
+        setMenuAberto(true);
+      }, CONFIG.transitions.menuOpenDelayMs);
+    }, CONFIG.transitions.titleExitMs);
+  }
+
+  function voltarParaTitulo() {
+    tocarSom(CONFIG.sounds.menuBack, 0.45);
+
+    setMenuAberto(false);
+    setEscurecendo(true);
+
+    window.setTimeout(() => {
+      setEstado("title");
+      setIndiceMenu(0);
+      setSaindoTitulo(false);
+      setEscurecendo(false);
+    }, 360);
+  }
+
+  function executarEscolhaDeModo(mode: GameMode) {
+    tocarSom(CONFIG.sounds.menuConfirm, 0.52);
+
+    setMenuAberto(false);
+    setEscurecendo(true);
+
+    window.setTimeout(() => {
+      if (mode === "story") {
+        setHistoriaIndex(0);
+        setEstado("storyCutscene");
+      } else {
+        iniciarJogo();
+      }
+
+      window.setTimeout(() => {
+        setEscurecendo(false);
+      }, 160);
+    }, CONFIG.transitions.modeSelectMs);
+  }
+
+  function escolherModo(mode: GameMode) {
+    executarEscolhaDeModo(mode);
+  }
+
+  function confirmarOpcaoMenuAtual() {
+    const option = MAIN_MENU_OPTIONS[menuIndexRef.current];
+
+    if (!option || option.disabled || !option.mode) {
+      tocarSom(CONFIG.sounds.menuBack, 0.35);
+      return;
+    }
+
+    escolherModo(option.mode);
+  }
+
+  function avancarHistoria() {
+    tocarSom(CONFIG.sounds.cutsceneNext, 0.45);
+
+    const atual = storyIndexRef.current;
+
+    if (atual < STORY_FRAMES.length - 1) {
+      setHistoriaIndex(atual + 1);
+      return;
+    }
+
+    setEstado("tutorialChoice");
+  }
+
   useEffect(() => {
     assetsRef.current.loadAll();
   }, []);
 
   useEffect(() => {
-    const gameCanvas = canvasRef.current;
+    const canvasFromRef = canvasRef.current;
 
-    if (!(gameCanvas instanceof HTMLCanvasElement)) {
+    if (!canvasFromRef) {
       return;
     }
 
-    const renderContext = gameCanvas.getContext("2d");
+    const contextFromCanvas = canvasFromRef.getContext("2d");
 
-    if (!(renderContext instanceof CanvasRenderingContext2D)) {
+    if (!contextFromCanvas) {
       return;
     }
 
-    const renderCtx: CanvasRenderingContext2D = renderContext;
+    const renderCanvas: HTMLCanvasElement = canvasFromRef;
+    const renderCtx: CanvasRenderingContext2D = contextFromCanvas;
 
-    gameCanvas.width = CONFIG.canvasWidth;
-    gameCanvas.height = CONFIG.canvasHeight;
+    renderCanvas.width = CONFIG.canvasWidth;
+    renderCanvas.height = CONFIG.canvasHeight;
 
     let animationFrame = 0;
     let lastTime = performance.now();
@@ -414,17 +596,17 @@ export default function JogoPage() {
       }
 
       shotsRef.current.push({
-        x: player.x + player.w - 4,
-        y: player.y + player.h / 2 - 4,
-        w: 28,
-        h: 8,
-        speed: CONFIG.normalShotSpeed,
-        damage: CONFIG.normalShotDamage,
+        x: player.x + player.w - 2,
+        y: player.y + player.h / 2 - CONFIG.gameplay.shots.normal.height / 2,
+        w: CONFIG.gameplay.shots.normal.width,
+        h: CONFIG.gameplay.shots.normal.height,
+        speed: CONFIG.gameplay.shots.normal.speed,
+        damage: CONFIG.gameplay.shots.normal.damage,
         type: "normal",
       });
 
       tocarSom(CONFIG.sounds.normalShot);
-      player.normalCooldown = CONFIG.normalShotCooldownFrames;
+      player.normalCooldown = CONFIG.gameplay.shots.normal.cooldownFrames;
     }
 
     function shootStrong() {
@@ -436,19 +618,29 @@ export default function JogoPage() {
       }
 
       shotsRef.current.push({
-        x: player.x + player.w - 4,
-        y: player.y + player.h / 2 - 13,
-        w: 64,
-        h: 26,
-        speed: CONFIG.strongShotSpeed,
-        damage: CONFIG.strongShotDamage,
+        x: player.x + player.w - 2,
+        y: player.y + player.h / 2 - CONFIG.gameplay.shots.strong.height / 2,
+        w: CONFIG.gameplay.shots.strong.width,
+        h: CONFIG.gameplay.shots.strong.height,
+        speed: CONFIG.gameplay.shots.strong.speed,
+        damage: CONFIG.gameplay.shots.strong.damage,
         type: "strong",
       });
 
       tocarSom(CONFIG.sounds.strongShot);
 
-      player.strongReadyAt = now + CONFIG.strongShotCooldownMs;
-      strongCooldownRef.current = Math.ceil(CONFIG.strongShotCooldownMs / 1000);
+      player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
+
+      player.vx -= CONFIG.gameplay.player.strongShotRecoil;
+
+      shakeRef.current = {
+        intensity: CONFIG.gameplay.player.strongShotShake,
+        endAt: now + CONFIG.gameplay.player.strongShotShakeMs,
+      };
+
+      strongCooldownRef.current = Math.ceil(
+        CONFIG.gameplay.shots.strong.cooldownMs / 1000
+      );
       setStrongCooldown(strongCooldownRef.current);
     }
 
@@ -490,25 +682,41 @@ export default function JogoPage() {
     function desenharPlayer(ctx: CanvasRenderingContext2D, delta: number) {
       const player = playerRef.current;
       const anim = playerAnimRef.current;
-
-      anim.x = player.x;
-      anim.y = player.y;
-      anim.w = player.w;
-      anim.h = player.h;
+      const playerAsset = assetsRef.current.get("player");
+      const playerConfig = ASSETS.player;
 
       anim.update(delta);
 
-      const desenhou = anim.draw(ctx, assetsRef.current);
+      ctx.save();
+      ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+      ctx.rotate((player.tilt * Math.PI) / 180);
 
-      if (desenhou) {
-        return;
+      if (
+        CONFIG.useSprites &&
+        playerAsset &&
+        playerConfig.frameWidth &&
+        playerConfig.frameHeight
+      ) {
+        ctx.drawImage(
+          playerAsset,
+          anim.frame * playerConfig.frameWidth,
+          0,
+          playerConfig.frameWidth,
+          playerConfig.frameHeight,
+          -player.w / 2,
+          -player.h / 2,
+          player.w,
+          player.h
+        );
+      } else {
+        ctx.fillStyle = CONFIG.colors.player;
+        ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
+
+        ctx.fillStyle = CONFIG.colors.playerDetail;
+        ctx.fillRect(player.w * 0.12, -7, 14, 14);
       }
 
-      ctx.fillStyle = CONFIG.colors.player;
-      ctx.fillRect(player.x, player.y, player.w, player.h);
-
-      ctx.fillStyle = "#dbeafe";
-      ctx.fillRect(player.x + 40, player.y + 22, 14, 14);
+      ctx.restore();
     }
 
     function desenharTiro(ctx: CanvasRenderingContext2D, shot: Shot) {
@@ -537,23 +745,23 @@ export default function JogoPage() {
 
       ctx.save();
 
-      ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-      ctx.fillRect(18, 18, 285, 100);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
+      ctx.fillRect(18, 18, 340, 112);
 
       ctx.fillStyle = "white";
       ctx.font = `24px ${CONFIG.fonts.ui}`;
 
-      ctx.fillText("Z: tiro normal", 34, 50);
+      ctx.fillText("Z: tiro normal", 34, 52);
 
       ctx.fillText(
         strongCooldownRef.current > 0
           ? `X: forte ${strongCooldownRef.current}s`
           : "X: forte pronto",
         34,
-        80
+        84
       );
 
-      ctx.fillText("P/ESC: pausar", 34, 110);
+      ctx.fillText("P/ESC: pausar", 34, 116);
 
       ctx.restore();
     }
@@ -566,26 +774,48 @@ export default function JogoPage() {
       const player = playerRef.current;
       const speedFactor = delta / 16.67;
 
-      const up = keysRef.current["arrowup"] || keysRef.current["w"];
-      const down = keysRef.current["arrowdown"] || keysRef.current["s"];
-      const left = keysRef.current["arrowleft"] || keysRef.current["a"];
-      const right = keysRef.current["arrowright"] || keysRef.current["d"];
+      const inputX =
+        (keysRef.current["arrowright"] || keysRef.current["d"] ? 1 : 0) -
+        (keysRef.current["arrowleft"] || keysRef.current["a"] ? 1 : 0);
 
-      if (up) {
-        player.y -= CONFIG.playerSpeed * speedFactor;
+      const inputY =
+        (keysRef.current["arrowdown"] || keysRef.current["s"] ? 1 : 0) -
+        (keysRef.current["arrowup"] || keysRef.current["w"] ? 1 : 0);
+
+      if (inputX !== 0) {
+        player.vx +=
+          inputX * CONFIG.gameplay.player.acceleration * speedFactor;
+      } else {
+        player.vx *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
       }
 
-      if (down) {
-        player.y += CONFIG.playerSpeed * speedFactor;
+      if (inputY !== 0) {
+        player.vy +=
+          inputY * CONFIG.gameplay.player.acceleration * speedFactor;
+      } else {
+        player.vy *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
       }
 
-      if (left) {
-        player.x -= CONFIG.playerSpeed * speedFactor;
+      player.vx = Math.max(
+        -CONFIG.gameplay.player.maxSpeedX,
+        Math.min(CONFIG.gameplay.player.maxSpeedX, player.vx)
+      );
+
+      player.vy = Math.max(
+        -CONFIG.gameplay.player.maxSpeedY,
+        Math.min(CONFIG.gameplay.player.maxSpeedY, player.vy)
+      );
+
+      if (Math.abs(player.vx) < 0.02) {
+        player.vx = 0;
       }
 
-      if (right) {
-        player.x += CONFIG.playerSpeed * speedFactor;
+      if (Math.abs(player.vy) < 0.02) {
+        player.vy = 0;
       }
+
+      player.x += player.vx * speedFactor;
+      player.y += player.vy * speedFactor;
 
       if (keysRef.current["z"] || mobileShootRef.current) {
         shootNormal();
@@ -595,8 +825,32 @@ export default function JogoPage() {
         shootStrong();
       }
 
-      player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
-      player.y = Math.max(0, Math.min(canvas.height - player.h, player.y));
+      if (player.x < 0) {
+        player.x = 0;
+        player.vx = 0;
+      }
+
+      if (player.x > canvas.width - player.w) {
+        player.x = canvas.width - player.w;
+        player.vx = 0;
+      }
+
+      if (player.y < 0) {
+        player.y = 0;
+        player.vy = 0;
+      }
+
+      if (player.y > canvas.height - player.h) {
+        player.y = canvas.height - player.h;
+        player.vy = 0;
+      }
+
+      const targetTilt =
+        (player.vx / CONFIG.gameplay.player.maxSpeedX) *
+        CONFIG.gameplay.player.tiltMaxDeg;
+
+      player.tilt +=
+        (targetTilt - player.tilt) * CONFIG.gameplay.player.tiltResponse;
 
       if (player.normalCooldown > 0) {
         player.normalCooldown -= 1;
@@ -607,18 +861,28 @@ export default function JogoPage() {
           ...shot,
           x: shot.x + shot.speed * speedFactor,
         }))
-        .filter((shot) => shot.x < canvas.width + 120);
+        .filter((shot) => shot.x < canvas.width + 160);
     }
 
     function loop(time: number) {
       const delta = Math.min(32, time - lastTime);
       lastTime = time;
 
-      const activeCanvas = gameCanvas as HTMLCanvasElement;
-const activeCtx = renderCtx as CanvasRenderingContext2D;
+      atualizar(delta, renderCanvas);
 
-atualizar(delta, activeCanvas);
-desenharFundo(activeCtx, activeCanvas);
+      const shake = shakeRef.current;
+      const shaking = performance.now() < shake.endAt;
+
+      renderCtx.save();
+
+      if (shaking) {
+        const x = (Math.random() - 0.5) * shake.intensity;
+        const y = (Math.random() - 0.5) * shake.intensity;
+        renderCtx.translate(x, y);
+      }
+
+      desenharFundo(renderCtx, renderCanvas);
+
       for (const shot of shotsRef.current) {
         desenharTiro(renderCtx, shot);
       }
@@ -629,6 +893,8 @@ desenharFundo(activeCtx, activeCanvas);
       ) {
         desenharPlayer(renderCtx, delta);
       }
+
+      renderCtx.restore();
 
       desenharHUD(renderCtx);
 
@@ -650,6 +916,35 @@ desenharFundo(activeCtx, activeCanvas);
         (key === "enter" || key === " ")
       ) {
         abrirMenuPrincipal();
+        return;
+      }
+
+      if (gameStateRef.current === "mainMenu") {
+        if (key === "escape" || key === "q") {
+          voltarParaTitulo();
+          return;
+        }
+
+        if (key === "arrowup" || key === "w") {
+          tocarSom(CONFIG.sounds.menuMove, 0.32);
+
+          setIndiceMenu(
+            (menuIndexRef.current - 1 + MAIN_MENU_OPTIONS.length) %
+              MAIN_MENU_OPTIONS.length
+          );
+          return;
+        }
+
+        if (key === "arrowdown" || key === "s") {
+          tocarSom(CONFIG.sounds.menuMove, 0.32);
+          setIndiceMenu((menuIndexRef.current + 1) % MAIN_MENU_OPTIONS.length);
+          return;
+        }
+
+        if (key === "enter" || key === " ") {
+          confirmarOpcaoMenuAtual();
+          return;
+        }
       }
 
       if (
@@ -657,6 +952,7 @@ desenharFundo(activeCtx, activeCanvas);
         (key === "enter" || key === " ")
       ) {
         avancarHistoria();
+        return;
       }
 
       if (key === "p" || key === "escape") {
@@ -681,10 +977,28 @@ desenharFundo(activeCtx, activeCanvas);
     };
   }, []);
 
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden && gameStateRef.current === "playing") {
+        tocarSom(CONFIG.sounds.pause, 0.35);
+        setEstado("paused");
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   const gameStyle: GameCssVars = {
     "--game-menu-bg": `url(${ASSETS.menuBackground.src})`,
     "--game-title-bg": `url(${ASSETS.titleBackground.src})`,
     "--game-title-font": CONFIG.fonts.title,
+    "--game-prompt-font": CONFIG.fonts.prompt,
+    "--game-menu-font": CONFIG.fonts.menu,
     "--game-ui-font": CONFIG.fonts.ui,
   };
 
@@ -692,9 +1006,17 @@ desenharFundo(activeCtx, activeCanvas);
     <main className="game-fullscreen-page" style={gameStyle}>
       <canvas ref={canvasRef} className="game-fullscreen-canvas" />
 
+      <div
+        className={`game-title-bg-transition ${titleLeaving ? "show" : ""}`}
+      />
+
+      <div className={`game-screen-fade ${screenFade ? "show" : ""}`} />
+
       {gameState === "title" && (
         <section
-          className="game-screen game-title-screen"
+          className={`game-screen game-title-screen ${
+            titleLeaving ? "is-leaving" : ""
+          }`}
           onClick={abrirMenuPrincipal}
         >
           <div className="game-title-content">
@@ -706,16 +1028,51 @@ desenharFundo(activeCtx, activeCanvas);
 
       {gameState === "mainMenu" && (
         <section className="game-screen game-main-menu-screen">
-          <aside className="game-retro-panel">
-            <p className="game-panel-label">Menu Principal</p>
+          <aside
+            className={`game-retro-panel ${menuOpen ? "is-open" : "is-closed"}`}
+          >
+            <p className="game-panel-label">MENU PRINCIPAL</p>
+            <p className="game-menu-help">ESC/Q: voltar</p>
 
-            <h2>SPACE NEWS</h2>
+            <div className="game-retro-menu-list">
+              {MAIN_MENU_OPTIONS.map((option, index) => {
+                const selected = menuIndex === index;
 
-            <button onClick={() => escolherModo("story")}>História</button>
-            <button onClick={() => escolherModo("infinite")}>Infinito</button>
-            <button disabled>Opções</button>
-            <button disabled>Créditos</button>
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={`game-menu-option ${
+                      selected ? "is-selected" : ""
+                    } ${option.disabled ? "is-disabled" : ""}`}
+                    onMouseEnter={() => {
+                      if (menuIndex !== index) {
+                        tocarSom(CONFIG.sounds.menuMove, 0.24);
+                      }
+
+                      setIndiceMenu(index);
+                    }}
+                    onFocus={() => setIndiceMenu(index)}
+                    onClick={() => {
+                      if (!option.disabled && option.mode) {
+                        escolherModo(option.mode);
+                      } else {
+                        tocarSom(CONFIG.sounds.menuBack, 0.3);
+                      }
+                    }}
+                    disabled={option.disabled}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
           </aside>
+
+          <div className="game-menu-logo">
+            <strong>SPACE NEWS</strong>
+            <span>agora com 90% menos fake news!</span>
+          </div>
         </section>
       )}
 
@@ -744,13 +1101,26 @@ desenharFundo(activeCtx, activeCanvas);
 
       {gameState === "tutorialChoice" && (
         <section className="game-screen game-main-menu-screen">
-          <aside className="game-retro-panel">
-            <p className="game-panel-label">Tutorial</p>
+          <aside className="game-retro-panel is-open">
+            <p className="game-panel-label">TUTORIAL</p>
 
-            <h2>Fazer tutorial?</h2>
+            <div className="game-retro-menu-list">
+              <button
+                type="button"
+                className="game-menu-option is-selected"
+                onClick={() => setEstado("tutorial")}
+              >
+                FAZER TUTORIAL
+              </button>
 
-            <button onClick={() => setEstado("tutorial")}>Sim</button>
-            <button onClick={iniciarJogo}>Não</button>
+              <button
+                type="button"
+                className="game-menu-option"
+                onClick={iniciarJogo}
+              >
+                PULAR E COMEÇAR
+              </button>
+            </div>
           </aside>
         </section>
       )}
@@ -758,14 +1128,14 @@ desenharFundo(activeCtx, activeCanvas);
       {gameState === "tutorial" && (
         <section className="game-screen game-tutorial-screen">
           <div className="game-tutorial-card">
-            <h2>Controles</h2>
+            <h2>CONTROLES</h2>
 
             <p>WASD ou Setas: mover</p>
             <p>Z: tiro normal</p>
             <p>X: tiro forte</p>
             <p>P ou ESC: pausar</p>
 
-            <button onClick={iniciarJogo}>Começar missão</button>
+            <button onClick={iniciarJogo}>COMEÇAR MISSÃO</button>
           </div>
         </section>
       )}
@@ -773,9 +1143,11 @@ desenharFundo(activeCtx, activeCanvas);
       {gameState === "paused" && (
         <section className="game-screen game-pause-screen">
           <div className="game-pause-card">
-            <p className="game-panel-label">Jogo pausado</p>
+            <p className="game-panel-label">JOGO PAUSADO</p>
             <h2>PAUSADO</h2>
-            <button onClick={pausarOuVoltar}>Continuar</button>
+
+            <button onClick={pausarOuVoltar}>CONTINUAR</button>
+            <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
         </section>
       )}
