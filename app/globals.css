@@ -800,26 +800,23 @@ body.reduce-motion *::after {
   }
 }
 
-  
-/* parte do jogo!! */
+  /* parte do jogo!! */
 
 .game-fullscreen-page {
   position: fixed;
   inset: 0;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
-  background-color: #050616;
-  background-image:
-    linear-gradient(45deg, rgba(248, 231, 176, 0.12) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(248, 231, 176, 0.12) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(248, 231, 176, 0.12) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(248, 231, 176, 0.12) 75%);
-  background-size: 64px 64px;
-  background-position: 0 0, 0 32px, 32px -32px, -32px 0;
+  background: #050616;
   color: white;
   z-index: 999999;
   font-family: var(--game-ui-font), system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .game-fullscreen-canvas {
@@ -827,7 +824,7 @@ body.reduce-motion *::after {
   inset: 0;
   z-index: 1;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   display: block;
   background: #050616;
   image-rendering: pixelated;
@@ -839,10 +836,10 @@ body.reduce-motion *::after {
   top: 0;
   z-index: 15;
   width: 100vw;
-  height: 130vh;
+  height: 130dvh;
   pointer-events: none;
   opacity: 1;
-  transform: translateY(-130vh);
+  transform: translateY(-130dvh);
   background:
     linear-gradient(rgba(14, 8, 22, 0.06), rgba(14, 8, 22, 0.25)),
     var(--game-menu-bg);
@@ -855,7 +852,7 @@ body.reduce-motion *::after {
 }
 
 .game-title-bg-transition.show {
-  transform: translateY(-30vh);
+  transform: translateY(-30dvh);
   filter: saturate(0.95) contrast(1.03);
 }
 
@@ -894,6 +891,7 @@ body.reduce-motion *::after {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  overflow: hidden;
 }
 
 .game-title-screen { text-align: center; background: transparent; cursor: pointer; }
@@ -968,6 +966,7 @@ body.reduce-motion *::after {
   background: linear-gradient(rgba(41, 20, 38, 0.88), rgba(24, 12, 26, 0.92)), radial-gradient(circle at 30% 20%, rgba(255, 224, 150, 0.08), transparent 35%);
   box-shadow: 8px 8px 0 #08030a, inset 0 0 0 3px rgba(0, 0, 0, 0.5), 0 0 28px rgba(248, 231, 176, 0.28);
   transition: transform 0.55s cubic-bezier(0.18, 0.85, 0.22, 1), opacity 0.45s ease, filter 0.45s ease;
+  overflow: hidden;
 }
 
 .game-retro-panel.is-open { transform: translateX(0); opacity: 1; filter: none; }
@@ -1092,6 +1091,7 @@ body.reduce-motion *::after {
   height: 38px;
   object-fit: contain;
   image-rendering: pixelated;
+  pointer-events: none;
 }
 
 .game-cutscene-screen { background: rgba(10, 7, 18, 0.82); backdrop-filter: blur(5px); }
@@ -1129,6 +1129,9 @@ body.reduce-motion *::after {
   inset: auto 0 0 0;
   display: none;
   pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .game-mobile-dpad,
@@ -1156,10 +1159,13 @@ body.reduce-motion *::after {
   display: flex;
   align-items: center;
   justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .game-mobile-dpad button img,
-.game-mobile-actions button img { width: 82%; height: 82%; object-fit: contain; image-rendering: pixelated; }
+.game-mobile-actions button img { width: 82%; height: 82%; object-fit: contain; image-rendering: pixelated; pointer-events: none; -webkit-user-drag: none; }
 .game-mobile-dpad button span,
 .game-mobile-actions button span { color: #ffe18c; font-weight: 1000; }
 .mobile-up { left: 58px; top: 0; }
@@ -1179,21 +1185,6 @@ body.reduce-motion *::after {
 .game-mobile-actions button:nth-child(3) { right: 156px; bottom: 52px; width: 54px; height: 54px; }
 .game-mobile-actions button:disabled { opacity: 0.45; }
 
-@media (max-width: 768px), (pointer: coarse) {
-  .game-fullscreen-page { background-color: #22130d; }
-  .game-fullscreen-canvas {
-    left: 50%;
-    top: 50%;
-    width: min(100vw, calc(100vh * 16 / 9));
-    height: min(100vh, calc(100vw * 9 / 16));
-    transform: translate(-50%, -50%);
-    box-shadow: 0 0 0 4px rgba(248, 231, 176, 0.75), 0 0 28px rgba(0,0,0,0.75);
-  }
-  .game-mobile-controls { display: block; }
-  .game-life-hud { top: 14px; left: 14px; }
-  .game-life-hud img { width: 30px; height: 30px; }
-}
-
 @media (max-width: 768px) {
   .game-screen { padding: 16px; }
   .game-title-content { gap: 52px; }
@@ -1203,113 +1194,151 @@ body.reduce-motion *::after {
   .game-menu-logo { top: 18px; right: 18px; }
 }
 
-/* ===== SPACE NEWS V3 PATCH: 16:9 stage, mobile hold fix, stronger retro polish ===== */
-.game-fullscreen-page {
-  --stage-w: min(100vw, calc(100vh * 16 / 9));
-  --stage-h: min(100vh, calc(100vw * 9 / 16));
-  background-color: #22130d;
-  background-image:
-    linear-gradient(45deg, rgba(248, 231, 176, 0.16) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(248, 231, 176, 0.16) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(248, 231, 176, 0.16) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(248, 231, 176, 0.16) 75%);
-  background-size: 48px 48px;
-  background-position: 0 0, 0 24px, 24px -24px, -24px 0;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-  touch-action: none;
-  overscroll-behavior: none;
+/* Mobile/Touch: stage 16:9 centralizado. Desktop fica fullscreen normal. */
+@media (pointer: coarse) and (max-width: 1200px) {
+  .game-fullscreen-page {
+    --stage-w: min(100vw, calc(100dvh * 16 / 9));
+    --stage-h: min(100dvh, calc(100vw * 9 / 16));
+    --stage-left: calc((100vw - var(--stage-w)) / 2);
+    --stage-top: calc((100dvh - var(--stage-h)) / 2);
+    background-color: #22130d;
+    background-image:
+      linear-gradient(45deg, rgba(248, 231, 176, 0.16) 25%, transparent 25%),
+      linear-gradient(-45deg, rgba(248, 231, 176, 0.16) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgba(248, 231, 176, 0.16) 75%),
+      linear-gradient(-45deg, transparent 75%, rgba(248, 231, 176, 0.16) 75%);
+    background-size: 48px 48px;
+    background-position: 0 0, 0 24px, 24px -24px, -24px 0;
+  }
+
+  .game-fullscreen-canvas,
+  .game-title-bg-transition,
+  .game-screen-fade,
+  .game-low-hp-vignette,
+  .game-screen {
+    left: var(--stage-left);
+    top: var(--stage-top);
+    right: auto;
+    bottom: auto;
+    inset: auto;
+    width: var(--stage-w);
+    height: var(--stage-h);
+    transform: none;
+    overflow: hidden;
+  }
+
+  .game-fullscreen-canvas {
+    box-shadow: 0 0 0 4px rgba(248, 231, 176, 0.75), 0 0 28px rgba(0, 0, 0, 0.78);
+  }
+
+  .game-title-bg-transition {
+    height: calc(var(--stage-h) * 1.3);
+    transform: translateY(calc(var(--stage-h) * -1.3));
+  }
+
+  .game-title-bg-transition.show {
+    transform: translateY(calc(var(--stage-h) * -0.3));
+  }
+
+  .game-life-hud {
+    left: calc(var(--stage-left) + 14px);
+    top: calc(var(--stage-top) + 14px);
+  }
+
+  .game-life-hud img { width: 30px; height: 30px; }
+
+  .game-mobile-controls {
+    display: block;
+    left: var(--stage-left);
+    top: var(--stage-top);
+    width: var(--stage-w);
+    height: var(--stage-h);
+    right: auto;
+    bottom: auto;
+    inset: auto;
+  }
+
+  .game-mobile-dpad {
+    position: absolute;
+    left: max(12px, env(safe-area-inset-left));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    width: clamp(128px, 28vh, 190px);
+    height: clamp(128px, 28vh, 190px);
+  }
+
+  .game-mobile-dpad button {
+    width: clamp(42px, 9.5vh, 64px);
+    height: clamp(42px, 9.5vh, 64px);
+  }
+
+  .mobile-up { left: 50%; top: 0; transform: translateX(-50%); }
+  .mobile-down { left: 50%; bottom: 0; transform: translateX(-50%); }
+  .mobile-left { left: 0; top: 50%; transform: translateY(-50%); }
+  .mobile-right { right: 0; top: 50%; transform: translateY(-50%); }
+
+  .game-mobile-actions {
+    position: absolute;
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: clamp(170px, 34vh, 230px);
+    height: clamp(118px, 24vh, 158px);
+  }
+
+  .game-mobile-actions button:nth-child(1) { right: 74px; bottom: 0; width: clamp(56px, 12vh, 76px); height: clamp(56px, 12vh, 76px); }
+  .game-mobile-actions button:nth-child(2) { right: 0; bottom: 42px; width: clamp(56px, 12vh, 76px); height: clamp(56px, 12vh, 76px); }
+  .game-mobile-actions button:nth-child(3) { right: 152px; bottom: 48px; width: clamp(46px, 9vh, 58px); height: clamp(46px, 9vh, 58px); }
+
+  .game-retro-panel {
+    width: min(48vw, 420px);
+    min-height: calc(var(--stage-h) - 36px);
+    margin-left: clamp(6px, 1.8vw, 16px);
+    padding: clamp(14px, 3vh, 24px);
+  }
+
+  .game-panel-label { font-size: clamp(10px, 2.2vh, 15px); }
+  .game-menu-help { font-size: clamp(10px, 2vh, 14px); padding-top: 8px; }
+  .game-retro-menu-list { gap: clamp(8px, 2vh, 16px); }
+  .game-menu-option { min-height: clamp(48px, 12vh, 88px); padding: 0 clamp(12px, 2.5vw, 22px); font-size: clamp(20px, 6.2vh, 42px); border-left-width: 6px; }
+
+  .game-menu-logo {
+    top: calc(var(--stage-top) + 16px);
+    right: calc(var(--stage-left) + 18px);
+  }
+
+  .game-menu-logo strong { font-size: clamp(24px, 6vh, 48px); }
+  .game-menu-logo span { font-size: clamp(10px, 2.4vh, 17px); }
 }
 
-.game-fullscreen-canvas,
-.game-title-bg-transition,
-.game-screen-fade,
-.game-low-hp-vignette,
-.game-screen {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  right: auto;
-  bottom: auto;
-  inset: auto;
-  width: var(--stage-w);
-  height: var(--stage-h);
-  transform: translate(-50%, -50%);
-  overflow: hidden;
-}
-
-.game-fullscreen-canvas {
-  box-shadow: 0 0 0 4px rgba(248, 231, 176, 0.75), 0 0 28px rgba(0, 0, 0, 0.78);
-}
-
+/* CORREÇÃO FINAL: background de transição só aparece durante o Enter */
 .game-title-bg-transition {
-  opacity: 1;
-  pointer-events: none;
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 20 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
   background:
-    linear-gradient(rgba(14, 8, 22, 0.04), rgba(14, 8, 22, 0.18)),
-    var(--game-menu-bg);
-  background-size: 100% auto;
-  background-position: center top;
-  background-repeat: no-repeat;
+    linear-gradient(rgba(14, 8, 22, 0.03), rgba(14, 8, 22, 0.18)),
+    var(--game-menu-bg) !important;
+  background-size: cover !important;
+  background-position: center top !important;
+  background-repeat: no-repeat !important;
+  transform: translateY(-100%) !important;
   transition:
-    background-position 1.05s cubic-bezier(0.16, 0.88, 0.2, 1),
-    filter 0.9s ease;
+    transform 0.9s cubic-bezier(0.16, 0.88, 0.2, 1),
+    opacity 0.18s ease,
+    visibility 0.18s ease !important;
 }
 
 .game-title-bg-transition.show {
-  transform: translate(-50%, -50%);
-  background-position: center bottom;
-  filter: saturate(0.95) contrast(1.03);
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: translateY(0) !important;
+  background-position: center bottom !important;
 }
 
-.game-life-hud {
-  left: calc(50% - var(--stage-w) / 2 + 26px);
-  top: calc(50% - var(--stage-h) / 2 + 22px);
-}
-
-.game-mobile-controls {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  right: auto;
-  bottom: auto;
-  width: var(--stage-w);
-  height: var(--stage-h);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-.game-mobile-dpad {
-  position: absolute;
-  left: max(18px, env(safe-area-inset-left));
-  bottom: max(18px, env(safe-area-inset-bottom));
-}
-
-.game-mobile-actions {
-  position: absolute;
-  right: max(18px, env(safe-area-inset-right));
-  bottom: max(22px, env(safe-area-inset-bottom));
-}
-
-.game-mobile-dpad button,
-.game-mobile-actions button,
-.game-mobile-dpad img,
-.game-mobile-actions img,
-.game-life-hud img {
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-  -webkit-user-drag: none;
-}
-
-.game-mobile-dpad img,
-.game-mobile-actions img,
-.game-life-hud img {
-  pointer-events: none;
-}
-
-.game-life-hud img {
-  width: 42px;
-  height: 42px;
-}
+.game-fullscreen-canvas { z-index: 1 !important; }
+.game-screen { z-index: 50 !important; }
+.game-screen-fade { z-index: 90 !important; }

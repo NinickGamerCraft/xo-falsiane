@@ -33,6 +33,7 @@ type SpriteKey =
 
 type Shot = {
   id: number;
+  stretchUntil: number;
   x: number;
   y: number;
   w: number;
@@ -46,6 +47,7 @@ type EnemyKind = "red" | "black" | "purple" | "asteroid" | "fragment";
 
 type Enemy = {
   id: number;
+  stretchUntil: number;
   kind: EnemyKind;
   x: number;
   y: number;
@@ -66,10 +68,14 @@ type Enemy = {
   fragmentCount?: number;
   cracked?: boolean;
   phase?: number;
+  redStartY?: number;
+  redTargetY?: number;
+  redTravelTimeMs?: number;
 };
 
 type EnemyProjectile = {
   id: number;
+  stretchUntil: number;
   x: number;
   y: number;
   w: number;
@@ -111,6 +117,14 @@ type Player = {
   invincibleUntil: number;
   normalCooldown: number;
   strongReadyAt: number;
+  stretchUntil: number;
+  stretchVx: number;
+  stretchVy: number;
+  wasMoving: boolean;
+  lastInputX: number;
+  lastInputY: number;
+  lastMoveAngle: number;
+  lastStretchAt: number;
 };
 
 type GameCssVars = CSSProperties & {
@@ -234,9 +248,38 @@ const CONFIG = {
 
     dynamicStretch: {
       enabled: true,
-      base: 0.055,
-      max: 0.42,
-      squeeze: 0.42,
+
+      // Regra: distorce só no início de uma mudança real de movimento.
+      // A curva tem entrada suave, volta ao normal e NÃO reseta enquanto já está ativa.
+      base: 0.068,
+
+      // Limites gerais para não destruir o sprite.
+      maxStretch: 0.20,
+      maxSquash: 0.12,
+      squeeze: 0.22,
+
+      // Player: curto, sem boing. Dispara só ao começar movimento ou virar forte.
+      playerPulseMs: 260,
+      playerBoingStrength: 0,
+      playerMultiplier: 0.95,
+      playerTriggerSpeed: 0.42,
+      playerTriggerAngleDeg: 72,
+      playerTriggerCooldownMs: 170,
+      playerPulseSpeedScale: 0.78,
+
+      // Projéteis: duração maior e ÚNICO lugar com boing sutil no final.
+      shotPulseMs: 760,
+      shotBoingStrength: 0.035,
+      shotMultiplier: 1.22,
+
+      // Inimigos/asteroides: curto, sem boing. Visível, mas sem ficar deformado.
+      enemyPulseMs: 280,
+      enemyBoingStrength: 0,
+      enemyMultiplier: 1.22,
+
+      // Impactos/explosões pequenas.
+      impactPulseMs: 200,
+      impactBoingStrength: 0,
     },
 
     shots: {
@@ -268,6 +311,7 @@ const CONFIG = {
         shootEveryMs: 1350,
         bulletSpeed: 4.7,
         edgePadding: 92,
+        verticalTravelMs: 2200,
         pairGapX: 0,
       },
 
@@ -391,7 +435,7 @@ class AssetManager {
       entries.map(async ([key, config]) => {
         const image = await this.loadImage(config.src);
         this.images.set(key, image);
-      })
+      }),
     );
   }
 
@@ -486,7 +530,7 @@ class AnimatedSprite extends Sprite {
       this.x,
       this.y,
       this.w,
-      this.h
+      this.h,
     );
 
     return true;
@@ -506,14 +550,24 @@ function createInitialPlayer(): Player {
     invincibleUntil: 0,
     normalCooldown: 0,
     strongReadyAt: 0,
+    stretchUntil: 0,
+    stretchVx: 1,
+    stretchVy: 0,
+    wasMoving: false,
+    lastInputX: 0,
+    lastInputY: 0,
+    lastMoveAngle: 0,
+    lastStretchAt: 0,
   };
 }
 
 function rectsCollide(
   a: { x: number; y: number; w: number; h: number },
-  b: { x: number; y: number; w: number; h: number }
+  b: { x: number; y: number; w: number; h: number },
 ) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  return (
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+  );
 }
 
 function rand(min: number, max: number) {
@@ -524,27 +578,141 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function getVelocityStretchAmount(vx: number, vy: number) {
-  if (!CONFIG.gameplay.dynamicStretch.enabled) {
+type StretchProfile = "player" | "shot" | "enemy" | "impact";
+
+function getStretchSettings(profile: StretchProfile) {
+  const cfg = CONFIG.gameplay.dynamicStretch;
+
+  if (profile === "player") {
+    return {
+      ms: cfg.playerPulseMs,
+      boing: cfg.playerBoingStrength,
+      multiplier: cfg.playerMultiplier,
+      decayPower: 1.55,
+      boingStart: 0.78,
+      attackRatio: 0.18,
+    };
+  }
+
+  if (profile === "shot") {
+    return {
+      ms: cfg.shotPulseMs,
+      boing: cfg.shotBoingStrength,
+      multiplier: cfg.shotMultiplier,
+      decayPower: 1.25,
+      boingStart: 0.72,
+      attackRatio: 0.14,
+    };
+  }
+
+  if (profile === "enemy") {
+    return {
+      ms: cfg.enemyPulseMs,
+      boing: cfg.enemyBoingStrength,
+      multiplier: cfg.enemyMultiplier,
+      decayPower: 1.45,
+      boingStart: 0.78,
+      attackRatio: 0.16,
+    };
+  }
+
+  return {
+    ms: cfg.impactPulseMs,
+    boing: cfg.impactBoingStrength,
+    multiplier: 1,
+    decayPower: 1.55,
+    boingStart: 0.78,
+    attackRatio: 0.16,
+  };
+}
+
+function getStretchPulse(
+  until: number,
+  profile: StretchProfile,
+  now = performance.now(),
+) {
+  if (!CONFIG.gameplay.dynamicStretch.enabled || until <= now) {
+    return 0;
+  }
+
+  const settings = getStretchSettings(profile);
+  const pulseMs = Math.max(1, settings.ms);
+  const remaining = clamp((until - now) / pulseMs, 0, 1);
+  const progress = 1 - remaining;
+
+  // Pulso principal com entrada suave:
+  // começa em 0, sobe rápido, depois volta para 0.
+  // Isso evita a sensação de "travada" e impede reset visual brusco.
+  const attackRatio = clamp(settings.attackRatio ?? 0.16, 0.05, 0.45);
+  const attack =
+    progress < attackRatio
+      ? Math.sin((progress / attackRatio) * (Math.PI / 2))
+      : 1;
+
+  const decayProgress = clamp(
+    (progress - attackRatio) / Math.max(0.001, 1 - attackRatio),
+    0,
+    1,
+  );
+
+  const mainStretch = attack * Math.pow(1 - decayProgress, settings.decayPower);
+
+  // Boing: só acontece em perfis que tiverem boing > 0. No CONFIG atual, só projéteis.
+  if (settings.boing <= 0 || progress <= settings.boingStart) {
+    return mainStretch;
+  }
+
+  const boingProgress = clamp(
+    (progress - settings.boingStart) / (1 - settings.boingStart),
+    0,
+    1,
+  );
+
+  const boing =
+    -settings.boing *
+    Math.sin(boingProgress * Math.PI) *
+    Math.pow(1 - boingProgress, 0.45);
+
+  return mainStretch + boing;
+}
+
+function getVelocityStretchAmount(vx: number, vy: number, pulse = 0) {
+  if (!CONFIG.gameplay.dynamicStretch.enabled || Math.abs(pulse) <= 0.001) {
     return 0;
   }
 
   const speed = Math.hypot(vx, vy);
-  return clamp(speed * CONFIG.gameplay.dynamicStretch.base, 0, CONFIG.gameplay.dynamicStretch.max);
+  const raw = speed * CONFIG.gameplay.dynamicStretch.base * pulse;
+
+  return clamp(
+    raw,
+    -CONFIG.gameplay.dynamicStretch.maxSquash,
+    CONFIG.gameplay.dynamicStretch.maxStretch,
+  );
 }
 
-function applyVelocityStretch(ctx: CanvasRenderingContext2D, vx: number, vy: number, multiplier = 1) {
-  const amount = getVelocityStretchAmount(vx, vy) * multiplier;
+function applyVelocityStretch(
+  ctx: CanvasRenderingContext2D,
+  vx: number,
+  vy: number,
+  multiplier = 1,
+  pulse = 0,
+) {
+  const amount = getVelocityStretchAmount(vx, vy, pulse) * multiplier;
 
-  if (amount <= 0.001) {
+  if (Math.abs(amount) <= 0.001) {
     return;
   }
 
-  const angle = Math.atan2(vy, vx || 0.0001);
+  const speed = Math.hypot(vx, vy);
+  const angle = speed > 0.001 ? Math.atan2(vy, vx) : 0;
   const squeeze = CONFIG.gameplay.dynamicStretch.squeeze;
 
+  const stretchScale = clamp(1 + amount, 0.72, 1.55);
+  const squashScale = clamp(1 - amount * squeeze, 0.72, 1.28);
+
   ctx.rotate(angle);
-  ctx.scale(1 + amount, Math.max(0.58, 1 - amount * squeeze));
+  ctx.scale(stretchScale, squashScale);
   ctx.rotate(-angle);
 }
 
@@ -559,11 +727,12 @@ function drawVelocityStretchedImage(
   vy: number,
   rotation = 0,
   fallbackColor = "#ffffff",
-  stretchMultiplier = 1.35
+  stretchMultiplier = 1.35,
+  stretchPulse = 0,
 ) {
   ctx.save();
   ctx.translate(x + w / 2, y + h / 2);
-  applyVelocityStretch(ctx, vx, vy, stretchMultiplier);
+  applyVelocityStretch(ctx, vx, vy, stretchMultiplier, stretchPulse);
   ctx.rotate(rotation);
 
   if (CONFIG.useSprites && img) {
@@ -617,8 +786,8 @@ export default function JogoPage() {
       0,
       0,
       CONFIG.gameplay.player.width,
-      CONFIG.gameplay.player.height
-    )
+      CONFIG.gameplay.player.height,
+    ),
   );
 
   const shotsRef = useRef<Shot[]>([]);
@@ -716,7 +885,12 @@ export default function JogoPage() {
     }
 
     tocarSom(CONFIG.sounds.playerDamage, 0.5);
-    criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff4d4d", 14);
+    criarParticulasHit(
+      player.x + player.w / 2,
+      player.y + player.h / 2,
+      "#ff4d4d",
+      14,
+    );
 
     if (forcarHpUm) {
       player.hp = Math.max(1, Math.min(player.hp, 1));
@@ -728,7 +902,11 @@ export default function JogoPage() {
     setPlayerHp(player.hp);
     setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
 
-    if (player.hp <= 1 && gameStateRef.current === "playing" && CONFIG.useSounds) {
+    if (
+      player.hp <= 1 &&
+      gameStateRef.current === "playing" &&
+      CONFIG.useSounds
+    ) {
       if (!alarmAudioRef.current) {
         const audio = new Audio(CONFIG.sounds.lowHpAlarm);
         audio.loop = true;
@@ -880,14 +1058,20 @@ export default function JogoPage() {
       const centerY = (CONFIG.canvasHeight - cfg.height) / 2;
       const verticalRange = Math.max(
         40,
-        CONFIG.canvasHeight / 2 - cfg.edgePadding - cfg.height / 2
+        CONFIG.canvasHeight / 2 - cfg.edgePadding - cfg.height / 2,
       );
       const topY = centerY - verticalRange;
       const bottomY = centerY + verticalRange;
       const sharedCooldown = cfg.shootEveryMs;
 
-      const createRed = (startY: number, phase: number): Enemy => ({
+      const createRed = (
+        startY: number,
+        targetY: number,
+        phase: number,
+      ): Enemy => ({
         id: enemyIdRef.current++,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
         kind: "red",
         x: CONFIG.canvasWidth + 80,
         y: startY,
@@ -903,10 +1087,13 @@ export default function JogoPage() {
         windUpMs: 0,
         isDashing: false,
         phase,
+        redStartY: startY,
+        redTargetY: targetY,
+        redTravelTimeMs: cfg.verticalTravelMs,
       });
 
-      enemiesRef.current.push(createRed(topY, -Math.PI / 2));
-      enemiesRef.current.push(createRed(bottomY, Math.PI / 2));
+      enemiesRef.current.push(createRed(topY, bottomY, 0));
+      enemiesRef.current.push(createRed(bottomY, topY, Math.PI));
       return;
     }
 
@@ -916,6 +1103,8 @@ export default function JogoPage() {
 
       enemiesRef.current.push({
         id,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
         kind: "black",
         x: cfg.appearX,
         y: spawnY,
@@ -946,6 +1135,8 @@ export default function JogoPage() {
 
       enemiesRef.current.push({
         id,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
         kind: "purple",
         x: CONFIG.canvasWidth + 70,
         y: spawnY,
@@ -971,13 +1162,18 @@ export default function JogoPage() {
       const hp = Math.max(2, Math.ceil(sizeTier * cfg.hpPerTier));
       const speed = Math.max(
         cfg.minSpeed,
-        cfg.baseSpeed - sizeTier * cfg.speedLossPerTier
+        cfg.baseSpeed - sizeTier * cfg.speedLossPerTier,
       );
-      const fragmentCount = Math.max(2, Math.ceil(sizeTier * cfg.fragmentsPerTier));
+      const fragmentCount = Math.max(
+        2,
+        Math.ceil(sizeTier * cfg.fragmentsPerTier),
+      );
       const rotationDirection = Math.random() > 0.5 ? 1 : -1;
 
       enemiesRef.current.push({
         id,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
         kind: "asteroid",
         x: CONFIG.canvasWidth + size,
         y: clamp(spawnY, 40, CONFIG.canvasHeight - size - 40),
@@ -994,8 +1190,7 @@ export default function JogoPage() {
         isDashing: false,
         rotation: rand(0, Math.PI * 2),
         rotationSpeed:
-          rotationDirection *
-          rand(cfg.rotationSpeedMin, cfg.rotationSpeedMax),
+          rotationDirection * rand(cfg.rotationSpeedMin, cfg.rotationSpeedMax),
         sizeTier,
         fragmentCount,
         cracked: false,
@@ -1018,6 +1213,8 @@ export default function JogoPage() {
 
       enemiesRef.current.push({
         id: enemyIdRef.current++,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
         kind: "fragment",
         x: enemy.x + enemy.w / 2 - fragmentSize / 2,
         y: enemy.y + enemy.h / 2 - fragmentSize / 2,
@@ -1082,6 +1279,38 @@ export default function JogoPage() {
         color: color || corParticulaQuente(),
       });
     }
+  }
+
+  function triggerPlayerStretch(vx: number, vy: number) {
+    const now = performance.now();
+    const player = playerRef.current;
+    const speed = Math.hypot(vx, vy);
+
+    if (speed < CONFIG.gameplay.dynamicStretch.playerTriggerSpeed) {
+      return;
+    }
+
+    // Não reinicia a distorção se ela ainda está ativa.
+    // Isso remove o "boing/reset" quando troca direção várias vezes rápido.
+    if (now < player.stretchUntil) {
+      return;
+    }
+
+    if (now - player.lastStretchAt < CONFIG.gameplay.dynamicStretch.playerTriggerCooldownMs) {
+      return;
+    }
+
+    const dirX = vx / Math.max(0.001, speed);
+    const dirY = vy / Math.max(0.001, speed);
+    const pulseSpeed =
+      Math.max(CONFIG.gameplay.player.maxSpeedX, CONFIG.gameplay.player.maxSpeedY) *
+      CONFIG.gameplay.dynamicStretch.playerPulseSpeedScale;
+
+    player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+    player.stretchVx = dirX * pulseSpeed;
+    player.stretchVy = dirY * pulseSpeed;
+    player.lastMoveAngle = Math.atan2(vy, vx);
+    player.lastStretchAt = now;
   }
 
   useEffect(() => {
@@ -1153,6 +1382,8 @@ export default function JogoPage() {
 
       shotsRef.current.push({
         id: shotIdRef.current++,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: player.x + player.w - 2,
         y: player.y + player.h / 2 - CONFIG.gameplay.shots.normal.height / 2,
         w: CONFIG.gameplay.shots.normal.width,
@@ -1176,6 +1407,8 @@ export default function JogoPage() {
 
       shotsRef.current.push({
         id: shotIdRef.current++,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: player.x + player.w - 2,
         y: player.y + player.h / 2 - CONFIG.gameplay.shots.strong.height / 2,
         w: CONFIG.gameplay.shots.strong.width,
@@ -1189,6 +1422,11 @@ export default function JogoPage() {
 
       player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
       player.vx -= CONFIG.gameplay.player.strongShotRecoil;
+      player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+      player.stretchVx =
+        -Math.max(CONFIG.gameplay.player.maxSpeedX, CONFIG.gameplay.player.maxSpeedY) *
+        CONFIG.gameplay.dynamicStretch.playerPulseSpeedScale;
+      player.stretchVy = 0;
 
       shakeRef.current = {
         intensity: CONFIG.gameplay.player.strongShotShake,
@@ -1196,7 +1434,7 @@ export default function JogoPage() {
       };
 
       strongCooldownRef.current = Math.ceil(
-        CONFIG.gameplay.shots.strong.cooldownMs / 1000
+        CONFIG.gameplay.shots.strong.cooldownMs / 1000,
       );
       setStrongCooldown(strongCooldownRef.current);
     }
@@ -1206,7 +1444,7 @@ export default function JogoPage() {
 
       const restante = Math.max(
         0,
-        Math.ceil((player.strongReadyAt - performance.now()) / 1000)
+        Math.ceil((player.strongReadyAt - performance.now()) / 1000),
       );
 
       strongCooldownRef.current = restante;
@@ -1215,7 +1453,7 @@ export default function JogoPage() {
 
     function desenharFundo(
       ctx: CanvasRenderingContext2D,
-      canvas: HTMLCanvasElement
+      canvas: HTMLCanvasElement,
     ) {
       const bg = assetsRef.current.get("background");
 
@@ -1252,7 +1490,14 @@ export default function JogoPage() {
 
       ctx.save();
       ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
-      applyVelocityStretch(ctx, player.vx, player.vy, 1.15);
+      const playerPulse = getStretchPulse(player.stretchUntil, "player");
+      applyVelocityStretch(
+        ctx,
+        player.stretchVx,
+        player.stretchVy,
+        getStretchSettings("player").multiplier,
+        playerPulse,
+      );
       ctx.rotate((player.tilt * Math.PI) / 180);
 
       if (
@@ -1270,7 +1515,7 @@ export default function JogoPage() {
           -player.w / 2,
           -player.h / 2,
           player.w,
-          player.h
+          player.h,
         );
       } else {
         ctx.fillStyle = CONFIG.colors.player;
@@ -1303,7 +1548,9 @@ export default function JogoPage() {
         shot.speed,
         0,
         0,
-        color
+        color,
+        getStretchSettings("shot").multiplier,
+        getStretchPulse(shot.stretchUntil, "shot"),
       );
     }
 
@@ -1344,14 +1591,21 @@ export default function JogoPage() {
         enemy.vx,
         enemy.vy,
         rotation,
-        fallbackColor
+        fallbackColor,
+        getStretchSettings("enemy").multiplier,
+        getStretchPulse(enemy.stretchUntil, "enemy"),
       );
 
       ctx.save();
       ctx.fillStyle = "rgba(0,0,0,0.72)";
       ctx.fillRect(enemy.x, enemy.y - 10, enemy.w, 5);
       ctx.fillStyle = "#f8e7b0";
-      ctx.fillRect(enemy.x, enemy.y - 10, enemy.w * (enemy.hp / enemy.maxHp), 5);
+      ctx.fillRect(
+        enemy.x,
+        enemy.y - 10,
+        enemy.w * (enemy.hp / enemy.maxHp),
+        5,
+      );
       ctx.restore();
 
       if (enemy.kind === "black" && enemy.age < enemy.windUpMs) {
@@ -1363,7 +1617,10 @@ export default function JogoPage() {
       }
     }
 
-    function desenharEnemyProjectile(ctx: CanvasRenderingContext2D, bullet: EnemyProjectile) {
+    function desenharEnemyProjectile(
+      ctx: CanvasRenderingContext2D,
+      bullet: EnemyProjectile,
+    ) {
       const img = assetsRef.current.get("enemyBullet");
       drawVelocityStretchedImage(
         ctx,
@@ -1375,7 +1632,9 @@ export default function JogoPage() {
         bullet.vx,
         bullet.vy,
         0,
-        CONFIG.colors.enemyBullet
+        CONFIG.colors.enemyBullet,
+        getStretchSettings("shot").multiplier,
+        getStretchPulse(bullet.stretchUntil, "shot"),
       );
     }
 
@@ -1406,7 +1665,7 @@ export default function JogoPage() {
           particle.x - particle.size / 2,
           particle.y - particle.size / 2,
           particle.size,
-          particle.size
+          particle.size,
         );
         ctx.shadowBlur = 0;
       }
@@ -1430,7 +1689,7 @@ export default function JogoPage() {
           ? `X: forte ${strongCooldownRef.current}s`
           : "X: forte pronto",
         34,
-        148
+        148,
       );
       ctx.fillText("8/9/0/-: testes", 34, 180);
       ctx.restore();
@@ -1451,25 +1710,45 @@ export default function JogoPage() {
           if (updated.kind === "red") {
             updated.x += updated.vx * speedFactor;
 
-            const centerY = (canvas.height - updated.h) / 2;
-            const amplitude = Math.max(
-              40,
-              canvas.height / 2 - redCfg.edgePadding - updated.h / 2
-            );
-
             const previousY = updated.y;
-            updated.y =
-              centerY +
-              Math.sin(updated.age * redCfg.waveFrequency + (updated.phase ?? 0)) *
-                amplitude;
+            const startY = updated.redStartY ?? updated.y;
+            const targetY = updated.redTargetY ?? updated.y;
+            const travelTime = Math.max(
+              400,
+              updated.redTravelTimeMs ?? redCfg.verticalTravelMs,
+            );
+            const pingPong = (updated.age % (travelTime * 2)) / travelTime;
+            const t = pingPong <= 1 ? pingPong : 2 - pingPong;
+            const easedT = 0.5 - Math.cos(t * Math.PI) * 0.5;
+            const waveOffset =
+              Math.sin(
+                updated.age * redCfg.waveFrequency + (updated.phase ?? 0),
+              ) * redCfg.waveAmplitude;
+
+            updated.y = startY + (targetY - startY) * easedT + waveOffset;
             updated.y = clamp(updated.y, 18, canvas.height - updated.h - 18);
+
+            const oldVy = updated.vy;
             updated.vy = (updated.y - previousY) / Math.max(0.001, speedFactor);
+
+            if (
+              Math.abs(updated.vy) > 0.25 &&
+              Math.abs(oldVy) > 0.25 &&
+              Math.sign(updated.vy) !== Math.sign(oldVy)
+            ) {
+              updated.stretchUntil =
+                performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+            }
+
             updated.shotCooldown -= delta;
 
             if (updated.shotCooldown <= 0) {
               updated.shotCooldown = redCfg.shootEveryMs;
               enemyProjectilesRef.current.push({
                 id: enemyIdRef.current++,
+                stretchUntil:
+                  performance.now() +
+                  CONFIG.gameplay.dynamicStretch.shotPulseMs,
                 x: updated.x - 18,
                 y: updated.y + updated.h / 2 - 7,
                 w: 18,
@@ -1484,6 +1763,10 @@ export default function JogoPage() {
 
           if (updated.kind === "black") {
             if (updated.age >= updated.windUpMs) {
+              if (!updated.isDashing) {
+                updated.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+              }
+
               updated.isDashing = true;
               updated.x += updated.vx * speedFactor;
               updated.y += updated.vy * speedFactor;
@@ -1496,8 +1779,7 @@ export default function JogoPage() {
 
             if (updated.kind === "asteroid") {
               updated.rotation =
-                (updated.rotation ?? 0) +
-                (updated.rotationSpeed ?? 0) * delta;
+                (updated.rotation ?? 0) + (updated.rotationSpeed ?? 0) * delta;
             }
           }
 
@@ -1506,8 +1788,7 @@ export default function JogoPage() {
             updated.y += updated.vy * speedFactor;
             updated.vy += 0.015 * speedFactor;
             updated.rotation =
-              (updated.rotation ?? 0) +
-              (updated.rotationSpeed ?? 0) * delta;
+              (updated.rotation ?? 0) + (updated.rotationSpeed ?? 0) * delta;
           }
 
           return updated;
@@ -1518,7 +1799,7 @@ export default function JogoPage() {
             enemy.x < canvas.width + 220 &&
             enemy.y > -180 &&
             enemy.y < canvas.height + 180 &&
-            enemy.hp > 0
+            enemy.hp > 0,
         );
 
       enemyProjectilesRef.current = enemyProjectilesRef.current
@@ -1555,7 +1836,12 @@ export default function JogoPage() {
               if (enemy.kind === "asteroid") {
                 spawnAsteroidFragments(enemy);
               } else {
-                criarExplosao(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#ffe18c", 16);
+                criarExplosao(
+                  enemy.x + enemy.w / 2,
+                  enemy.y + enemy.h / 2,
+                  "#ffe18c",
+                  16,
+                );
                 tocarSom(CONFIG.sounds.enemyDeath, 0.38);
               }
             }
@@ -1575,7 +1861,12 @@ export default function JogoPage() {
             receberDano(0, true);
             spawnAsteroidFragments(enemy);
           } else {
-            criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 10);
+            criarParticulasHit(
+              player.x + player.w / 2,
+              player.y + player.h / 2,
+              "#ff6b6b",
+              10,
+            );
             receberDano(1);
           }
         }
@@ -1584,22 +1875,31 @@ export default function JogoPage() {
       for (const bullet of enemyProjectilesRef.current) {
         if (rectsCollide(player, bullet)) {
           projectilesToRemove.add(bullet.id);
-          criarParticulasHit(bullet.x + bullet.w / 2, bullet.y + bullet.h / 2, "#ff6b6b", 8);
+          criarParticulasHit(
+            bullet.x + bullet.w / 2,
+            bullet.y + bullet.h / 2,
+            "#ff6b6b",
+            8,
+          );
           receberDano(bullet.damage);
         }
       }
 
       if (shotsToRemove.size > 0) {
-        shotsRef.current = shotsRef.current.filter((shot) => !shotsToRemove.has(shot.id));
+        shotsRef.current = shotsRef.current.filter(
+          (shot) => !shotsToRemove.has(shot.id),
+        );
       }
 
       if (enemiesToRemove.size > 0) {
-        enemiesRef.current = enemiesRef.current.filter((enemy) => !enemiesToRemove.has(enemy.id));
+        enemiesRef.current = enemiesRef.current.filter(
+          (enemy) => !enemiesToRemove.has(enemy.id),
+        );
       }
 
       if (projectilesToRemove.size > 0) {
         enemyProjectilesRef.current = enemyProjectilesRef.current.filter(
-          (bullet) => !projectilesToRemove.has(bullet.id)
+          (bullet) => !projectilesToRemove.has(bullet.id),
         );
       }
     }
@@ -1620,6 +1920,10 @@ export default function JogoPage() {
         (keysRef.current["arrowdown"] || keysRef.current["s"] ? 1 : 0) -
         (keysRef.current["arrowup"] || keysRef.current["w"] ? 1 : 0);
 
+      const movingNow = inputX !== 0 || inputY !== 0;
+      const previousVx = player.vx;
+      const previousVy = player.vy;
+
       if (inputX !== 0) {
         player.vx += inputX * CONFIG.gameplay.player.acceleration * speedFactor;
       } else {
@@ -1632,11 +1936,48 @@ export default function JogoPage() {
         player.vy *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
       }
 
-      player.vx = clamp(player.vx, -CONFIG.gameplay.player.maxSpeedX, CONFIG.gameplay.player.maxSpeedX);
-      player.vy = clamp(player.vy, -CONFIG.gameplay.player.maxSpeedY, CONFIG.gameplay.player.maxSpeedY);
+      player.vx = clamp(
+        player.vx,
+        -CONFIG.gameplay.player.maxSpeedX,
+        CONFIG.gameplay.player.maxSpeedX,
+      );
+      player.vy = clamp(
+        player.vy,
+        -CONFIG.gameplay.player.maxSpeedY,
+        CONFIG.gameplay.player.maxSpeedY,
+      );
 
       if (Math.abs(player.vx) < 0.02) player.vx = 0;
       if (Math.abs(player.vy) < 0.02) player.vy = 0;
+
+      const previousSpeed = Math.hypot(previousVx, previousVy);
+      const currentSpeed = Math.hypot(player.vx, player.vy);
+      const wasReallyMoving = previousSpeed > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
+      const isReallyMoving = currentSpeed > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
+
+      if (!wasReallyMoving && isReallyMoving) {
+        triggerPlayerStretch(player.vx, player.vy);
+      } else if (wasReallyMoving && isReallyMoving) {
+        const previousAngle = Math.atan2(previousVy, previousVx);
+        const currentAngle = Math.atan2(player.vy, player.vx);
+        const angleDiff = Math.abs(
+          Math.atan2(
+            Math.sin(currentAngle - previousAngle),
+            Math.cos(currentAngle - previousAngle),
+          ),
+        );
+
+        if (
+          angleDiff >=
+          (CONFIG.gameplay.dynamicStretch.playerTriggerAngleDeg * Math.PI) / 180
+        ) {
+          triggerPlayerStretch(player.vx, player.vy);
+        }
+      }
+
+      player.wasMoving = isReallyMoving;
+      player.lastInputX = movingNow ? inputX : 0;
+      player.lastInputY = movingNow ? inputY : 0;
 
       player.x += player.vx * speedFactor;
       player.y += player.vy * speedFactor;
@@ -1715,10 +2056,14 @@ export default function JogoPage() {
 
       for (const shot of shotsRef.current) desenharTiro(renderCtx, shot);
       for (const enemy of enemiesRef.current) desenharEnemy(renderCtx, enemy);
-      for (const bullet of enemyProjectilesRef.current) desenharEnemyProjectile(renderCtx, bullet);
+      for (const bullet of enemyProjectilesRef.current)
+        desenharEnemyProjectile(renderCtx, bullet);
       desenharParticulas(renderCtx);
 
-      if (gameStateRef.current === "playing" || gameStateRef.current === "paused") {
+      if (
+        gameStateRef.current === "playing" ||
+        gameStateRef.current === "paused"
+      ) {
         desenharPlayer(renderCtx, delta);
       }
 
@@ -1732,11 +2077,16 @@ export default function JogoPage() {
       const key = e.key.toLowerCase();
       keysRef.current[key] = true;
 
-      if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
+      if (
+        ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)
+      ) {
         e.preventDefault();
       }
 
-      if (gameStateRef.current === "title" && (key === "enter" || key === " ")) {
+      if (
+        gameStateRef.current === "title" &&
+        (key === "enter" || key === " ")
+      ) {
         abrirMenuPrincipal();
         return;
       }
@@ -1749,7 +2099,10 @@ export default function JogoPage() {
 
         if (key === "arrowup" || key === "w") {
           tocarSom(CONFIG.sounds.menuMove, 0.32);
-          setIndiceMenu((menuIndexRef.current - 1 + MAIN_MENU_OPTIONS.length) % MAIN_MENU_OPTIONS.length);
+          setIndiceMenu(
+            (menuIndexRef.current - 1 + MAIN_MENU_OPTIONS.length) %
+              MAIN_MENU_OPTIONS.length,
+          );
           return;
         }
 
@@ -1765,7 +2118,10 @@ export default function JogoPage() {
         }
       }
 
-      if (gameStateRef.current === "storyCutscene" && (key === "enter" || key === " ")) {
+      if (
+        gameStateRef.current === "storyCutscene" &&
+        (key === "enter" || key === " ")
+      ) {
         avancarHistoria();
         return;
       }
@@ -1818,25 +2174,34 @@ export default function JogoPage() {
     >
       <canvas ref={canvasRef} className="game-fullscreen-canvas" />
 
-      <div className={`game-title-bg-transition ${titleLeaving ? "show" : ""}`} />
+      <div
+        className={`game-title-bg-transition ${titleLeaving ? "show" : ""}`}
+      />
       <div className={`game-screen-fade ${screenFade ? "show" : ""}`} />
 
-      {isLowHp && gameState === "playing" && <div className="game-low-hp-vignette" />}
+      {isLowHp && gameState === "playing" && (
+        <div className="game-low-hp-vignette" />
+      )}
 
       {(gameState === "playing" || gameState === "paused") && (
         <div className="game-life-hud">
           {lifeSlots.map((_, index) => (
             <img
               key={index}
-              src={index < playerHp ? CONFIG.uiImages.lifeFull : CONFIG.uiImages.lifeEmpty}
+              src={
+                index < playerHp
+                  ? CONFIG.uiImages.lifeFull
+                  : CONFIG.uiImages.lifeEmpty
+              }
               alt={index < playerHp ? "vida" : "vida perdida"}
               draggable={false}
               onContextMenu={(event) => event.preventDefault()}
               onError={(event) => {
                 const img = event.currentTarget;
-                const fallback = index < playerHp
-                  ? CONFIG.uiImages.lifeFullFallback
-                  : CONFIG.uiImages.lifeEmptyFallback;
+                const fallback =
+                  index < playerHp
+                    ? CONFIG.uiImages.lifeFullFallback
+                    : CONFIG.uiImages.lifeEmptyFallback;
 
                 if (img.src.endsWith(fallback)) return;
                 img.src = fallback;
@@ -1860,7 +2225,9 @@ export default function JogoPage() {
 
       {gameState === "mainMenu" && (
         <section className="game-screen game-main-menu-screen">
-          <aside className={`game-retro-panel ${menuOpen ? "is-open" : "is-closed"}`}>
+          <aside
+            className={`game-retro-panel ${menuOpen ? "is-open" : "is-closed"}`}
+          >
             <p className="game-panel-label">MENU PRINCIPAL</p>
 
             <div className="game-retro-menu-list">
@@ -1873,12 +2240,14 @@ export default function JogoPage() {
                     type="button"
                     className={`game-menu-option ${selected ? "is-selected" : ""} ${option.disabled ? "is-disabled" : ""}`}
                     onMouseEnter={() => {
-                      if (menuIndex !== index) tocarSom(CONFIG.sounds.menuMove, 0.24);
+                      if (menuIndex !== index)
+                        tocarSom(CONFIG.sounds.menuMove, 0.24);
                       setIndiceMenu(index);
                     }}
                     onFocus={() => setIndiceMenu(index)}
                     onClick={() => {
-                      if (!option.disabled && option.mode) escolherModo(option.mode);
+                      if (!option.disabled && option.mode)
+                        escolherModo(option.mode);
                       else tocarSom(CONFIG.sounds.menuBack, 0.3);
                     }}
                     disabled={option.disabled}
@@ -1926,11 +2295,19 @@ export default function JogoPage() {
             <p className="game-panel-label">TUTORIAL</p>
 
             <div className="game-retro-menu-list">
-              <button type="button" className="game-menu-option is-selected" onClick={() => setEstado("tutorial")}>
+              <button
+                type="button"
+                className="game-menu-option is-selected"
+                onClick={() => setEstado("tutorial")}
+              >
                 FAZER TUTORIAL
               </button>
 
-              <button type="button" className="game-menu-option" onClick={iniciarJogo}>
+              <button
+                type="button"
+                className="game-menu-option"
+                onClick={iniciarJogo}
+              >
                 PULAR E COMEÇAR
               </button>
             </div>
@@ -1965,7 +2342,10 @@ export default function JogoPage() {
       )}
 
       {gameState === "playing" && (
-        <div className="game-mobile-controls">
+        <div
+          className="game-mobile-controls"
+          onContextMenu={(event) => event.preventDefault()}
+        >
           <div className="game-mobile-dpad">
             <button
               className="mobile-up"
@@ -1974,7 +2354,11 @@ export default function JogoPage() {
               onPointerLeave={() => (keysRef.current["arrowup"] = false)}
               onPointerCancel={() => (keysRef.current["arrowup"] = false)}
             >
-              <img draggable={false} src={CONFIG.uiImages.mobileUp} alt="cima" />
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobileUp}
+                alt="cima"
+              />
             </button>
             <button
               className="mobile-left"
@@ -1983,7 +2367,11 @@ export default function JogoPage() {
               onPointerLeave={() => (keysRef.current["arrowleft"] = false)}
               onPointerCancel={() => (keysRef.current["arrowleft"] = false)}
             >
-              <img draggable={false} src={CONFIG.uiImages.mobileLeft} alt="esquerda" />
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobileLeft}
+                alt="esquerda"
+              />
             </button>
             <button
               className="mobile-right"
@@ -1992,7 +2380,11 @@ export default function JogoPage() {
               onPointerLeave={() => (keysRef.current["arrowright"] = false)}
               onPointerCancel={() => (keysRef.current["arrowright"] = false)}
             >
-              <img draggable={false} src={CONFIG.uiImages.mobileRight} alt="direita" />
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobileRight}
+                alt="direita"
+              />
             </button>
             <button
               className="mobile-down"
@@ -2001,7 +2393,11 @@ export default function JogoPage() {
               onPointerLeave={() => (keysRef.current["arrowdown"] = false)}
               onPointerCancel={() => (keysRef.current["arrowdown"] = false)}
             >
-              <img draggable={false} src={CONFIG.uiImages.mobileDown} alt="baixo" />
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobileDown}
+                alt="baixo"
+              />
             </button>
           </div>
 
@@ -2012,15 +2408,31 @@ export default function JogoPage() {
               onPointerLeave={() => (mobileShootRef.current = false)}
               onPointerCancel={() => (mobileShootRef.current = false)}
             >
-              <img draggable={false} src={CONFIG.uiImages.mobileShot} alt="tiro" />
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobileShot}
+                alt="tiro"
+              />
             </button>
 
             <button onClick={tiroForteMobile} disabled={strongCooldown > 0}>
-              {strongCooldown > 0 ? <span>{strongCooldown}s</span> : <img draggable={false} src={CONFIG.uiImages.mobileStrong} alt="tiro forte" />}
+              {strongCooldown > 0 ? (
+                <span>{strongCooldown}s</span>
+              ) : (
+                <img
+                  draggable={false}
+                  src={CONFIG.uiImages.mobileStrong}
+                  alt="tiro forte"
+                />
+              )}
             </button>
 
             <button onClick={pausarOuVoltar}>
-              <img draggable={false} src={CONFIG.uiImages.mobilePause} alt="pause" />
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobilePause}
+                alt="pause"
+              />
             </button>
           </div>
         </div>
