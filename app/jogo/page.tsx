@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
 type GameState =
   | "title"
@@ -230,8 +230,17 @@ const CONFIG = {
 
   gameplay: {
     player: {
-      width: 72,
-      height: 72,
+      // Tamanho visual da nave na tela.
+      width: 132,
+      height: 74,
+
+      // Hitbox configurável da nave.
+      // offsetX/offsetY centralizam a hitbox dentro do sprite visual.
+      hitboxWidth: 116,
+      hitboxHeight: 54,
+      hitboxOffsetX: 8,
+      hitboxOffsetY: 10,
+
       maxHp: 5,
       invincibleMs: 2000,
       acceleration: 0.36,
@@ -254,7 +263,7 @@ const CONFIG = {
       base: 0.068,
 
       // Limites gerais para não destruir o sprite.
-      maxStretch: 0.20,
+      maxStretch: 0.2,
       maxSquash: 0.12,
       squeeze: 0.22,
 
@@ -383,6 +392,16 @@ const CONFIG = {
     mobileShot: "/game/ui/mobile-shot.png",
     mobileStrong: "/game/ui/mobile-strong.png",
     mobilePause: "/game/ui/mobile-pause.png",
+  },
+
+  settings: {
+    showGameplayHints: false,
+    showMobileStartHint: true,
+    mobileControls: "joystick",
+    enableScreenShake: true,
+    enableParticles: true,
+    enableLowHpAlarm: true,
+    autoPauseOnBlur: true,
   },
 
   colors: {
@@ -570,6 +589,17 @@ function rectsCollide(
   );
 }
 
+function getPlayerHitbox(player: Player) {
+  const cfg = CONFIG.gameplay.player;
+
+  return {
+    x: player.x + cfg.hitboxOffsetX,
+    y: player.y + cfg.hitboxOffsetY,
+    w: cfg.hitboxWidth,
+    h: cfg.hitboxHeight,
+  };
+}
+
 function rand(min: number, max: number) {
   return Math.random() * (max - min) + min;
 }
@@ -750,6 +780,8 @@ export default function JogoPage() {
 
   const keysRef = useRef<Record<string, boolean>>({});
   const mobileShootRef = useRef(false);
+  const mobileMoveRef = useRef({ x: 0, y: 0 });
+  const [mobileStick, setMobileStick] = useState({ x: 0, y: 0 });
 
   const gameStateRef = useRef<GameState>("title");
   const [gameState, setGameState] = useState<GameState>("title");
@@ -905,7 +937,8 @@ export default function JogoPage() {
     if (
       player.hp <= 1 &&
       gameStateRef.current === "playing" &&
-      CONFIG.useSounds
+      CONFIG.useSounds &&
+      CONFIG.settings.enableLowHpAlarm
     ) {
       if (!alarmAudioRef.current) {
         const audio = new Audio(CONFIG.sounds.lowHpAlarm);
@@ -965,6 +998,33 @@ export default function JogoPage() {
     window.setTimeout(() => {
       keysRef.current["x"] = false;
     }, 80);
+  }
+
+  function atualizarJoystick(event: ReactPointerEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const maxDistance = rect.width * 0.36;
+
+    const rawX = event.clientX - centerX;
+    const rawY = event.clientY - centerY;
+    const distance = Math.max(1, Math.hypot(rawX, rawY));
+    const limitedDistance = Math.min(distance, maxDistance);
+
+    const x = (rawX / distance) * limitedDistance;
+    const y = (rawY / distance) * limitedDistance;
+
+    mobileMoveRef.current = {
+      x: clamp(x / maxDistance, -1, 1),
+      y: clamp(y / maxDistance, -1, 1),
+    };
+
+    setMobileStick({ x, y });
+  }
+
+  function resetarJoystick() {
+    mobileMoveRef.current = { x: 0, y: 0 };
+    setMobileStick({ x: 0, y: 0 });
   }
 
   function abrirMenuPrincipal() {
@@ -1244,6 +1304,10 @@ export default function JogoPage() {
   }
 
   function criarParticulasHit(x: number, y: number, color = "", amount = 9) {
+    if (!CONFIG.settings.enableParticles) {
+      return;
+    }
+
     for (let i = 0; i < amount; i++) {
       const angle = rand(0, Math.PI * 2);
       const speed = rand(1.0, 4.1);
@@ -1263,6 +1327,10 @@ export default function JogoPage() {
   }
 
   function criarExplosao(x: number, y: number, color = "", amount = 26) {
+    if (!CONFIG.settings.enableParticles) {
+      return;
+    }
+
     for (let i = 0; i < amount; i++) {
       const angle = rand(0, Math.PI * 2);
       const speed = rand(1.8, 7.2);
@@ -1296,15 +1364,20 @@ export default function JogoPage() {
       return;
     }
 
-    if (now - player.lastStretchAt < CONFIG.gameplay.dynamicStretch.playerTriggerCooldownMs) {
+    if (
+      now - player.lastStretchAt <
+      CONFIG.gameplay.dynamicStretch.playerTriggerCooldownMs
+    ) {
       return;
     }
 
     const dirX = vx / Math.max(0.001, speed);
     const dirY = vy / Math.max(0.001, speed);
     const pulseSpeed =
-      Math.max(CONFIG.gameplay.player.maxSpeedX, CONFIG.gameplay.player.maxSpeedY) *
-      CONFIG.gameplay.dynamicStretch.playerPulseSpeedScale;
+      Math.max(
+        CONFIG.gameplay.player.maxSpeedX,
+        CONFIG.gameplay.player.maxSpeedY,
+      ) * CONFIG.gameplay.dynamicStretch.playerPulseSpeedScale;
 
     player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
     player.stretchVx = dirX * pulseSpeed;
@@ -1318,7 +1391,10 @@ export default function JogoPage() {
   }, []);
 
   useEffect(() => {
-    const shouldPlayAlarm = playerHp <= 1 && gameState === "playing";
+    const shouldPlayAlarm =
+      CONFIG.settings.enableLowHpAlarm &&
+      playerHp <= 1 &&
+      gameState === "playing";
 
     if (shouldPlayAlarm) {
       if (!alarmAudioRef.current) {
@@ -1337,7 +1413,11 @@ export default function JogoPage() {
 
   useEffect(() => {
     function handleVisibilityChange() {
-      if (document.hidden && gameStateRef.current === "playing") {
+      if (
+        CONFIG.settings.autoPauseOnBlur &&
+        document.hidden &&
+        gameStateRef.current === "playing"
+      ) {
         tocarSom(CONFIG.sounds.pause, 0.35);
         setEstado("paused");
         setIsLowHp(false);
@@ -1424,14 +1504,18 @@ export default function JogoPage() {
       player.vx -= CONFIG.gameplay.player.strongShotRecoil;
       player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
       player.stretchVx =
-        -Math.max(CONFIG.gameplay.player.maxSpeedX, CONFIG.gameplay.player.maxSpeedY) *
-        CONFIG.gameplay.dynamicStretch.playerPulseSpeedScale;
+        -Math.max(
+          CONFIG.gameplay.player.maxSpeedX,
+          CONFIG.gameplay.player.maxSpeedY,
+        ) * CONFIG.gameplay.dynamicStretch.playerPulseSpeedScale;
       player.stretchVy = 0;
 
-      shakeRef.current = {
-        intensity: CONFIG.gameplay.player.strongShotShake,
-        endAt: now + CONFIG.gameplay.player.strongShotShakeMs,
-      };
+      if (CONFIG.settings.enableScreenShake) {
+        shakeRef.current = {
+          intensity: CONFIG.gameplay.player.strongShotShake,
+          endAt: now + CONFIG.gameplay.player.strongShotShakeMs,
+        };
+      }
 
       strongCooldownRef.current = Math.ceil(
         CONFIG.gameplay.shots.strong.cooldownMs / 1000,
@@ -1500,23 +1584,33 @@ export default function JogoPage() {
       );
       ctx.rotate((player.tilt * Math.PI) / 180);
 
-      if (
-        CONFIG.useSprites &&
-        playerAsset &&
-        playerConfig.frameWidth &&
-        playerConfig.frameHeight
-      ) {
-        ctx.drawImage(
-          playerAsset,
-          anim.frame * playerConfig.frameWidth,
-          0,
-          playerConfig.frameWidth,
-          playerConfig.frameHeight,
-          -player.w / 2,
-          -player.h / 2,
-          player.w,
-          player.h,
-        );
+      if (CONFIG.useSprites && playerAsset) {
+        if (
+          playerConfig.frames &&
+          playerConfig.frames > 1 &&
+          playerConfig.frameWidth &&
+          playerConfig.frameHeight
+        ) {
+          ctx.drawImage(
+            playerAsset,
+            anim.frame * playerConfig.frameWidth,
+            0,
+            playerConfig.frameWidth,
+            playerConfig.frameHeight,
+            -player.w / 2,
+            -player.h / 2,
+            player.w,
+            player.h,
+          );
+        } else {
+          ctx.drawImage(
+            playerAsset,
+            -player.w / 2,
+            -player.h / 2,
+            player.w,
+            player.h,
+          );
+        }
       } else {
         ctx.fillStyle = CONFIG.colors.player;
         ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
@@ -1674,7 +1768,10 @@ export default function JogoPage() {
     }
 
     function desenharHUD(ctx: CanvasRenderingContext2D) {
-      if (gameStateRef.current !== "playing") {
+      if (
+        gameStateRef.current !== "playing" ||
+        !CONFIG.settings.showGameplayHints
+      ) {
         return;
       }
 
@@ -1764,7 +1861,9 @@ export default function JogoPage() {
           if (updated.kind === "black") {
             if (updated.age >= updated.windUpMs) {
               if (!updated.isDashing) {
-                updated.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+                updated.stretchUntil =
+                  performance.now() +
+                  CONFIG.gameplay.dynamicStretch.enemyPulseMs;
               }
 
               updated.isDashing = true;
@@ -1813,6 +1912,7 @@ export default function JogoPage() {
 
     function resolverColisoes() {
       const player = playerRef.current;
+      const playerHitbox = getPlayerHitbox(player);
       const enemiesToRemove = new Set<number>();
       const shotsToRemove = new Set<number>();
       const projectilesToRemove = new Set<number>();
@@ -1854,7 +1954,7 @@ export default function JogoPage() {
       for (const enemy of enemiesRef.current) {
         if (enemiesToRemove.has(enemy.id)) continue;
 
-        if (rectsCollide(player, enemy)) {
+        if (rectsCollide(playerHitbox, enemy)) {
           enemiesToRemove.add(enemy.id);
 
           if (enemy.kind === "asteroid") {
@@ -1873,7 +1973,7 @@ export default function JogoPage() {
       }
 
       for (const bullet of enemyProjectilesRef.current) {
-        if (rectsCollide(player, bullet)) {
+        if (rectsCollide(playerHitbox, bullet)) {
           projectilesToRemove.add(bullet.id);
           criarParticulasHit(
             bullet.x + bullet.w / 2,
@@ -1912,13 +2012,16 @@ export default function JogoPage() {
       const player = playerRef.current;
       const speedFactor = delta / 16.67;
 
-      const inputX =
+      const keyboardX =
         (keysRef.current["arrowright"] || keysRef.current["d"] ? 1 : 0) -
         (keysRef.current["arrowleft"] || keysRef.current["a"] ? 1 : 0);
 
-      const inputY =
+      const keyboardY =
         (keysRef.current["arrowdown"] || keysRef.current["s"] ? 1 : 0) -
         (keysRef.current["arrowup"] || keysRef.current["w"] ? 1 : 0);
+
+      const inputX = clamp(keyboardX + mobileMoveRef.current.x, -1, 1);
+      const inputY = clamp(keyboardY + mobileMoveRef.current.y, -1, 1);
 
       const movingNow = inputX !== 0 || inputY !== 0;
       const previousVx = player.vx;
@@ -1952,8 +2055,10 @@ export default function JogoPage() {
 
       const previousSpeed = Math.hypot(previousVx, previousVy);
       const currentSpeed = Math.hypot(player.vx, player.vy);
-      const wasReallyMoving = previousSpeed > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
-      const isReallyMoving = currentSpeed > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
+      const wasReallyMoving =
+        previousSpeed > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
+      const isReallyMoving =
+        currentSpeed > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
 
       if (!wasReallyMoving && isReallyMoving) {
         triggerPlayerStretch(player.vx, player.vy);
@@ -2179,6 +2284,13 @@ export default function JogoPage() {
       />
       <div className={`game-screen-fade ${screenFade ? "show" : ""}`} />
 
+      <div className="game-rotate-device-warning">
+        <div>
+          <strong>Vire o celular</strong>
+          <span>Use o modo horizontal para jogar Space News.</span>
+        </div>
+      </div>
+
       {isLowHp && gameState === "playing" && (
         <div className="game-low-hp-vignette" />
       )}
@@ -2219,6 +2331,11 @@ export default function JogoPage() {
           <div className="game-title-content">
             <h1>SPACE NEWS</h1>
             <p>PRESSIONE ENTER</p>
+            {CONFIG.settings.showMobileStartHint && (
+              <span className="game-mobile-start-hint">
+                toque em qualquer lugar...
+              </span>
+            )}
           </div>
         </section>
       )}
@@ -2346,59 +2463,30 @@ export default function JogoPage() {
           className="game-mobile-controls"
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className="game-mobile-dpad">
-            <button
-              className="mobile-up"
-              onPointerDown={() => (keysRef.current["arrowup"] = true)}
-              onPointerUp={() => (keysRef.current["arrowup"] = false)}
-              onPointerLeave={() => (keysRef.current["arrowup"] = false)}
-              onPointerCancel={() => (keysRef.current["arrowup"] = false)}
-            >
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobileUp}
-                alt="cima"
-              />
-            </button>
-            <button
-              className="mobile-left"
-              onPointerDown={() => (keysRef.current["arrowleft"] = true)}
-              onPointerUp={() => (keysRef.current["arrowleft"] = false)}
-              onPointerLeave={() => (keysRef.current["arrowleft"] = false)}
-              onPointerCancel={() => (keysRef.current["arrowleft"] = false)}
-            >
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobileLeft}
-                alt="esquerda"
-              />
-            </button>
-            <button
-              className="mobile-right"
-              onPointerDown={() => (keysRef.current["arrowright"] = true)}
-              onPointerUp={() => (keysRef.current["arrowright"] = false)}
-              onPointerLeave={() => (keysRef.current["arrowright"] = false)}
-              onPointerCancel={() => (keysRef.current["arrowright"] = false)}
-            >
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobileRight}
-                alt="direita"
-              />
-            </button>
-            <button
-              className="mobile-down"
-              onPointerDown={() => (keysRef.current["arrowdown"] = true)}
-              onPointerUp={() => (keysRef.current["arrowdown"] = false)}
-              onPointerLeave={() => (keysRef.current["arrowdown"] = false)}
-              onPointerCancel={() => (keysRef.current["arrowdown"] = false)}
-            >
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobileDown}
-                alt="baixo"
-              />
-            </button>
+          <div
+            className="game-mobile-joystick"
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              atualizarJoystick(event);
+            }}
+            onPointerMove={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                atualizarJoystick(event);
+              }
+            }}
+            onPointerUp={(event) => {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+              resetarJoystick();
+            }}
+            onPointerCancel={resetarJoystick}
+            onPointerLeave={resetarJoystick}
+          >
+            <div
+              className="game-mobile-joystick-knob"
+              style={{
+                transform: `translate(calc(-50% + ${mobileStick.x}px), calc(-50% + ${mobileStick.y}px))`,
+              }}
+            />
           </div>
 
           <div className="game-mobile-actions">
