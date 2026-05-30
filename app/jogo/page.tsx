@@ -6,6 +6,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 type GameState =
   | "title"
   | "mainMenu"
+  | "settings"
   | "storyCutscene"
   | "tutorialChoice"
   | "tutorial"
@@ -17,6 +18,7 @@ type GameMode = "story" | "infinite";
 type SpriteKey =
   | "player"
   | "playerDodge"
+  | "boostFire"
   | "normalShot"
   | "strongShot"
   | "background"
@@ -100,6 +102,11 @@ type Particle = {
 
 type SpriteConfig = {
   src: string;
+  /**
+   * Use isto quando a animação for por arquivos separados, não spritesheet.
+   * src = sprite parado/idle. frameSrcs = sprites de movimento/fogo.
+   */
+  frameSrcs?: string[];
   frameWidth?: number;
   frameHeight?: number;
   frames?: number;
@@ -144,6 +151,7 @@ type GameCssVars = CSSProperties & {
 type MenuOption = {
   label: string;
   mode?: GameMode;
+  action?: "settings" | "credits";
   disabled?: boolean;
 };
 
@@ -168,11 +176,20 @@ type WaveState = {
 
 const ASSETS: Record<SpriteKey, SpriteConfig> = {
   player: {
-    src: "/game/player/ship.png",
-    frameWidth: 64,
-    frameHeight: 64,
-    frames: 1,
-    fps: 8,
+    // Sprite parado/idle.
+    src: "/game/player/ship-idle.png",
+
+    // 4 sprites separados para animação do fogo/movimento.
+    // Não precisa montar spritesheet.
+    frameSrcs: [
+      "/game/player/ship-move-1.png",
+      "/game/player/ship-move-2.png",
+      "/game/player/ship-move-3.png",
+      "/game/player/ship-move-4.png",
+    ],
+
+    frames: 4,
+    fps: 10,
   },
 
   playerDodge: {
@@ -181,6 +198,14 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     frameHeight: 64,
     frames: 1,
     fps: 8,
+  },
+
+  boostFire: {
+    src: "/game/effects/boost-fire.png",
+    frameWidth: 96,
+    frameHeight: 96,
+    frames: 1,
+    fps: 12,
   },
 
   normalShot: { src: "/game/shots/normal.png" },
@@ -282,6 +307,11 @@ const CONFIG = {
       tiltMaxDeg: 18,
       tiltResponse: 0.18,
       stretchMax: 0.34,
+
+      // Animação por sprites separados.
+      // A nave usa ship-idle.png parada e alterna ship-move-1..4 quando estiver se mexendo.
+      animationMoveThreshold: 0.18,
+
       strongShotRecoil: 7.5,
       strongShotShake: 8,
       strongShotShakeMs: 180,
@@ -297,6 +327,10 @@ const CONFIG = {
       speed: 15.5,
       knockback: 8.5,
       particleAmount: 24,
+      fireSpriteWidth: 112,
+      fireSpriteHeight: 96,
+      fireSpriteOpacity: 0.9,
+      fireSpriteDistance: 58,
       shake: 5,
       shakeMs: 120,
     },
@@ -448,6 +482,14 @@ const CONFIG = {
     cutsceneNext: "/sounds/cutscene-next.mp3",
     transition: "/sounds/game-transition.mp3",
 
+    abilityReady: "/sounds/ability-ready.mp3",
+    boostReady: "/sounds/boost-ready.mp3",
+    dodgeReady: "/sounds/dodge-ready.mp3",
+    strongReady: "/sounds/strong-ready.mp3",
+    boostStart: "/sounds/boost-start.mp3",
+    boostHit: "/sounds/boost-hit.mp3",
+    dodge: "/sounds/dodge.mp3",
+
     normalShot: "/sounds/game-shot.mp3",
     strongShot: "/sounds/game-strong-shot.mp3",
     explosion: "/sounds/game-explosion.mp3",
@@ -482,9 +524,22 @@ const CONFIG = {
     showGameplayHints: false,
     showMobileStartHint: true,
     mobileControls: "joystick",
+
+    // Áudio
+    masterVolume: 1,
+    sfxVolume: 1,
+    menuVolume: 0.8,
+    hitVolume: 0.75,
+    abilityVolume: 0.85,
+
+    // Performance / conforto visual
     enableScreenShake: true,
     enableParticles: true,
+    particleQuality: 1,
     enableLowHpAlarm: true,
+    enableFlashingLights: true,
+    enableAbilityReadySounds: true,
+    enableBoostFireSprite: true,
     autoPauseOnBlur: true,
   },
 
@@ -524,26 +579,188 @@ const STORY_FRAMES = [
 const MAIN_MENU_OPTIONS: MenuOption[] = [
   { label: "HISTÓRIA", mode: "story" },
   { label: "INFINITO", mode: "infinite" },
-  { label: "CONFIGURAÇÕES", disabled: true },
+  { label: "CONFIGURAÇÕES", action: "settings" },
   { label: "CRÉDITOS", disabled: true },
+];
+
+type GameSettingKey = keyof typeof CONFIG.settings;
+
+type GameSettingOption = {
+  key: GameSettingKey;
+  label: string;
+  category: "ÁUDIO" | "VISUAL" | "ACESSIBILIDADE" | "MOBILE";
+  kind: "toggle" | "range" | "select";
+  min?: number;
+  max?: number;
+  step?: number;
+  values?: string[];
+  formatter?: (value: unknown) => string;
+};
+
+const SETTINGS_SECTIONS = [
+  "ÁUDIO",
+  "VISUAL",
+  "ACESSIBILIDADE",
+  "MOBILE",
+] as const;
+
+const SETTINGS_OPTIONS: GameSettingOption[] = [
+  {
+    key: "masterVolume",
+    label: "Volume geral",
+    category: "ÁUDIO",
+    kind: "range",
+    min: 0,
+    max: 1,
+    step: 0.1,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "sfxVolume",
+    label: "Efeitos",
+    category: "ÁUDIO",
+    kind: "range",
+    min: 0,
+    max: 1,
+    step: 0.1,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "menuVolume",
+    label: "Menu",
+    category: "ÁUDIO",
+    kind: "range",
+    min: 0,
+    max: 1,
+    step: 0.1,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "hitVolume",
+    label: "Hits",
+    category: "ÁUDIO",
+    kind: "range",
+    min: 0,
+    max: 1,
+    step: 0.1,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "abilityVolume",
+    label: "Habilidades",
+    category: "ÁUDIO",
+    kind: "range",
+    min: 0,
+    max: 1,
+    step: 0.1,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+
+  {
+    key: "enableParticles",
+    label: "Partículas",
+    category: "VISUAL",
+    kind: "toggle",
+  },
+  {
+    key: "particleQuality",
+    label: "Qualidade das partículas",
+    category: "VISUAL",
+    kind: "range",
+    min: 0.25,
+    max: 1,
+    step: 0.25,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "enableScreenShake",
+    label: "Shake de tela",
+    category: "VISUAL",
+    kind: "toggle",
+  },
+  {
+    key: "enableBoostFireSprite",
+    label: "Fogo do boost",
+    category: "VISUAL",
+    kind: "toggle",
+  },
+
+  {
+    key: "enableFlashingLights",
+    label: "Luzes piscantes",
+    category: "ACESSIBILIDADE",
+    kind: "toggle",
+  },
+  {
+    key: "enableLowHpAlarm",
+    label: "Alarme de 1 HP",
+    category: "ACESSIBILIDADE",
+    kind: "toggle",
+  },
+  {
+    key: "enableAbilityReadySounds",
+    label: "Som de habilidade pronta",
+    category: "ACESSIBILIDADE",
+    kind: "toggle",
+  },
+  {
+    key: "autoPauseOnBlur",
+    label: "Pausar ao minimizar",
+    category: "ACESSIBILIDADE",
+    kind: "toggle",
+  },
+
+  {
+    key: "showMobileStartHint",
+    label: "Dica mobile",
+    category: "MOBILE",
+    kind: "toggle",
+  },
 ];
 
 class AssetManager {
   private images = new Map<SpriteKey, HTMLImageElement | null>();
+  private frameImages = new Map<SpriteKey, (HTMLImageElement | null)[]>();
 
   async loadAll() {
     const entries = Object.entries(ASSETS) as [SpriteKey, SpriteConfig][];
 
     await Promise.all(
       entries.map(async ([key, config]) => {
+        // Imagem principal: para player é o sprite parado/idle; para outros é o sprite normal/spritesheet.
         const image = await this.loadImage(config.src);
         this.images.set(key, image);
+
+        // Frames separados: usados quando não queremos spritesheet.
+        if (config.frameSrcs && config.frameSrcs.length > 0) {
+          const frames = await Promise.all(
+            config.frameSrcs.map((frameSrc) => this.loadImage(frameSrc)),
+          );
+
+          this.frameImages.set(key, frames);
+        }
       }),
     );
   }
 
   get(key: SpriteKey) {
     return this.images.get(key) ?? null;
+  }
+
+  getFrame(key: SpriteKey, frameIndex: number) {
+    const frames = this.frameImages.get(key);
+
+    if (!frames || frames.length === 0) {
+      return null;
+    }
+
+    const safeIndex = Math.abs(Math.floor(frameIndex)) % frames.length;
+    return frames[safeIndex] ?? null;
+  }
+
+  hasFrames(key: SpriteKey) {
+    const frames = this.frameImages.get(key);
+    return Boolean(frames && frames.some(Boolean));
   }
 
   private loadImage(src: string) {
@@ -612,8 +829,18 @@ class AnimatedSprite extends Sprite {
   }
 
   draw(renderCtx: CanvasRenderingContext2D, assets: AssetManager) {
-    const img = assets.get(this.key);
     const config = ASSETS[this.key];
+
+    // Animação por arquivos separados, exemplo:
+    // ship-move-1.png, ship-move-2.png, ship-move-3.png, ship-move-4.png
+    const frameImage = assets.getFrame(this.key, this.frame);
+
+    if (CONFIG.useSprites && frameImage) {
+      renderCtx.drawImage(frameImage, this.x, this.y, this.w, this.h);
+      return true;
+    }
+
+    const img = assets.get(this.key);
 
     if (
       !CONFIG.useSprites ||
@@ -886,6 +1113,12 @@ export default function JogoPage() {
   const menuIndexRef = useRef(0);
   const [menuIndex, setMenuIndex] = useState(0);
 
+  const settingsIndexRef = useRef(0);
+  const [settingsIndex, setSettingsIndex] = useState(0);
+  const [settingsSnapshot, setSettingsSnapshot] = useState({
+    ...CONFIG.settings,
+  });
+
   const storyIndexRef = useRef(0);
   const [storyIndex, setStoryIndex] = useState(0);
 
@@ -897,7 +1130,9 @@ export default function JogoPage() {
   const scoreRef = useRef(0);
   const [score, setScore] = useState(0);
   const boostChargeRef = useRef(CONFIG.gameplay.boost.startCharge);
-  const [boostCharge, setBoostCharge] = useState(CONFIG.gameplay.boost.startCharge);
+  const [boostCharge, setBoostCharge] = useState(
+    CONFIG.gameplay.boost.startCharge,
+  );
   const [dodgeReadyRatio, setDodgeReadyRatio] = useState(1);
   const [strongReadyRatio, setStrongReadyRatio] = useState(1);
   const lastDodgeAtRef = useRef(-9999);
@@ -946,6 +1181,11 @@ export default function JogoPage() {
 
   const shakeRef = useRef({ intensity: 0, endAt: 0 });
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const abilityReadyRef = useRef({
+    boost: false,
+    dodge: true,
+    strong: true,
+  });
 
   function setEstado(estado: GameState) {
     gameStateRef.current = estado;
@@ -972,19 +1212,125 @@ export default function JogoPage() {
     setMenuIndex(index);
   }
 
+  function setIndiceConfiguracao(index: number) {
+    const safeIndex =
+      (index + SETTINGS_OPTIONS.length) % SETTINGS_OPTIONS.length;
+    settingsIndexRef.current = safeIndex;
+    setSettingsIndex(safeIndex);
+  }
+
+  function atualizarConfiguracao(
+    key: GameSettingKey,
+    value: boolean | number | string,
+  ) {
+    (CONFIG.settings as Record<string, boolean | number | string>)[key] = value;
+    setSettingsSnapshot({ ...CONFIG.settings });
+  }
+
+  function formatarConfiguracao(option: GameSettingOption) {
+    const value = settingsSnapshot[option.key];
+
+    if (option.formatter) {
+      return option.formatter(value);
+    }
+
+    if (typeof value === "boolean") {
+      return value ? "ON" : "OFF";
+    }
+
+    return String(value).toUpperCase();
+  }
+
+  function alterarConfiguracaoAtual(direction = 1) {
+    const option = SETTINGS_OPTIONS[settingsIndexRef.current];
+    if (!option) return;
+
+    const currentValue = CONFIG.settings[option.key];
+
+    if (option.kind === "toggle") {
+      atualizarConfiguracao(option.key, !Boolean(currentValue));
+      tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
+      return;
+    }
+
+    if (option.kind === "range") {
+      const min = option.min ?? 0;
+      const max = option.max ?? 1;
+      const step = option.step ?? 0.1;
+      const nextValue = clamp(
+        Number(currentValue) + step * direction,
+        min,
+        max,
+      );
+      atualizarConfiguracao(option.key, Number(nextValue.toFixed(2)));
+      tocarSom(CONFIG.sounds.menuMove, 0.24, "menu");
+      return;
+    }
+
+    if (option.kind === "select" && option.values?.length) {
+      const currentIndex = option.values.indexOf(String(currentValue));
+      const nextIndex =
+        (currentIndex + direction + option.values.length) %
+        option.values.length;
+      atualizarConfiguracao(option.key, option.values[nextIndex]);
+      tocarSom(CONFIG.sounds.menuMove, 0.24, "menu");
+    }
+  }
+
+  function abrirConfiguracoes() {
+    tocarSom(CONFIG.sounds.menuConfirm, 0.42, "menu");
+    setIndiceConfiguracao(0);
+    setEstado("settings");
+  }
+
+  function voltarDasConfiguracoes() {
+    tocarSom(CONFIG.sounds.menuBack, 0.38, "menu");
+    setEstado("mainMenu");
+  }
+
   function setHistoriaIndex(index: number) {
     storyIndexRef.current = index;
     setStoryIndex(index);
   }
 
-  function tocarSom(src: string, volume = 0.45) {
-    if (!CONFIG.useSounds || !src) {
+  function tocarSom(
+    src: string,
+    volume = 0.45,
+    category: "menu" | "hit" | "ability" | "sfx" = "sfx",
+  ) {
+    if (!CONFIG.useSounds || !src || CONFIG.settings.masterVolume <= 0) {
       return;
     }
 
+    const categoryVolume =
+      category === "menu"
+        ? CONFIG.settings.menuVolume
+        : category === "hit"
+          ? CONFIG.settings.hitVolume
+          : category === "ability"
+            ? CONFIG.settings.abilityVolume
+            : CONFIG.settings.sfxVolume;
+
     const audio = new Audio(src);
-    audio.volume = volume;
+    audio.volume = clamp(
+      volume * CONFIG.settings.masterVolume * categoryVolume,
+      0,
+      1,
+    );
     audio.play().catch(() => {});
+  }
+
+  function tocarSomHabilidadePronta(tipo: "boost" | "dodge" | "strong") {
+    if (!CONFIG.settings.enableAbilityReadySounds) return;
+
+    const src =
+      tipo === "boost"
+        ? CONFIG.sounds.boostReady || CONFIG.sounds.abilityReady
+        : tipo === "dodge"
+          ? CONFIG.sounds.dodgeReady || CONFIG.sounds.abilityReady
+          : CONFIG.sounds.strongReady || CONFIG.sounds.abilityReady;
+
+    tocarSom(src, 0.52, "ability");
   }
 
   async function solicitarFullscreen() {
@@ -1055,6 +1401,12 @@ export default function JogoPage() {
     setScore(0);
     boostChargeRef.current = CONFIG.gameplay.boost.startCharge;
     setBoostCharge(CONFIG.gameplay.boost.startCharge);
+    abilityReadyRef.current = {
+      boost:
+        CONFIG.gameplay.boost.startCharge >= CONFIG.gameplay.boost.maxCharge,
+      dodge: true,
+      strong: true,
+    };
     setPlayerHp(player.hp);
     setIsLowHp(false);
 
@@ -1069,7 +1421,7 @@ export default function JogoPage() {
       return;
     }
 
-    tocarSom(CONFIG.sounds.playerDamage, 0.5);
+    tocarSom(CONFIG.sounds.playerDamage, 0.5, "hit");
     criarParticulasHit(
       player.x + player.w / 2,
       player.y + player.h / 2,
@@ -1096,7 +1448,11 @@ export default function JogoPage() {
       if (!alarmAudioRef.current) {
         const audio = new Audio(CONFIG.sounds.lowHpAlarm);
         audio.loop = true;
-        audio.volume = 0.42;
+        audio.volume = clamp(
+          0.42 * CONFIG.settings.masterVolume * CONFIG.settings.sfxVolume,
+          0,
+          1,
+        );
         alarmAudioRef.current = audio;
       }
       alarmAudioRef.current.play().catch(() => {});
@@ -1126,14 +1482,14 @@ export default function JogoPage() {
     }
 
     if (gameStateRef.current === "paused") {
-      tocarSom(CONFIG.sounds.menuConfirm, 0.4);
+      tocarSom(CONFIG.sounds.menuConfirm, 0.4, "menu");
       setEstado("playing");
       setIsLowHp(playerRef.current.hp <= 1);
     }
   }
 
   function voltarAoMenuPrincipal() {
-    tocarSom(CONFIG.sounds.menuBack, 0.45);
+    tocarSom(CONFIG.sounds.menuBack, 0.45, "menu");
     limparCombate();
     resetarWaves(null);
     setIsLowHp(false);
@@ -1168,8 +1524,14 @@ export default function JogoPage() {
       CONFIG.gameplay.boost.maxCharge,
     );
 
+    const wasReady = boostChargeRef.current >= CONFIG.gameplay.boost.maxCharge;
     boostChargeRef.current = next;
     setBoostCharge(next);
+
+    if (!wasReady && next >= CONFIG.gameplay.boost.maxCharge) {
+      tocarSomHabilidadePronta("boost");
+      abilityReadyRef.current.boost = true;
+    }
   }
 
   function registrarAbate(kind: EnemyKind) {
@@ -1191,7 +1553,10 @@ export default function JogoPage() {
     player.boostUntil = now + CONFIG.gameplay.boost.durationMs;
     player.boostVx = dirX * CONFIG.gameplay.boost.speed;
     player.boostVy = dirY * CONFIG.gameplay.boost.speed;
-    player.invincibleUntil = Math.max(player.invincibleUntil, player.boostUntil);
+    player.invincibleUntil = Math.max(
+      player.invincibleUntil,
+      player.boostUntil,
+    );
     player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
     player.stretchVx = player.boostVx;
     player.stretchVy = player.boostVy;
@@ -1199,8 +1564,15 @@ export default function JogoPage() {
     boostHitEnemiesRef.current.clear();
     boostChargeRef.current = 0;
     setBoostCharge(0);
+    abilityReadyRef.current.boost = false;
 
-    criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#ffb703", CONFIG.gameplay.boost.particleAmount);
+    tocarSom(CONFIG.sounds.boostStart, 0.58, "ability");
+    criarExplosao(
+      player.x + player.w / 2,
+      player.y + player.h / 2,
+      "#ffb703",
+      CONFIG.gameplay.boost.particleAmount,
+    );
 
     if (CONFIG.settings.enableScreenShake) {
       shakeRef.current = {
@@ -1223,11 +1595,16 @@ export default function JogoPage() {
     const dirY = speed > 0.2 ? player.vy / speed : 0;
 
     player.dodgeUntil = now + CONFIG.gameplay.dodge.durationMs;
-    player.invincibleUntil = Math.max(player.invincibleUntil, player.dodgeUntil);
+    player.invincibleUntil = Math.max(
+      player.invincibleUntil,
+      player.dodgeUntil,
+    );
     player.vx += dirX * CONFIG.gameplay.dodge.speedImpulse;
     player.vy += dirY * CONFIG.gameplay.dodge.speedImpulse;
     lastDodgeAtRef.current = now;
+    abilityReadyRef.current.dodge = false;
     setDodgeReadyRatio(0);
+    tocarSom(CONFIG.sounds.dodge, 0.5, "ability");
   }
 
   function atualizarJoystick(event: ReactPointerEvent<HTMLDivElement>) {
@@ -1279,7 +1656,7 @@ export default function JogoPage() {
   }
 
   function voltarParaTitulo() {
-    tocarSom(CONFIG.sounds.menuBack, 0.45);
+    tocarSom(CONFIG.sounds.menuBack, 0.45, "menu");
     setMenuAberto(false);
     setEscurecendo(true);
 
@@ -1296,7 +1673,7 @@ export default function JogoPage() {
 
   function executarEscolhaDeModo(mode: GameMode) {
     currentModeRef.current = mode;
-    tocarSom(CONFIG.sounds.menuConfirm, 0.52);
+    tocarSom(CONFIG.sounds.menuConfirm, 0.52, "menu");
     setMenuAberto(false);
     setEscurecendo(true);
 
@@ -1321,12 +1698,22 @@ export default function JogoPage() {
   function confirmarOpcaoMenuAtual() {
     const option = MAIN_MENU_OPTIONS[menuIndexRef.current];
 
-    if (!option || option.disabled || !option.mode) {
-      tocarSom(CONFIG.sounds.menuBack, 0.35);
+    if (!option || option.disabled) {
+      tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
       return;
     }
 
-    escolherModo(option.mode);
+    if (option.action === "settings") {
+      abrirConfiguracoes();
+      return;
+    }
+
+    if (option.mode) {
+      escolherModo(option.mode);
+      return;
+    }
+
+    tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
   }
 
   function avancarHistoria() {
@@ -1541,7 +1928,12 @@ export default function JogoPage() {
       return;
     }
 
-    for (let i = 0; i < amount; i++) {
+    const finalAmount = Math.max(
+      0,
+      Math.round(amount * CONFIG.settings.particleQuality),
+    );
+
+    for (let i = 0; i < finalAmount; i++) {
       const angle = rand(0, Math.PI * 2);
       const speed = rand(1.0, 4.1);
 
@@ -1564,7 +1956,12 @@ export default function JogoPage() {
       return;
     }
 
-    for (let i = 0; i < amount; i++) {
+    const finalAmount = Math.max(
+      0,
+      Math.round(amount * CONFIG.settings.particleQuality),
+    );
+
+    for (let i = 0; i < finalAmount; i++) {
       const angle = rand(0, Math.PI * 2);
       const speed = rand(1.8, 7.2);
 
@@ -1667,7 +2064,6 @@ export default function JogoPage() {
     player.lastStretchAt = now;
   }
 
-
   function mostrarMensagemWave(message: string, bossWave = false) {
     const wave = waveStateRef.current;
     const until = performance.now() + CONFIG.gameplay.infiniteWaves.messageMs;
@@ -1690,7 +2086,10 @@ export default function JogoPage() {
     const events: WaveSpawnEvent[] = [];
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
     const groupCount = bossWave
-      ? Math.min(cfg.maxGroups, cfg.baseGroups + 12 + Math.floor(waveNumber / 8))
+      ? Math.min(
+          cfg.maxGroups,
+          cfg.baseGroups + 12 + Math.floor(waveNumber / 8),
+        )
       : Math.min(
           cfg.maxGroups,
           cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave),
@@ -1720,7 +2119,12 @@ export default function JogoPage() {
         y: kind === "red" ? undefined : rand(70, CONFIG.canvasHeight - 150),
       });
 
-      if (!bossWave && waveNumber >= cfg.asteroidFromWave && waveNumber % cfg.asteroidEvery === 0 && i === Math.floor(groupCount / 2)) {
+      if (
+        !bossWave &&
+        waveNumber >= cfg.asteroidFromWave &&
+        waveNumber % cfg.asteroidEvery === 0 &&
+        i === Math.floor(groupCount / 2)
+      ) {
         events.push({
           at: at + cfg.spawnIntervalMs / 2,
           kind: "asteroid",
@@ -1747,8 +2151,16 @@ export default function JogoPage() {
       enemy.vy *= speedScale;
 
       if (enemy.kind === "red") {
-        enemy.shotCooldown = Math.max(430, enemy.shotCooldown / Math.min(2.6, difficulty));
-        enemy.redTravelTimeMs = Math.max(950, (enemy.redTravelTimeMs ?? CONFIG.gameplay.enemies.red.verticalTravelMs) / Math.min(1.9, difficulty));
+        enemy.shotCooldown = Math.max(
+          430,
+          enemy.shotCooldown / Math.min(2.6, difficulty),
+        );
+        enemy.redTravelTimeMs = Math.max(
+          950,
+          (enemy.redTravelTimeMs ??
+            CONFIG.gameplay.enemies.red.verticalTravelMs) /
+            Math.min(1.9, difficulty),
+        );
       }
     }
   }
@@ -1789,14 +2201,18 @@ export default function JogoPage() {
       message: bossWave ? `BOSS WAVE ${waveNumber}` : `WAVE ${waveNumber}`,
     });
 
-    tocarSom(bossWave ? CONFIG.sounds.bossIntro : CONFIG.sounds.waveStart, bossWave ? 0.6 : 0.48);
+    tocarSom(
+      bossWave ? CONFIG.sounds.bossIntro : CONFIG.sounds.waveStart,
+      bossWave ? 0.6 : 0.48,
+    );
   }
 
   function atualizarWavesInfinitas() {
     if (gameStateRef.current !== "playing") return;
 
     const wave = waveStateRef.current;
-    if (wave.mode !== "infinite" || !CONFIG.gameplay.infiniteWaves.enabled) return;
+    if (wave.mode !== "infinite" || !CONFIG.gameplay.infiniteWaves.enabled)
+      return;
 
     const now = performance.now();
 
@@ -1828,7 +2244,11 @@ export default function JogoPage() {
       wave.message = `WAVE ${wave.wave} CONCLUÍDA`;
       wave.messageUntil = now + CONFIG.gameplay.infiniteWaves.messageMs;
 
-      adicionarPontuacao(wave.bossWave ? CONFIG.gameplay.score.bossWaveClear : CONFIG.gameplay.score.waveClear);
+      adicionarPontuacao(
+        wave.bossWave
+          ? CONFIG.gameplay.score.bossWaveClear
+          : CONFIG.gameplay.score.waveClear,
+      );
 
       setWaveUi({
         mode: "infinite",
@@ -1854,7 +2274,11 @@ export default function JogoPage() {
       if (!alarmAudioRef.current) {
         const audio = new Audio(CONFIG.sounds.lowHpAlarm);
         audio.loop = true;
-        audio.volume = 0.42;
+        audio.volume = clamp(
+          0.42 * CONFIG.settings.masterVolume * CONFIG.settings.sfxVolume,
+          0,
+          1,
+        );
         alarmAudioRef.current = audio;
       }
 
@@ -1927,7 +2351,7 @@ export default function JogoPage() {
         type: "normal",
       });
 
-      tocarSom(CONFIG.sounds.normalShot);
+      tocarSom(CONFIG.sounds.normalShot, 0.45, "sfx");
       player.normalCooldown = CONFIG.gameplay.shots.normal.cooldownFrames;
     }
 
@@ -1952,7 +2376,7 @@ export default function JogoPage() {
         type: "strong",
       });
 
-      tocarSom(CONFIG.sounds.strongShot);
+      tocarSom(CONFIG.sounds.strongShot, 0.5, "sfx");
 
       player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
       setStrongReadyRatio(0);
@@ -2001,6 +2425,24 @@ export default function JogoPage() {
         1,
       );
       setDodgeReadyRatio(dodgeRatio);
+
+      const boostReadyNow =
+        boostChargeRef.current >= CONFIG.gameplay.boost.maxCharge;
+      const dodgeReadyNow = dodgeRatio >= 1;
+      const strongReadyNow = strongRatio >= 1;
+
+      if (gameStateRef.current === "playing") {
+        if (boostReadyNow && !abilityReadyRef.current.boost)
+          tocarSomHabilidadePronta("boost");
+        if (dodgeReadyNow && !abilityReadyRef.current.dodge)
+          tocarSomHabilidadePronta("dodge");
+        if (strongReadyNow && !abilityReadyRef.current.strong)
+          tocarSomHabilidadePronta("strong");
+      }
+
+      abilityReadyRef.current.boost = boostReadyNow;
+      abilityReadyRef.current.dodge = dodgeReadyNow;
+      abilityReadyRef.current.strong = strongReadyNow;
     }, 120);
 
     function desenharFundo(
@@ -2038,12 +2480,63 @@ export default function JogoPage() {
       const anim = playerAnimRef.current;
       const isDodging = now < player.dodgeUntil;
       const dodgeAsset = assetsRef.current.get("playerDodge");
-      const playerAsset = isDodging && dodgeAsset ? dodgeAsset : assetsRef.current.get("player");
-      const playerConfig = isDodging && dodgeAsset ? ASSETS.playerDodge : ASSETS.player;
+
+      // Modelo novo sem spritesheet:
+      // ship-idle.png = parado
+      // ship-move-1.png até ship-move-4.png = fogo/movimento
+      const playerSpeed = Math.hypot(player.vx, player.vy);
+      const boosting = now < player.boostUntil;
+      const shouldUseMoveFrames =
+        playerSpeed > CONFIG.gameplay.player.animationMoveThreshold || boosting;
+
       anim.update(delta);
+
+      const movingFrameAsset = shouldUseMoveFrames
+        ? assetsRef.current.getFrame("player", anim.frame)
+        : null;
+
+      const playerIdleAsset = assetsRef.current.get("player");
+      const playerAsset =
+        isDodging && dodgeAsset
+          ? dodgeAsset
+          : (movingFrameAsset ?? playerIdleAsset);
+      const playerConfig =
+        isDodging && dodgeAsset ? ASSETS.playerDodge : ASSETS.player;
 
       ctx.save();
       ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+
+      if (boosting && CONFIG.settings.enableBoostFireSprite) {
+        const boostFire = assetsRef.current.get("boostFire");
+        const speed = Math.hypot(player.boostVx, player.boostVy);
+        const dirX = speed > 0.001 ? player.boostVx / speed : 1;
+        const dirY = speed > 0.001 ? player.boostVy / speed : 0;
+        const angle = Math.atan2(dirY, dirX);
+        const fw = CONFIG.gameplay.boost.fireSpriteWidth;
+        const fh = CONFIG.gameplay.boost.fireSpriteHeight;
+        const distance = CONFIG.gameplay.boost.fireSpriteDistance;
+
+        ctx.save();
+        ctx.translate(dirX * distance, dirY * distance);
+        ctx.rotate(angle);
+        ctx.globalAlpha = CONFIG.gameplay.boost.fireSpriteOpacity;
+
+        if (boostFire) {
+          ctx.drawImage(boostFire, -fw / 2, -fh / 2, fw, fh);
+        } else {
+          const gradient = ctx.createRadialGradient(0, 0, 4, 0, 0, fw * 0.45);
+          gradient.addColorStop(0, "rgba(255, 244, 170, 0.95)");
+          gradient.addColorStop(0.42, "rgba(255, 146, 25, 0.75)");
+          gradient.addColorStop(1, "rgba(255, 80, 0, 0)");
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, fw * 0.42, fh * 0.32, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.restore();
+      }
+
       const playerPulse = getStretchPulse(player.stretchUntil, "player");
       applyVelocityStretch(
         ctx,
@@ -2407,7 +2900,7 @@ export default function JogoPage() {
               enemy.cracked = true;
             }
             criarParticulasHit(shot.x + shot.w / 2, shot.y + shot.h / 2);
-            tocarSom(CONFIG.sounds.enemyHit, 0.25);
+            tocarSom(CONFIG.sounds.enemyHit, 0.25, "hit");
 
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
@@ -2422,7 +2915,7 @@ export default function JogoPage() {
                   "#ffe18c",
                   16,
                 );
-                tocarSom(CONFIG.sounds.enemyDeath, 0.38);
+                tocarSom(CONFIG.sounds.enemyDeath, 0.38, "hit");
               }
             }
 
@@ -2433,7 +2926,8 @@ export default function JogoPage() {
 
       const now = performance.now();
       const boosting = now < player.boostUntil;
-      const intangible = now < player.invincibleUntil || now < player.dodgeUntil || boosting;
+      const intangible =
+        now < player.invincibleUntil || now < player.dodgeUntil || boosting;
 
       if (boosting) {
         for (const enemy of enemiesRef.current) {
@@ -2443,7 +2937,13 @@ export default function JogoPage() {
           if (rectsCollide(playerHitbox, enemy)) {
             boostHitEnemiesRef.current.add(enemy.id);
             enemy.hp -= CONFIG.gameplay.boost.damage;
-            criarExplosao(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#fb8500", 14);
+            criarExplosao(
+              enemy.x + enemy.w / 2,
+              enemy.y + enemy.h / 2,
+              "#fb8500",
+              14,
+            );
+            tocarSom(CONFIG.sounds.boostHit, 0.38, "hit");
 
             const dirX = player.boostVx || 1;
             const dirY = player.boostVy || 0;
@@ -2456,13 +2956,14 @@ export default function JogoPage() {
               if (enemy.kind === "asteroid") {
                 spawnAsteroidFragments(enemy);
               } else {
-                tocarSom(CONFIG.sounds.enemyDeath, 0.38);
+                tocarSom(CONFIG.sounds.enemyDeath, 0.38, "hit");
               }
             } else {
               // Se o boost não matar, empurra e NÃO aplica colisão normal depois.
               enemy.vx += (dirX / len) * CONFIG.gameplay.boost.knockback;
               enemy.vy += (dirY / len) * CONFIG.gameplay.boost.knockback;
-              enemy.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+              enemy.stretchUntil =
+                performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
             }
           }
         }
@@ -2722,7 +3223,15 @@ export default function JogoPage() {
       keysRef.current[key] = true;
 
       if (
-        ["arrowup", "arrowdown", "arrowleft", "arrowright", " ", "shift", "control"].includes(key)
+        [
+          "arrowup",
+          "arrowdown",
+          "arrowleft",
+          "arrowright",
+          " ",
+          "shift",
+          "control",
+        ].includes(key)
       ) {
         e.preventDefault();
       }
@@ -2742,7 +3251,7 @@ export default function JogoPage() {
         }
 
         if (key === "arrowup" || key === "w") {
-          tocarSom(CONFIG.sounds.menuMove, 0.32);
+          tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
           setIndiceMenu(
             (menuIndexRef.current - 1 + MAIN_MENU_OPTIONS.length) %
               MAIN_MENU_OPTIONS.length,
@@ -2751,13 +3260,47 @@ export default function JogoPage() {
         }
 
         if (key === "arrowdown" || key === "s") {
-          tocarSom(CONFIG.sounds.menuMove, 0.32);
+          tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
           setIndiceMenu((menuIndexRef.current + 1) % MAIN_MENU_OPTIONS.length);
           return;
         }
 
         if (key === "enter" || key === " ") {
           confirmarOpcaoMenuAtual();
+          return;
+        }
+      }
+
+      if (gameStateRef.current === "settings") {
+        if (key === "escape" || key === "q") {
+          voltarDasConfiguracoes();
+          return;
+        }
+
+        if (key === "arrowup" || key === "w") {
+          tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+          setIndiceConfiguracao(settingsIndexRef.current - 1);
+          return;
+        }
+
+        if (key === "arrowdown" || key === "s") {
+          tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+          setIndiceConfiguracao(settingsIndexRef.current + 1);
+          return;
+        }
+
+        if (key === "arrowleft" || key === "a") {
+          alterarConfiguracaoAtual(-1);
+          return;
+        }
+
+        if (key === "arrowright" || key === "d") {
+          alterarConfiguracaoAtual(1);
+          return;
+        }
+
+        if (key === "enter" || key === " ") {
+          alterarConfiguracaoAtual(1);
           return;
         }
       }
@@ -2812,7 +3355,7 @@ export default function JogoPage() {
 
   return (
     <main
-      className="game-fullscreen-page"
+      className={`game-fullscreen-page ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"}`}
       style={gameStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -2862,54 +3405,77 @@ export default function JogoPage() {
         </div>
       )}
 
-      {(gameState === "playing" || gameState === "paused") && waveUi.mode === "infinite" && (
-        <div className="game-wave-hud">
-          <strong>WAVE {waveUi.wave || 1}</strong>
-          <span>{waveUi.bossWave ? "BOSS" : waveUi.active ? "EM ANDAMENTO" : "PREPARANDO"}</span>
-        </div>
-      )}
+      {(gameState === "playing" || gameState === "paused") &&
+        waveUi.mode === "infinite" && (
+          <div className="game-wave-hud">
+            <strong>WAVE {waveUi.wave || 1}</strong>
+            <span>
+              {waveUi.bossWave
+                ? "BOSS"
+                : waveUi.active
+                  ? "EM ANDAMENTO"
+                  : "PREPARANDO"}
+            </span>
+          </div>
+        )}
 
-      {(gameState === "playing" || gameState === "paused") && waveUi.mode === "infinite" && (
-        <div className="game-score-hud">
-          <strong>SCORE</strong>
-          <span>{score.toString().padStart(6, "0")}</span>
-        </div>
-      )}
+      {(gameState === "playing" || gameState === "paused") &&
+        waveUi.mode === "infinite" && (
+          <div className="game-score-hud">
+            <strong>SCORE</strong>
+            <span>{score.toString().padStart(6, "0")}</span>
+          </div>
+        )}
 
       {(gameState === "playing" || gameState === "paused") && (
         <div className="game-ability-hud">
-          <div className={`game-ability-meter dodge ${dodgeReadyRatio >= 1 ? "ready" : ""}`}>
+          <div
+            className={`game-ability-meter dodge ${dodgeReadyRatio >= 1 ? "ready" : ""}`}
+          >
             <div className="game-ability-fill">
-              <span style={{ height: `${clamp(dodgeReadyRatio * 100, 0, 100)}%` }} />
+              <span
+                style={{ height: `${clamp(dodgeReadyRatio * 100, 0, 100)}%` }}
+              />
               <strong>{dodgeReadyRatio >= 1 ? "READY!" : "DODGE"}</strong>
             </div>
           </div>
 
-          <div className={`game-ability-meter strong ${strongReadyRatio >= 1 ? "ready" : ""}`}>
+          <div
+            className={`game-ability-meter strong ${strongReadyRatio >= 1 ? "ready" : ""}`}
+          >
             <div className="game-ability-fill">
-              <span style={{ height: `${clamp(strongReadyRatio * 100, 0, 100)}%` }} />
+              <span
+                style={{ height: `${clamp(strongReadyRatio * 100, 0, 100)}%` }}
+              />
               <strong>{strongReadyRatio >= 1 ? "READY!" : "FORTE"}</strong>
             </div>
           </div>
 
-          <div className={`game-ability-meter boost ${boostCharge >= CONFIG.gameplay.boost.maxCharge ? "ready" : ""}`}>
+          <div
+            className={`game-ability-meter boost ${boostCharge >= CONFIG.gameplay.boost.maxCharge ? "ready" : ""}`}
+          >
             <div className="game-ability-fill">
               <span
                 style={{
                   height: `${clamp((boostCharge / CONFIG.gameplay.boost.maxCharge) * 100, 0, 100)}%`,
                 }}
               />
-              <strong>{boostCharge >= CONFIG.gameplay.boost.maxCharge ? "READY!" : "BOOST"}</strong>
+              <strong>
+                {boostCharge >= CONFIG.gameplay.boost.maxCharge
+                  ? "READY!"
+                  : "BOOST"}
+              </strong>
             </div>
           </div>
         </div>
       )}
 
-      {waveUi.message && (gameState === "playing" || gameState === "paused") && (
-        <div className={`game-wave-banner ${waveUi.bossWave ? "boss" : ""}`}>
-          {waveUi.message}
-        </div>
-      )}
+      {waveUi.message &&
+        (gameState === "playing" || gameState === "paused") && (
+          <div className={`game-wave-banner ${waveUi.bossWave ? "boss" : ""}`}>
+            {waveUi.message}
+          </div>
+        )}
 
       {gameState === "title" && (
         <section
@@ -2946,14 +3512,24 @@ export default function JogoPage() {
                     className={`game-menu-option ${selected ? "is-selected" : ""} ${option.disabled ? "is-disabled" : ""}`}
                     onMouseEnter={() => {
                       if (menuIndex !== index)
-                        tocarSom(CONFIG.sounds.menuMove, 0.24);
+                        tocarSom(CONFIG.sounds.menuMove, 0.24, "menu");
                       setIndiceMenu(index);
                     }}
                     onFocus={() => setIndiceMenu(index)}
                     onClick={() => {
-                      if (!option.disabled && option.mode)
+                      if (option.disabled) {
+                        tocarSom(CONFIG.sounds.menuBack, 0.3, "menu");
+                        return;
+                      }
+
+                      if (option.action === "settings") {
+                        abrirConfiguracoes();
+                        return;
+                      }
+
+                      if (option.mode) {
                         escolherModo(option.mode);
-                      else tocarSom(CONFIG.sounds.menuBack, 0.3);
+                      }
                     }}
                     disabled={option.disabled}
                   >
@@ -2970,6 +3546,74 @@ export default function JogoPage() {
             <strong>SPACE NEWS</strong>
             <span>agora com 90% menos fake news!</span>
           </div>
+        </section>
+      )}
+
+      {gameState === "settings" && (
+        <section className="game-screen game-settings-screen">
+          <aside className="game-settings-panel">
+            <div className="game-settings-header">
+              <p className="game-panel-label">CONFIGURAÇÕES</p>
+              <span>ESC/Q: voltar • ↑↓ escolher • ←→ alterar</span>
+            </div>
+
+            <div className="game-settings-list">
+              {SETTINGS_SECTIONS.map((section) => {
+                const sectionOptions = SETTINGS_OPTIONS.map(
+                  (option, index) => ({ option, index }),
+                ).filter((entry) => entry.option.category === section);
+
+                return (
+                  <div className="game-settings-category" key={section}>
+                    <h3>{section}</h3>
+
+                    <div className="game-settings-category-list">
+                      {sectionOptions.map(({ option, index }) => {
+                        const selected = settingsIndex === index;
+                        const value = settingsSnapshot[option.key];
+                        const ratio =
+                          option.kind === "range"
+                            ? clamp(
+                                (Number(value) - (option.min ?? 0)) /
+                                  ((option.max ?? 1) - (option.min ?? 0)),
+                                0,
+                                1,
+                              )
+                            : typeof value === "boolean" && value
+                              ? 1
+                              : 0;
+
+                        return (
+                          <button
+                            key={option.key}
+                            type="button"
+                            className={`game-setting-row ${selected ? "is-selected" : ""}`}
+                            onMouseEnter={() => {
+                              if (settingsIndex !== index) {
+                                tocarSom(CONFIG.sounds.menuMove, 0.22, "menu");
+                              }
+                              setIndiceConfiguracao(index);
+                            }}
+                            onClick={() => alterarConfiguracaoAtual(1)}
+                          >
+                            <span className="game-setting-label">
+                              {option.label}
+                            </span>
+                            <span className="game-setting-control">
+                              <span className="game-setting-bar">
+                                <span style={{ width: `${ratio * 100}%` }} />
+                              </span>
+                              <strong>{formatarConfiguracao(option)}</strong>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
         </section>
       )}
 
@@ -3030,7 +3674,11 @@ export default function JogoPage() {
             <p>P ou ESC: pausar</p>
             <p>Teste: 8 vermelho • 9 preto • 0 roxo • - asteroide</p>
 
-            <button onClick={() => iniciarJogo(currentModeRef.current ?? "story")}>COMEÇAR MISSÃO</button>
+            <button
+              onClick={() => iniciarJogo(currentModeRef.current ?? "story")}
+            >
+              COMEÇAR MISSÃO
+            </button>
           </div>
         </section>
       )}
@@ -3047,12 +3695,27 @@ export default function JogoPage() {
       )}
 
       {gameState === "playing" && (
-        <div className="game-mobile-top-actions" onContextMenu={(event) => event.preventDefault()}>
-          <button type="button" onClick={solicitarFullscreen} aria-label="fullscreen">
-            <img draggable={false} src={CONFIG.uiImages.mobileFullscreen} alt="fullscreen" />
+        <div
+          className="game-mobile-top-actions"
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            onClick={solicitarFullscreen}
+            aria-label="fullscreen"
+          >
+            <img
+              draggable={false}
+              src={CONFIG.uiImages.mobileFullscreen}
+              alt="fullscreen"
+            />
           </button>
           <button type="button" onClick={pausarOuVoltar} aria-label="pause">
-            <img draggable={false} src={CONFIG.uiImages.mobilePause} alt="pause" />
+            <img
+              draggable={false}
+              src={CONFIG.uiImages.mobilePause}
+              alt="pause"
+            />
           </button>
         </div>
       )}
@@ -3089,8 +3752,16 @@ export default function JogoPage() {
           </div>
 
           <div className="game-mobile-actions">
-            <button type="button" onClick={executarEsquiva} aria-label="esquiva">
-              <img draggable={false} src={CONFIG.uiImages.mobileDodge} alt="esquiva" />
+            <button
+              type="button"
+              onClick={executarEsquiva}
+              aria-label="esquiva"
+            >
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobileDodge}
+                alt="esquiva"
+              />
             </button>
 
             <button
@@ -3099,7 +3770,11 @@ export default function JogoPage() {
               disabled={boostCharge < CONFIG.gameplay.boost.maxCharge}
               aria-label="boost"
             >
-              <img draggable={false} src={CONFIG.uiImages.mobileBoost} alt="boost" />
+              <img
+                draggable={false}
+                src={CONFIG.uiImages.mobileBoost}
+                alt="boost"
+              />
             </button>
 
             <button
