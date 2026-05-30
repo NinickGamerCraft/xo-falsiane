@@ -81,8 +81,13 @@ type Enemy = {
   redBurstShotsLeft?: number;
   redBurstTimer?: number;
   redBurstZone?: "start" | "target" | "middle";
+  redPauseTimer?: number;
+  redHoldY?: number;
+  alienFleeing?: boolean;
+  alienTrailTimer?: number;
   alienBeamWidth?: number;
   alienBeamHeight?: number;
+  tilt?: number;
 };
 
 type EnemyProjectile = {
@@ -161,6 +166,7 @@ type Player = {
   throwVx: number;
   throwVy: number;
   wallImpactArmed: boolean;
+  alienCaptureCooldownUntil: number;
 };
 
 type GameCssVars = CSSProperties & {
@@ -466,7 +472,7 @@ const CONFIG = {
       baseGroups: 2,
       groupsPerWave: 0.42,
       maxGroups: 20,
-      purpleFromWave: 2,
+      purpleFromWave: 1,
       blackFromWave: 4,
       asteroidFromWave: 3,
       alienFromWave: 6,
@@ -491,7 +497,9 @@ const CONFIG = {
         verticalTravelMs: 2600,
         pairGapX: 0,
         burstShots: 3,
-        burstGapMs: 92,
+        // Vermelho para nas pontas e atira espaçado, não tudo colado.
+        endpointPauseMs: 200,
+        burstGapMs: 80,
       },
 
       black: {
@@ -522,6 +530,10 @@ const CONFIG = {
         throwMinMs: 220,
         throwDamage: 1,
         throwImpactShake: 7,
+        captureCooldownMs: 1800,
+        escapeSpeedX: 7.2,
+        escapeSpeedY: 4.8,
+        escapeTrailAmount: 3,
       },
 
       asteroid: {
@@ -968,6 +980,7 @@ function createInitialPlayer(): Player {
     throwVx: 0,
     throwVy: 0,
     wallImpactArmed: false,
+    alienCaptureCooldownUntil: 0,
   };
 }
 
@@ -1194,6 +1207,7 @@ export default function JogoPage() {
   const [settingsSnapshot, setSettingsSnapshot] = useState({
     ...CONFIG.settings,
   });
+  const settingsReturnStateRef = useRef<GameState>("mainMenu");
 
   const storyIndexRef = useRef(0);
   const [storyIndex, setStoryIndex] = useState(0);
@@ -1267,7 +1281,10 @@ export default function JogoPage() {
   const gameOverStartedAtRef = useRef(0);
   const gameOverLastBurstAtRef = useRef(0);
   const [gameOverFlash, setGameOverFlash] = useState(false);
-  const [gameOverFlashOrigin, setGameOverFlashOrigin] = useState({ x: "50%", y: "50%" });
+  const [gameOverFlashOrigin, setGameOverFlashOrigin] = useState({
+    x: "50%",
+    y: "50%",
+  });
 
   function setEstado(estado: GameState) {
     gameStateRef.current = estado;
@@ -1361,13 +1378,15 @@ export default function JogoPage() {
 
   function abrirConfiguracoes() {
     tocarSom(CONFIG.sounds.menuConfirm, 0.42, "menu");
+    settingsReturnStateRef.current =
+      gameStateRef.current === "paused" ? "paused" : "mainMenu";
     setIndiceConfiguracao(0);
     setEstado("settings");
   }
 
   function voltarDasConfiguracoes() {
     tocarSom(CONFIG.sounds.menuBack, 0.38, "menu");
-    setEstado("mainMenu");
+    setEstado(settingsReturnStateRef.current);
   }
 
   function setHistoriaIndex(index: number) {
@@ -1899,6 +1918,8 @@ export default function JogoPage() {
         redDirection: targetY > startY ? 1 : -1,
         redBurstShotsLeft: 0,
         redBurstTimer: 0,
+        redPauseTimer: 0,
+        redHoldY: startY,
       });
 
       enemiesRef.current.push(createRed(topY, bottomY, 0));
@@ -2181,6 +2202,28 @@ export default function JogoPage() {
     }
   }
 
+  function criarParticulasAlienFuga(x: number, y: number, amount = 3) {
+    if (!CONFIG.settings.enableParticles) return;
+    const finalAmount = Math.max(
+      1,
+      Math.floor(amount * CONFIG.settings.particleQuality),
+    );
+
+    for (let i = 0; i < finalAmount; i++) {
+      particlesRef.current.push({
+        id: enemyIdRef.current++,
+        x: x + rand(-10, 10),
+        y: y + rand(-12, 12),
+        vx: rand(-2.8, -0.8),
+        vy: rand(-1.7, 1.7),
+        size: rand(4, 10),
+        life: rand(160, 320),
+        maxLife: 320,
+        color: Math.random() > 0.45 ? "#a7ff83" : "#5dff7a",
+      });
+    }
+  }
+
   function aplicarKnockbackInimigo(
     enemy: Enemy,
     originX: number,
@@ -2196,11 +2239,23 @@ export default function JogoPage() {
     const dirX = dx / len;
     const dirY = dy / len;
 
+    // Knockback agora também pode jogar o inimigo para cima/baixo.
+    // Se o impacto vier quase horizontal, damos um leve impulso vertical aleatório
+    // para deixar a gameplay mais viva e menos presa só no eixo X.
+    const verticalDir =
+      Math.abs(dirY) < 0.22 ? (Math.random() > 0.5 ? 0.62 : -0.62) : dirY;
+
     enemy.vx += dirX * force;
-    enemy.vy += dirY * force;
+    enemy.vy += verticalDir * force * 0.78;
+    enemy.isDashing = true;
     enemy.rotation = enemy.rotation ?? 0;
-    enemy.rotationSpeed = (enemy.rotationSpeed ?? 0) + spinStrength * (dirY >= 0 ? 1 : -1);
-    enemy.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+    enemy.rotationSpeed =
+      (enemy.rotationSpeed ?? 0) +
+      spinStrength *
+        (verticalDir >= 0 ? 1 : -1) *
+        (0.85 + Math.random() * 0.55);
+    enemy.stretchUntil =
+      performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
   }
 
   function aplicarShockwaveDeTiroForte(originX: number, originY: number) {
@@ -2227,7 +2282,13 @@ export default function JogoPage() {
       if (distance > radius) continue;
 
       const falloff = clamp(1 - distance / radius, 0.18, 1);
-      aplicarKnockbackInimigo(enemy, originX, originY, force * falloff, spin * falloff);
+      aplicarKnockbackInimigo(
+        enemy,
+        originX,
+        originY,
+        force * falloff,
+        spin * falloff,
+      );
     }
 
     if (CONFIG.settings.enableScreenShake) {
@@ -2297,51 +2358,84 @@ export default function JogoPage() {
     const events: WaveSpawnEvent[] = [];
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
     const groupCount = bossWave
-      ? Math.min(cfg.maxGroups, cfg.baseGroups + 10 + Math.floor(waveNumber / 10))
-      : Math.min(cfg.maxGroups, cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave));
+      ? Math.min(
+          cfg.maxGroups,
+          cfg.baseGroups + 10 + Math.floor(waveNumber / 10),
+        )
+      : Math.min(
+          cfg.maxGroups,
+          cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave),
+        );
 
-    const lanes = [86, 170, 260, 350, 440, 535, 625];
-    const mirroredLane = (lane: number) => CONFIG.canvasHeight - lane - 70;
-    const pickLane = (i: number) => lanes[i % lanes.length];
+    // Lanes fixas dão organização; a ordem embaralhada dá variedade.
+    const lanes = [72, 145, 220, 300, 380, 465, 550, 625];
+    const shuffled = [...lanes].sort(() => Math.random() - 0.5);
+    const mirrorLane = (lane: number) =>
+      clamp(CONFIG.canvasHeight - lane - 70, 62, CONFIG.canvasHeight - 132);
+    const pickLane = (i: number) => shuffled[i % shuffled.length];
+
     let time = 0;
 
     for (let i = 0; i < groupCount; i++) {
       const lane = pickLane(i);
-      const mirror = clamp(mirroredLane(lane), 70, CONFIG.canvasHeight - 120);
-      const pattern = (i + Math.floor(waveNumber / 2)) % 6;
+      const mirror = mirrorLane(lane);
+      const roll = Math.random();
+      const earlyWave = waveNumber <= 3;
 
-      // Patterns mais simétricos: entradas em pares/espelhos em vez de spawns soltos.
-      if (pattern === 0) {
-        events.push({ at: time, kind: "red" });
-      } else if (pattern === 1 && waveNumber >= cfg.purpleFromWave) {
+      // No começo, o jogo favorece roxos, mas ainda varia.
+      // Depois, mistura formações simétricas e threats especiais.
+      if (earlyWave) {
+        if (roll < 0.62) {
+          events.push({ at: time, kind: "purple", y: lane });
+          if (Math.random() < 0.55) {
+            events.push({ at: time + 160, kind: "purple", y: mirror });
+          }
+        } else if (roll < 0.82) {
+          events.push({ at: time, kind: "red" });
+        } else {
+          events.push({ at: time, kind: "purple", y: lane });
+          events.push({ at: time + 260, kind: "red" });
+        }
+      } else if (roll < 0.28) {
+        // Par espelhado de roxos: preenche mais a tela sem virar bagunça.
         events.push({ at: time, kind: "purple", y: lane });
-        events.push({ at: time + 180, kind: "purple", y: mirror });
-      } else if (pattern === 2 && waveNumber >= cfg.blackFromWave) {
+        events.push({ at: time + 160, kind: "purple", y: mirror });
+      } else if (roll < 0.48) {
+        // Vermelho ocupa a tela verticalmente.
+        events.push({ at: time, kind: "red" });
+      } else if (roll < 0.64 && waveNumber >= cfg.blackFromWave) {
+        // Preto aparece em lane aleatória.
         events.push({ at: time, kind: "black", y: lane });
-      } else if (pattern === 3 && waveNumber >= cfg.alienFromWave) {
+      } else if (roll < 0.78 && waveNumber >= cfg.alienFromWave) {
+        // Alien isolado, com apoio leve se a wave já estiver avançada.
         events.push({ at: time, kind: "alien", y: lane });
-        if (waveNumber >= cfg.alienFromWave + 4) {
+        if (Math.random() < 0.45) {
           events.push({ at: time + 360, kind: "purple", y: mirror });
         }
-      } else if (pattern === 4 && waveNumber >= cfg.purpleFromWave) {
-        events.push({ at: time, kind: "purple", y: lane });
-        if (waveNumber >= cfg.blackFromWave) {
-          events.push({ at: time + 320, kind: "black", y: mirror });
-        }
       } else {
-        events.push({ at: time, kind: waveNumber >= cfg.purpleFromWave ? "purple" : "red", y: lane });
+        // Formação mista simples.
+        events.push({ at: time, kind: "purple", y: lane });
+        if (waveNumber >= cfg.blackFromWave && Math.random() < 0.42) {
+          events.push({ at: time + 260, kind: "black", y: mirror });
+        } else {
+          events.push({ at: time + 220, kind: "purple", y: mirror });
+        }
       }
 
-      // Asteroides são hazards independentes: aparecem junto da wave, mas não contam para finalizar.
+      // Asteroides são hazards independentes: aparecem junto da wave,
+      // mas não contam para finalizar e continuam após a wave acabar.
       if (
         waveNumber >= cfg.asteroidFromWave &&
-        waveNumber % cfg.asteroidEvery === 0 &&
-        i % 3 === 1
+        i % 3 === 1 &&
+        Math.random() < 0.62
       ) {
-        events.push({ at: time + 260, kind: "asteroid", y: mirror });
+        events.push({ at: time + 280, kind: "asteroid", y: mirror });
       }
 
-      time += Math.max(420, cfg.spawnIntervalMs - Math.min(220, waveNumber * 7));
+      time += Math.max(
+        420,
+        cfg.spawnIntervalMs - Math.min(220, waveNumber * 7),
+      );
     }
 
     return events.sort((a, b) => a.at - b.at);
@@ -2723,7 +2817,11 @@ export default function JogoPage() {
 
       if (gameStateRef.current === "gameOverCutscene") {
         const elapsed = performance.now() - gameOverStartedAtRef.current;
-        const intensity = clamp(elapsed / CONFIG.gameplay.gameOver.bigExplosionMs, 0, 1);
+        const intensity = clamp(
+          elapsed / CONFIG.gameplay.gameOver.bigExplosionMs,
+          0,
+          1,
+        );
         const wobble = Math.sin(elapsed * 0.028) * 0.035 * (0.35 + intensity);
         const squeeze = Math.cos(elapsed * 0.021) * 0.025 * (0.35 + intensity);
         ctx.scale(1 + wobble, 1 - squeeze);
@@ -2860,7 +2958,8 @@ export default function JogoPage() {
           : getEnemySpriteKey(enemy.kind);
 
       const img = assetsRef.current.get(key);
-      const rotation = enemy.rotation ?? 0;
+      const rotation =
+        (enemy.rotation ?? 0) + ((enemy.tilt ?? 0) * Math.PI) / 180;
       const fallbackColor =
         enemy.kind === "red"
           ? CONFIG.colors.redEnemy
@@ -2871,8 +2970,8 @@ export default function JogoPage() {
               : enemy.kind === "alien"
                 ? "#22c55e"
                 : enemy.kind === "fragment"
-                ? "#b79a6b"
-                : CONFIG.colors.asteroid;
+                  ? "#b79a6b"
+                  : CONFIG.colors.asteroid;
 
       // O sprite do alien já inclui o feixe, então não desenhamos feixe extra.
 
@@ -3030,6 +3129,66 @@ export default function JogoPage() {
           const updated = { ...enemy, age: enemy.age + delta };
 
           if (updated.kind === "red") {
+            const fireRedBullet = () => {
+              enemyProjectilesRef.current.push({
+                id: enemyIdRef.current++,
+                stretchUntil:
+                  performance.now() +
+                  CONFIG.gameplay.dynamicStretch.shotPulseMs,
+                x: updated.x - 22,
+                y: updated.y + updated.h / 2 - 7,
+                w: 18,
+                h: 14,
+                vx: -redCfg.bulletSpeed,
+                vy: 0,
+                damage: 1,
+              });
+              tocarSom(CONFIG.sounds.enemyShot, 0.25);
+            };
+
+            // Se recebeu knockback de boost/shockwave, sai do trilho e pode ser lançado
+            // também para cima/baixo.
+            if (updated.isDashing) {
+              updated.x += updated.vx * speedFactor;
+              updated.y += updated.vy * speedFactor;
+              updated.vx *= Math.pow(0.985, speedFactor);
+              updated.vy *= Math.pow(0.985, speedFactor);
+              updated.rotation =
+                (updated.rotation ?? 0) + (updated.rotationSpeed ?? 0) * delta;
+              return updated;
+            }
+
+            const pauseTimer = updated.redPauseTimer ?? 0;
+
+            if (pauseTimer > 0) {
+              // Congela o movimento inteiro por um tempinho nas pontas.
+              // A idade é compensada para o ping-pong não continuar andando por trás.
+              updated.age -= delta;
+              updated.redPauseTimer = Math.max(0, pauseTimer - delta);
+              updated.y = clamp(
+                updated.redHoldY ?? updated.y,
+                0,
+                canvas.height - updated.h,
+              );
+              updated.vy = 0;
+
+              updated.redBurstTimer = Math.max(
+                0,
+                (updated.redBurstTimer ?? 0) - delta,
+              );
+              if (
+                (updated.redBurstShotsLeft ?? 0) > 0 &&
+                (updated.redBurstTimer ?? 0) <= 0
+              ) {
+                updated.redBurstShotsLeft =
+                  (updated.redBurstShotsLeft ?? 0) - 1;
+                updated.redBurstTimer = redCfg.burstGapMs;
+                fireRedBullet();
+              }
+
+              return updated;
+            }
+
             updated.x += updated.vx * speedFactor;
 
             const previousY = updated.y;
@@ -3043,50 +3202,32 @@ export default function JogoPage() {
             const t = pingPong <= 1 ? pingPong : 2 - pingPong;
             const easedT = 0.5 - Math.cos(t * Math.PI) * 0.5;
             const waveOffset =
-              Math.sin(updated.age * redCfg.waveFrequency + (updated.phase ?? 0)) *
-              redCfg.waveAmplitude;
+              Math.sin(
+                updated.age * redCfg.waveFrequency + (updated.phase ?? 0),
+              ) * redCfg.waveAmplitude;
 
-            // Movimento vertical de ponta a ponta da tela. O disparo em rajada acontece
-            // sempre que a nave chega em uma das pontas desse ping-pong.
+            // Movimento vertical de ponta a ponta da tela.
             updated.y = startY + (targetY - startY) * easedT + waveOffset;
             updated.y = clamp(updated.y, 0, canvas.height - updated.h);
 
-            const oldVy = updated.vy;
             updated.vy = (updated.y - previousY) / Math.max(0.001, speedFactor);
-            const currentDirection = Math.sign(updated.vy || updated.redDirection || 1);
+            const currentDirection = Math.sign(
+              updated.vy || updated.redDirection || 1,
+            );
             const zone: "start" | "target" | "middle" =
-              t <= 0.035 ? "start" : t >= 0.965 ? "target" : "middle";
+              t <= 0.018 ? "start" : t >= 0.982 ? "target" : "middle";
 
             if (zone !== "middle" && zone !== updated.redBurstZone) {
               updated.stretchUntil =
                 performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
               updated.redBurstShotsLeft = redCfg.burstShots;
               updated.redBurstTimer = 0;
+              updated.redPauseTimer = redCfg.endpointPauseMs;
+              updated.redHoldY = updated.y;
               updated.redDirection = currentDirection;
             }
 
             updated.redBurstZone = zone;
-
-            updated.shotCooldown -= delta;
-            updated.redBurstTimer = Math.max(0, (updated.redBurstTimer ?? 0) - delta);
-
-            if ((updated.redBurstShotsLeft ?? 0) > 0 && (updated.redBurstTimer ?? 0) <= 0) {
-              updated.redBurstShotsLeft = (updated.redBurstShotsLeft ?? 0) - 1;
-              updated.redBurstTimer = redCfg.burstGapMs;
-              enemyProjectilesRef.current.push({
-                id: enemyIdRef.current++,
-                stretchUntil:
-                  performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
-                x: updated.x - 18,
-                y: updated.y + updated.h / 2 - 7,
-                w: 18,
-                h: 14,
-                vx: -redCfg.bulletSpeed,
-                vy: 0,
-                damage: 1,
-              });
-              tocarSom(CONFIG.sounds.enemyShot, 0.25);
-            }
           }
 
           if (updated.kind === "black") {
@@ -3103,13 +3244,37 @@ export default function JogoPage() {
             }
           }
 
-          if (updated.kind === "purple" || updated.kind === "asteroid" || updated.kind === "alien") {
+          if (
+            updated.kind === "purple" ||
+            updated.kind === "asteroid" ||
+            updated.kind === "alien"
+          ) {
             updated.x += updated.vx * speedFactor;
             updated.y += updated.vy * speedFactor;
 
             if (updated.kind === "alien") {
-              updated.y += Math.sin(updated.age * 0.0022) * 0.65 * speedFactor;
-              updated.y = clamp(updated.y, 26, canvas.height - updated.h - 26);
+              if (updated.alienFleeing) {
+                updated.rotation = 0;
+                updated.tilt = (updated.tilt ?? 0) * 0.985;
+                updated.alienTrailTimer =
+                  (updated.alienTrailTimer ?? 0) - delta;
+                if ((updated.alienTrailTimer ?? 0) <= 0) {
+                  updated.alienTrailTimer = 34;
+                  criarParticulasAlienFuga(
+                    updated.x + updated.w * 0.2,
+                    updated.y + updated.h / 2,
+                    CONFIG.gameplay.enemies.alien.escapeTrailAmount,
+                  );
+                }
+              } else {
+                updated.y +=
+                  Math.sin(updated.age * 0.0022) * 0.65 * speedFactor;
+                updated.y = clamp(
+                  updated.y,
+                  26,
+                  canvas.height - updated.h - 26,
+                );
+              }
             }
 
             if (updated.kind === "asteroid") {
@@ -3128,14 +3293,21 @@ export default function JogoPage() {
 
           return updated;
         })
-        .filter(
-          (enemy) =>
-            enemy.x > -180 &&
-            enemy.x < canvas.width + 220 &&
-            enemy.y > -180 &&
-            enemy.y < canvas.height + 180 &&
-            enemy.hp > 0,
-        );
+        .filter((enemy) => {
+          if (enemy.hp <= 0) return false;
+
+          const marginX =
+            enemy.kind === "asteroid" || enemy.kind === "fragment" ? 260 : 90;
+          const marginY =
+            enemy.kind === "asteroid" || enemy.kind === "fragment" ? 220 : 90;
+
+          return (
+            enemy.x > -enemy.w - marginX &&
+            enemy.x < canvas.width + enemy.w + marginX &&
+            enemy.y > -enemy.h - marginY &&
+            enemy.y < canvas.height + enemy.h + marginY
+          );
+        });
 
       enemyProjectilesRef.current = enemyProjectilesRef.current
         .map((bullet) => ({
@@ -3150,45 +3322,47 @@ export default function JogoPage() {
       const player = playerRef.current;
       const now = performance.now();
       if (player.capturedEnemyId !== null) return;
+      if (now < player.alienCaptureCooldownUntil) return;
+      if (enemy.alienFleeing) return;
 
       const cfg = CONFIG.gameplay.enemies.alien;
       const px = player.x + player.w / 2;
-      const py = player.y + player.h / 2;
-      const distances = [px, CONFIG.canvasWidth - px, py, CONFIG.canvasHeight - py];
-      const minDistance = Math.max(1, Math.min(...distances));
-      const toLeft = px <= CONFIG.canvasWidth - px;
-      const toTop = py <= CONFIG.canvasHeight - py;
 
-      let dirX = toLeft ? -1 : 1;
-      let dirY = 0;
-      if (Math.min(py, CONFIG.canvasHeight - py) < minDistance + 1) {
-        dirX = 0;
-        dirY = toTop ? -1 : 1;
-      }
-
+      // O alien sempre arremessa o player contra a parede ESQUERDA.
+      // Quanto menor a distância da parede, menor o tempo de arremesso, evitando combo infinito.
+      const distanceToLeft = Math.max(28, px);
       const throwMs = clamp(
-        (minDistance / 520) * cfg.throwDefaultMs,
+        (distanceToLeft / CONFIG.canvasWidth) * cfg.throwDefaultMs,
         cfg.throwMinMs,
         cfg.throwDefaultMs,
       );
-      const speed = minDistance / Math.max(1, throwMs / 16.67);
+      const speed = Math.max(10, distanceToLeft / Math.max(1, throwMs / 16.67));
 
       player.capturedEnemyId = enemy.id;
       player.capturedUntil = now + cfg.captureMs;
       player.throwUntil = player.capturedUntil + throwMs;
-      player.throwVx = dirX * speed;
-      player.throwVy = dirY * speed;
+      player.throwVx = -speed;
+      player.throwVy = 0;
       player.wallImpactArmed = true;
+      player.alienCaptureCooldownUntil =
+        player.throwUntil + cfg.captureCooldownMs;
       player.vx = 0;
       player.vy = 0;
 
       // Coloca o player na frente do alien imediatamente para evitar bugs de sobreposição.
       player.x = enemy.x - player.w * 0.72;
       player.y = enemy.y + enemy.h / 2 - player.h / 2;
-      player.invincibleUntil = Math.max(player.invincibleUntil, player.throwUntil + 250);
+      player.invincibleUntil = Math.max(
+        player.invincibleUntil,
+        player.throwUntil + 250,
+      );
       player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
       player.stretchVx = -4.5;
       player.stretchVy = 0;
+
+      enemy.vx = 0;
+      enemy.vy = 0;
+      enemy.isDashing = false;
       tocarSom(CONFIG.sounds.enemyHit, 0.22, "hit");
     }
 
@@ -3197,21 +3371,22 @@ export default function JogoPage() {
       if (player.capturedEnemyId === null) return false;
 
       const now = performance.now();
-      const alien = enemiesRef.current.find((enemy) => enemy.id === player.capturedEnemyId);
+      const alien = enemiesRef.current.find(
+        (enemy) => enemy.id === player.capturedEnemyId,
+      );
       const speedFactor = delta / 16.67;
 
       if (now < player.capturedUntil && alien) {
         const angle = now * 0.012;
-        const orbitX = Math.cos(angle) * 28;
-        const orbitY = Math.sin(angle) * 18;
-        player.x = alien.x - player.w * 0.58 + orbitX;
-        player.y = alien.y + alien.h / 2 - player.h / 2 + orbitY;
+        // Mantém o player na frente do alien; só o sprite rotaciona para dar dinamismo.
+        player.x = alien.x - player.w * 0.58;
+        player.y = alien.y + alien.h / 2 - player.h / 2;
         player.vx = 0;
         player.vy = 0;
-        player.tilt += 0.38;
-        player.stretchUntil = now + 120;
-        player.stretchVx = Math.cos(angle) * 2.8;
-        player.stretchVy = Math.sin(angle) * 2.8;
+        player.tilt += 8.5 * speedFactor;
+        player.stretchUntil = now + 90;
+        player.stretchVx = Math.cos(angle) * 1.6;
+        player.stretchVy = Math.sin(angle) * 1.0;
         return true;
       }
 
@@ -3241,11 +3416,33 @@ export default function JogoPage() {
           player.vx = 0;
           player.vy = 0;
           player.invincibleUntil = 0;
-          criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#ffe18c", 18);
+          player.alienCaptureCooldownUntil =
+            now + CONFIG.gameplay.enemies.alien.captureCooldownMs;
+
+          if (alien) {
+            const fleeY = alien.y + alien.h / 2 < canvas.height / 2 ? -1 : 1;
+            alien.alienFleeing = true;
+            alien.isDashing = true;
+            // Depois de arremessar o player, o alien foge para a ESQUERDA
+            // na diagonal mais próxima, sem girar feito doido.
+            alien.vx = -CONFIG.gameplay.enemies.alien.escapeSpeedX;
+            alien.vy = fleeY * CONFIG.gameplay.enemies.alien.escapeSpeedY;
+            alien.rotationSpeed = 0;
+            alien.tilt = fleeY * 8;
+            alien.stretchUntil =
+              now + CONFIG.gameplay.dynamicStretch.enemyPulseMs * 2;
+          }
+
+          criarExplosao(
+            player.x + player.w / 2,
+            player.y + player.h / 2,
+            "#ffe18c",
+            18,
+          );
           if (CONFIG.settings.enableScreenShake) {
             shakeRef.current = {
               intensity: CONFIG.gameplay.enemies.alien.throwImpactShake,
-              endAt: now + 220,
+              endAt: now + 260,
             };
           }
           receberDano(CONFIG.gameplay.enemies.alien.throwDamage);
@@ -3312,12 +3509,37 @@ export default function JogoPage() {
       const intangible =
         now < player.invincibleUntil || now < player.dodgeUntil || boosting;
 
+      // Alien captura pelo sprite inteiro, mesmo que o player esteja em i-frame/boost.
+      // Isso evita o bug de atravessar o alien sem interação.
+      if (player.capturedEnemyId === null) {
+        for (const enemy of enemiesRef.current) {
+          if (enemy.kind !== "alien") continue;
+          if (enemy.alienFleeing) continue;
+          if (enemiesToRemove.has(enemy.id)) continue;
+
+          if (rectsCollide(playerHitbox, enemy)) {
+            iniciarCapturaAlien(enemy);
+            break;
+          }
+        }
+      }
+
       if (boosting) {
         for (const enemy of enemiesRef.current) {
           if (enemiesToRemove.has(enemy.id)) continue;
           if (boostHitEnemiesRef.current.has(enemy.id)) continue;
 
           if (rectsCollide(playerHitbox, enemy)) {
+            if (enemy.kind === "alien") {
+              if (
+                !enemy.alienFleeing &&
+                performance.now() >= player.alienCaptureCooldownUntil
+              ) {
+                iniciarCapturaAlien(enemy);
+              }
+              continue;
+            }
+
             boostHitEnemiesRef.current.add(enemy.id);
             enemy.hp -= CONFIG.gameplay.boost.damage;
             criarExplosao(
@@ -3372,7 +3594,12 @@ export default function JogoPage() {
 
           if (rectsCollide(playerHitbox, enemy)) {
             if (enemy.kind === "alien") {
-              iniciarCapturaAlien(enemy);
+              if (
+                !enemy.alienFleeing &&
+                performance.now() >= player.alienCaptureCooldownUntil
+              ) {
+                iniciarCapturaAlien(enemy);
+              }
               continue;
             }
 
@@ -3433,6 +3660,18 @@ export default function JogoPage() {
 
       const player = playerRef.current;
       const speedFactor = delta / 16.67;
+
+      // Se o alien capturou/arremessou o player, trava controles e resolve só essa cutscene.
+      // Atualizamos inimigos antes para o player acompanhar o alien corretamente.
+      if (player.capturedEnemyId !== null) {
+        atualizarWavesInfinitas();
+        atualizarInimigos(delta, canvas);
+        atualizarCapturaAlien(delta, canvas);
+        atualizarParticulas(delta);
+        atualizarShockwaves(delta);
+        setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+        return;
+      }
 
       const keyboardX =
         (keysRef.current["arrowright"] || keysRef.current["d"] ? 1 : 0) -
@@ -3581,7 +3820,12 @@ export default function JogoPage() {
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
     }
 
-    function criarParticulasGameOver(cx: number, cy: number, amount: number, explosive = false) {
+    function criarParticulasGameOver(
+      cx: number,
+      cy: number,
+      amount: number,
+      explosive = false,
+    ) {
       if (!CONFIG.settings.enableParticles) return;
       const player = playerRef.current;
       const finalAmount = Math.min(
@@ -3613,7 +3857,9 @@ export default function JogoPage() {
         });
       }
 
-      particlesRef.current = particlesRef.current.slice(-CONFIG.gameplay.gameOver.maxParticlesOnDeath);
+      particlesRef.current = particlesRef.current.slice(
+        -CONFIG.gameplay.gameOver.maxParticlesOnDeath,
+      );
     }
 
     function atualizarGameOverCutscene() {
@@ -3657,18 +3903,29 @@ export default function JogoPage() {
             cfg.fireParticleAmount,
             true,
           );
-          tocarSom(CONFIG.sounds.gameOverExplosion || CONFIG.sounds.explosion, 0.2, "hit");
+          tocarSom(
+            CONFIG.sounds.gameOverExplosion || CONFIG.sounds.explosion,
+            0.2,
+            "hit",
+          );
         }
         return;
       }
 
-      if (elapsed >= cfg.slowExplosionMs + cfg.bigExplosionMs && !gameOverFlash) {
+      if (
+        elapsed >= cfg.slowExplosionMs + cfg.bigExplosionMs &&
+        !gameOverFlash
+      ) {
         setGameOverFlashOrigin({
           x: `${clamp((cx / CONFIG.canvasWidth) * 100, 0, 100)}%`,
           y: `${clamp((cy / CONFIG.canvasHeight) * 100, 0, 100)}%`,
         });
         criarParticulasGameOver(cx, cy, cfg.finalFlashParticleAmount, true);
-        tocarSom(CONFIG.sounds.gameOverExplosion || CONFIG.sounds.explosion, 0.45, "hit");
+        tocarSom(
+          CONFIG.sounds.gameOverExplosion || CONFIG.sounds.explosion,
+          0.45,
+          "hit",
+        );
         setGameOverFlash(true);
       }
 
@@ -3840,7 +4097,12 @@ export default function JogoPage() {
         if (key === "=" || key === "+") {
           for (const enemy of enemiesRef.current) {
             registrarAbate(enemy.kind);
-            criarExplosao(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#ffe18c", 8);
+            criarExplosao(
+              enemy.x + enemy.w / 2,
+              enemy.y + enemy.h / 2,
+              "#ffe18c",
+              8,
+            );
           }
           enemiesRef.current = [];
           enemyProjectilesRef.current = [];
@@ -4103,7 +4365,7 @@ export default function JogoPage() {
               <button
                 type="button"
                 className="game-settings-close"
-                onClick={voltarAoMenuPrincipal}
+                onClick={voltarDasConfiguracoes}
                 aria-label="Fechar configurações"
               >
                 X
@@ -4154,15 +4416,21 @@ export default function JogoPage() {
                             </span>
                             <span className="game-setting-control">
                               {option.kind === "toggle" ? (
-                                <strong className={`game-setting-toggle ${value ? "is-on" : "is-off"}`}>
+                                <strong
+                                  className={`game-setting-toggle ${value ? "is-on" : "is-off"}`}
+                                >
                                   {value ? "✓ CORRETO" : "✕ ERRADO"}
                                 </strong>
                               ) : (
                                 <>
                                   <span className="game-setting-bar">
-                                    <span style={{ width: `${ratio * 100}%` }} />
+                                    <span
+                                      style={{ width: `${ratio * 100}%` }}
+                                    />
                                   </span>
-                                  <strong>{formatarConfiguracao(option)}</strong>
+                                  <strong>
+                                    {formatarConfiguracao(option)}
+                                  </strong>
                                 </>
                               )}
                             </span>
@@ -4250,6 +4518,7 @@ export default function JogoPage() {
             <p className="game-panel-label">JOGO PAUSADO</p>
             <h2>PAUSADO</h2>
             <button onClick={pausarOuVoltar}>CONTINUAR</button>
+            <button onClick={abrirConfiguracoes}>CONFIGURAÇÕES</button>
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
         </section>
@@ -4258,10 +4527,12 @@ export default function JogoPage() {
       {(gameState === "gameOverCutscene" || gameState === "gameOver") && (
         <div
           className={`game-over-white-flash ${gameOverFlash ? "show" : ""}`}
-          style={{
-            "--game-over-flash-x": gameOverFlashOrigin.x,
-            "--game-over-flash-y": gameOverFlashOrigin.y,
-          } as CSSProperties}
+          style={
+            {
+              "--game-over-flash-x": gameOverFlashOrigin.x,
+              "--game-over-flash-y": gameOverFlashOrigin.y,
+            } as CSSProperties
+          }
         />
       )}
 
@@ -4270,7 +4541,9 @@ export default function JogoPage() {
           <div className="game-over-card">
             <p>MISSÃO FALHOU</p>
             <h1>GAME OVER</h1>
-            <button onClick={() => iniciarJogo(currentModeRef.current ?? "infinite")}>
+            <button
+              onClick={() => iniciarJogo(currentModeRef.current ?? "infinite")}
+            >
               TENTAR NOVAMENTE
             </button>
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
