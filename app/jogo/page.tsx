@@ -31,6 +31,7 @@ type SpriteKey =
   | "enemyRed"
   | "enemyBlack"
   | "enemyPurple"
+  | "enemyAlien"
   | "enemyBullet"
   | "asteroid"
   | "asteroidCracked"
@@ -48,7 +49,7 @@ type Shot = {
   type: "normal" | "strong";
 };
 
-type EnemyKind = "red" | "black" | "purple" | "asteroid" | "fragment";
+type EnemyKind = "red" | "black" | "purple" | "alien" | "asteroid" | "fragment";
 
 type Enemy = {
   id: number;
@@ -76,6 +77,12 @@ type Enemy = {
   redStartY?: number;
   redTargetY?: number;
   redTravelTimeMs?: number;
+  redDirection?: number;
+  redBurstShotsLeft?: number;
+  redBurstTimer?: number;
+  redBurstZone?: "start" | "target" | "middle";
+  alienBeamWidth?: number;
+  alienBeamHeight?: number;
 };
 
 type EnemyProjectile = {
@@ -100,6 +107,15 @@ type Particle = {
   life: number;
   maxLife: number;
   color: string;
+};
+
+type Shockwave = {
+  id: number;
+  x: number;
+  y: number;
+  radius: number;
+  life: number;
+  maxLife: number;
 };
 
 type SpriteConfig = {
@@ -139,6 +155,12 @@ type Player = {
   lastInputY: number;
   lastMoveAngle: number;
   lastStretchAt: number;
+  capturedUntil: number;
+  throwUntil: number;
+  capturedEnemyId: number | null;
+  throwVx: number;
+  throwVy: number;
+  wallImpactArmed: boolean;
 };
 
 type GameCssVars = CSSProperties & {
@@ -256,6 +278,14 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     fps: 8,
   },
 
+  enemyAlien: {
+    src: "/game/enemies/alien-green.png",
+    frameWidth: 96,
+    frameHeight: 64,
+    frames: 1,
+    fps: 8,
+  },
+
   enemyBullet: { src: "/game/shots/enemy-bullet.png" },
 
   asteroid: { src: "/game/obstacles/asteroid.png" },
@@ -290,15 +320,15 @@ const CONFIG = {
   gameplay: {
     player: {
       // Tamanho visual da nave na tela.
-      width: 132,
-      height: 74,
+      width: 170,
+      height: 100,
 
       // Hitbox configurável da nave.
       // offsetX/offsetY centralizam a hitbox dentro do sprite visual.
-      hitboxWidth: 116,
-      hitboxHeight: 54,
-      hitboxOffsetX: 8,
-      hitboxOffsetY: 10,
+      hitboxWidth: 148,
+      hitboxHeight: 74,
+      hitboxOffsetX: 11,
+      hitboxOffsetY: 13,
 
       maxHp: 5,
       invincibleMs: 2000,
@@ -354,15 +384,17 @@ const CONFIG = {
       bigBurstEveryMs: 120,
       shakeIntensity: 9,
       shakeMs: 1800,
-      fireParticleAmount: 16,
-      finalFlashParticleAmount: 54,
-      maxParticlesOnDeath: 120,
+      fireParticleAmount: 12,
+      finalFlashParticleAmount: 72,
+      maxParticlesOnDeath: 95,
+      explosionSound: "/sounds/game-over-explosion.mp3",
     },
 
     score: {
       red: 100,
       black: 220,
       purple: 120,
+      alien: 260,
       asteroid: 180,
       fragment: 25,
       waveClear: 500,
@@ -420,8 +452,8 @@ const CONFIG = {
         speed: 10,
         damage: 5,
         cooldownMs: 8000,
-        shockwaveRadius: 230,
-        shockwaveKnockback: 8.5,
+        shockwaveRadius: 360,
+        shockwaveKnockback: 11.5,
         shockwaveSpin: 0.018,
       },
     },
@@ -437,6 +469,7 @@ const CONFIG = {
       purpleFromWave: 2,
       blackFromWave: 4,
       asteroidFromWave: 3,
+      alienFromWave: 6,
       asteroidEvery: 3,
       bossEvery: 50,
       difficultyPerWave: 0.045,
@@ -454,9 +487,11 @@ const CONFIG = {
         waveFrequency: 0.0032,
         shootEveryMs: 1350,
         bulletSpeed: 4.7,
-        edgePadding: 92,
-        verticalTravelMs: 2200,
+        edgePadding: 4,
+        verticalTravelMs: 2600,
         pairGapX: 0,
+        burstShots: 3,
+        burstGapMs: 92,
       },
 
       black: {
@@ -473,6 +508,20 @@ const CONFIG = {
         height: 70,
         hp: 3,
         speed: 3.4,
+      },
+
+      alien: {
+        // O sprite do alien já deve incluir o feixe de abdução.
+        // Portanto o tamanho abaixo deve cobrir a nave + o feixe inteiro.
+        width: 220,
+        height: 120,
+        hp: 6,
+        speed: 2.15,
+        captureMs: 850,
+        throwDefaultMs: 1000,
+        throwMinMs: 220,
+        throwDamage: 1,
+        throwImpactShake: 7,
       },
 
       asteroid: {
@@ -513,6 +562,7 @@ const CONFIG = {
     normalShot: "/sounds/game-shot.mp3",
     strongShot: "/sounds/game-strong-shot.mp3",
     explosion: "/sounds/game-explosion.mp3",
+    gameOverExplosion: "/sounds/game-over-explosion.mp3",
     enemyShot: "/sounds/enemy-shot.mp3",
     enemyHit: "/sounds/enemy-hit.mp3",
     enemyDeath: "/sounds/enemy-death.mp3",
@@ -912,6 +962,12 @@ function createInitialPlayer(): Player {
     lastInputY: 0,
     lastMoveAngle: 0,
     lastStretchAt: 0,
+    capturedUntil: 0,
+    throwUntil: 0,
+    capturedEnemyId: null,
+    throwVx: 0,
+    throwVy: 0,
+    wallImpactArmed: false,
   };
 }
 
@@ -1198,6 +1254,7 @@ export default function JogoPage() {
   const enemiesRef = useRef<Enemy[]>([]);
   const enemyProjectilesRef = useRef<EnemyProjectile[]>([]);
   const particlesRef = useRef<Particle[]>([]);
+  const shockwavesRef = useRef<Shockwave[]>([]);
 
   const shakeRef = useRef({ intensity: 0, endAt: 0 });
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1377,6 +1434,14 @@ export default function JogoPage() {
     enemiesRef.current = [];
     enemyProjectilesRef.current = [];
     particlesRef.current = [];
+    shockwavesRef.current = [];
+    const player = playerRef.current;
+    player.capturedUntil = 0;
+    player.throwUntil = 0;
+    player.capturedEnemyId = null;
+    player.throwVx = 0;
+    player.throwVy = 0;
+    player.wallImpactArmed = false;
     shakeRef.current = { intensity: 0, endAt: 0 };
     boostHitEnemiesRef.current.clear();
   }
@@ -1801,12 +1866,8 @@ export default function JogoPage() {
     if (kind === "red") {
       const cfg = CONFIG.gameplay.enemies.red;
       const centerY = (CONFIG.canvasHeight - cfg.height) / 2;
-      const verticalRange = Math.max(
-        40,
-        CONFIG.canvasHeight / 2 - cfg.edgePadding - cfg.height / 2,
-      );
-      const topY = centerY - verticalRange;
-      const bottomY = centerY + verticalRange;
+      const topY = cfg.edgePadding;
+      const bottomY = CONFIG.canvasHeight - cfg.height - cfg.edgePadding;
       const sharedCooldown = cfg.shootEveryMs;
 
       const createRed = (
@@ -1835,6 +1896,9 @@ export default function JogoPage() {
         redStartY: startY,
         redTargetY: targetY,
         redTravelTimeMs: cfg.verticalTravelMs,
+        redDirection: targetY > startY ? 1 : -1,
+        redBurstShotsLeft: 0,
+        redBurstTimer: 0,
       });
 
       enemiesRef.current.push(createRed(topY, bottomY, 0));
@@ -1889,6 +1953,31 @@ export default function JogoPage() {
         h: cfg.height,
         vx: -cfg.speed,
         vy: 0,
+        hp: cfg.hp,
+        maxHp: cfg.hp,
+        age: 0,
+        waveBaseY: spawnY,
+        shotCooldown: 0,
+        windUpMs: 0,
+        isDashing: false,
+      });
+      return;
+    }
+
+    if (kind === "alien") {
+      const cfg = CONFIG.gameplay.enemies.alien;
+
+      enemiesRef.current.push({
+        id,
+        stretchUntil:
+          performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
+        kind: "alien",
+        x: CONFIG.canvasWidth + 100,
+        y: clamp(spawnY, 50, CONFIG.canvasHeight - cfg.height - 50),
+        w: cfg.width,
+        h: cfg.height,
+        vx: -cfg.speed,
+        vy: rand(-0.18, 0.18),
         hp: cfg.hp,
         maxHp: cfg.hp,
         age: 0,
@@ -2120,7 +2209,15 @@ export default function JogoPage() {
     const force = strongCfg.shockwaveKnockback ?? 8.5;
     const spin = strongCfg.shockwaveSpin ?? 0.018;
 
-    criarExplosao(originX, originY, "#fff1a8", 12);
+    shockwavesRef.current.push({
+      id: enemyIdRef.current++,
+      x: originX,
+      y: originY,
+      radius,
+      life: 360,
+      maxLife: 360,
+    });
+    criarExplosao(originX, originY, "#fff1a8", 18);
 
     for (const enemy of enemiesRef.current) {
       const cx = enemy.x + enemy.w / 2;
@@ -2200,51 +2297,51 @@ export default function JogoPage() {
     const events: WaveSpawnEvent[] = [];
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
     const groupCount = bossWave
-      ? Math.min(
-          cfg.maxGroups,
-          cfg.baseGroups + 12 + Math.floor(waveNumber / 8),
-        )
-      : Math.min(
-          cfg.maxGroups,
-          cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave),
-        );
+      ? Math.min(cfg.maxGroups, cfg.baseGroups + 10 + Math.floor(waveNumber / 10))
+      : Math.min(cfg.maxGroups, cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave));
+
+    const lanes = [86, 170, 260, 350, 440, 535, 625];
+    const mirroredLane = (lane: number) => CONFIG.canvasHeight - lane - 70;
+    const pickLane = (i: number) => lanes[i % lanes.length];
+    let time = 0;
 
     for (let i = 0; i < groupCount; i++) {
-      const at = i * cfg.spawnIntervalMs;
-      const roll = Math.random();
-      let kind: EnemyKind = "red";
+      const lane = pickLane(i);
+      const mirror = clamp(mirroredLane(lane), 70, CONFIG.canvasHeight - 120);
+      const pattern = (i + Math.floor(waveNumber / 2)) % 6;
 
-      if (bossWave) {
-        if (i % 5 === 0) kind = "black";
-        else if (i % 3 === 0) kind = "asteroid";
-        else if (i % 2 === 0) kind = "purple";
-        else kind = "red";
-      } else if (waveNumber >= cfg.blackFromWave && roll > 0.78) {
-        kind = "black";
-      } else if (waveNumber >= cfg.asteroidFromWave && roll > 0.58) {
-        kind = "asteroid";
-      } else if (waveNumber >= cfg.purpleFromWave && roll > 0.36) {
-        kind = "purple";
+      // Patterns mais simétricos: entradas em pares/espelhos em vez de spawns soltos.
+      if (pattern === 0) {
+        events.push({ at: time, kind: "red" });
+      } else if (pattern === 1 && waveNumber >= cfg.purpleFromWave) {
+        events.push({ at: time, kind: "purple", y: lane });
+        events.push({ at: time + 180, kind: "purple", y: mirror });
+      } else if (pattern === 2 && waveNumber >= cfg.blackFromWave) {
+        events.push({ at: time, kind: "black", y: lane });
+      } else if (pattern === 3 && waveNumber >= cfg.alienFromWave) {
+        events.push({ at: time, kind: "alien", y: lane });
+        if (waveNumber >= cfg.alienFromWave + 4) {
+          events.push({ at: time + 360, kind: "purple", y: mirror });
+        }
+      } else if (pattern === 4 && waveNumber >= cfg.purpleFromWave) {
+        events.push({ at: time, kind: "purple", y: lane });
+        if (waveNumber >= cfg.blackFromWave) {
+          events.push({ at: time + 320, kind: "black", y: mirror });
+        }
+      } else {
+        events.push({ at: time, kind: waveNumber >= cfg.purpleFromWave ? "purple" : "red", y: lane });
       }
 
-      events.push({
-        at,
-        kind,
-        y: kind === "red" ? undefined : rand(70, CONFIG.canvasHeight - 150),
-      });
-
+      // Asteroides são hazards independentes: aparecem junto da wave, mas não contam para finalizar.
       if (
-        !bossWave &&
         waveNumber >= cfg.asteroidFromWave &&
         waveNumber % cfg.asteroidEvery === 0 &&
-        i === Math.floor(groupCount / 2)
+        i % 3 === 1
       ) {
-        events.push({
-          at: at + cfg.spawnIntervalMs / 2,
-          kind: "asteroid",
-          y: rand(70, CONFIG.canvasHeight - 180),
-        });
+        events.push({ at: time + 260, kind: "asteroid", y: mirror });
       }
+
+      time += Math.max(420, cfg.spawnIntervalMs - Math.min(220, waveNumber * 7));
     }
 
     return events.sort((a, b) => a.at - b.at);
@@ -2352,7 +2449,11 @@ export default function JogoPage() {
       setWaveUi((current) => ({ ...current, message: "" }));
     }
 
-    if (wave.queue.length === 0 && enemiesRef.current.length === 0) {
+    const waveEnemiesAlive = enemiesRef.current.some(
+      (enemy) => enemy.kind !== "asteroid" && enemy.kind !== "fragment",
+    );
+
+    if (wave.queue.length === 0 && !waveEnemiesAlive) {
       wave.active = false;
       wave.nextWaveAt = now + CONFIG.gameplay.infiniteWaves.nextWaveDelayMs;
       wave.message = `WAVE ${wave.wave} CONCLUÍDA`;
@@ -2747,6 +2848,7 @@ export default function JogoPage() {
       if (kind === "red") return "enemyRed";
       if (kind === "black") return "enemyBlack";
       if (kind === "purple") return "enemyPurple";
+      if (kind === "alien") return "enemyAlien";
       if (kind === "fragment") return "asteroidFragment";
       return "asteroid";
     }
@@ -2766,9 +2868,13 @@ export default function JogoPage() {
             ? CONFIG.colors.blackEnemy
             : enemy.kind === "purple"
               ? CONFIG.colors.purpleEnemy
-              : enemy.kind === "fragment"
+              : enemy.kind === "alien"
+                ? "#22c55e"
+                : enemy.kind === "fragment"
                 ? "#b79a6b"
                 : CONFIG.colors.asteroid;
+
+      // O sprite do alien já inclui o feixe, então não desenhamos feixe extra.
 
       drawVelocityStretchedImage(
         ctx,
@@ -2825,6 +2931,30 @@ export default function JogoPage() {
         getStretchSettings("shot").multiplier,
         getStretchPulse(bullet.stretchUntil, "shot"),
       );
+    }
+
+    function atualizarShockwaves(delta: number) {
+      shockwavesRef.current = shockwavesRef.current
+        .map((wave) => ({ ...wave, life: wave.life - delta }))
+        .filter((wave) => wave.life > 0);
+    }
+
+    function desenharShockwaves(ctx: CanvasRenderingContext2D) {
+      ctx.save();
+      for (const wave of shockwavesRef.current) {
+        const progress = 1 - clamp(wave.life / wave.maxLife, 0, 1);
+        const radius = wave.radius * progress;
+        const alpha = Math.pow(1 - progress, 1.35);
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = "#fff1a8";
+        ctx.lineWidth = 8;
+        ctx.shadowColor = "#ffb703";
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     function atualizarParticulas(delta: number) {
@@ -2913,34 +3043,40 @@ export default function JogoPage() {
             const t = pingPong <= 1 ? pingPong : 2 - pingPong;
             const easedT = 0.5 - Math.cos(t * Math.PI) * 0.5;
             const waveOffset =
-              Math.sin(
-                updated.age * redCfg.waveFrequency + (updated.phase ?? 0),
-              ) * redCfg.waveAmplitude;
+              Math.sin(updated.age * redCfg.waveFrequency + (updated.phase ?? 0)) *
+              redCfg.waveAmplitude;
 
+            // Movimento vertical de ponta a ponta da tela. O disparo em rajada acontece
+            // sempre que a nave chega em uma das pontas desse ping-pong.
             updated.y = startY + (targetY - startY) * easedT + waveOffset;
-            updated.y = clamp(updated.y, 18, canvas.height - updated.h - 18);
+            updated.y = clamp(updated.y, 0, canvas.height - updated.h);
 
             const oldVy = updated.vy;
             updated.vy = (updated.y - previousY) / Math.max(0.001, speedFactor);
+            const currentDirection = Math.sign(updated.vy || updated.redDirection || 1);
+            const zone: "start" | "target" | "middle" =
+              t <= 0.035 ? "start" : t >= 0.965 ? "target" : "middle";
 
-            if (
-              Math.abs(updated.vy) > 0.25 &&
-              Math.abs(oldVy) > 0.25 &&
-              Math.sign(updated.vy) !== Math.sign(oldVy)
-            ) {
+            if (zone !== "middle" && zone !== updated.redBurstZone) {
               updated.stretchUntil =
                 performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+              updated.redBurstShotsLeft = redCfg.burstShots;
+              updated.redBurstTimer = 0;
+              updated.redDirection = currentDirection;
             }
 
-            updated.shotCooldown -= delta;
+            updated.redBurstZone = zone;
 
-            if (updated.shotCooldown <= 0) {
-              updated.shotCooldown = redCfg.shootEveryMs;
+            updated.shotCooldown -= delta;
+            updated.redBurstTimer = Math.max(0, (updated.redBurstTimer ?? 0) - delta);
+
+            if ((updated.redBurstShotsLeft ?? 0) > 0 && (updated.redBurstTimer ?? 0) <= 0) {
+              updated.redBurstShotsLeft = (updated.redBurstShotsLeft ?? 0) - 1;
+              updated.redBurstTimer = redCfg.burstGapMs;
               enemyProjectilesRef.current.push({
                 id: enemyIdRef.current++,
                 stretchUntil:
-                  performance.now() +
-                  CONFIG.gameplay.dynamicStretch.shotPulseMs,
+                  performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
                 x: updated.x - 18,
                 y: updated.y + updated.h / 2 - 7,
                 w: 18,
@@ -2949,7 +3085,7 @@ export default function JogoPage() {
                 vy: 0,
                 damage: 1,
               });
-              tocarSom(CONFIG.sounds.enemyShot, 0.26);
+              tocarSom(CONFIG.sounds.enemyShot, 0.25);
             }
           }
 
@@ -2967,9 +3103,14 @@ export default function JogoPage() {
             }
           }
 
-          if (updated.kind === "purple" || updated.kind === "asteroid") {
+          if (updated.kind === "purple" || updated.kind === "asteroid" || updated.kind === "alien") {
             updated.x += updated.vx * speedFactor;
             updated.y += updated.vy * speedFactor;
+
+            if (updated.kind === "alien") {
+              updated.y += Math.sin(updated.age * 0.0022) * 0.65 * speedFactor;
+              updated.y = clamp(updated.y, 26, canvas.height - updated.h - 26);
+            }
 
             if (updated.kind === "asteroid") {
               updated.rotation =
@@ -3003,6 +3144,119 @@ export default function JogoPage() {
           y: bullet.y + bullet.vy * speedFactor,
         }))
         .filter((bullet) => bullet.x > -80 && bullet.x < canvas.width + 120);
+    }
+
+    function iniciarCapturaAlien(enemy: Enemy) {
+      const player = playerRef.current;
+      const now = performance.now();
+      if (player.capturedEnemyId !== null) return;
+
+      const cfg = CONFIG.gameplay.enemies.alien;
+      const px = player.x + player.w / 2;
+      const py = player.y + player.h / 2;
+      const distances = [px, CONFIG.canvasWidth - px, py, CONFIG.canvasHeight - py];
+      const minDistance = Math.max(1, Math.min(...distances));
+      const toLeft = px <= CONFIG.canvasWidth - px;
+      const toTop = py <= CONFIG.canvasHeight - py;
+
+      let dirX = toLeft ? -1 : 1;
+      let dirY = 0;
+      if (Math.min(py, CONFIG.canvasHeight - py) < minDistance + 1) {
+        dirX = 0;
+        dirY = toTop ? -1 : 1;
+      }
+
+      const throwMs = clamp(
+        (minDistance / 520) * cfg.throwDefaultMs,
+        cfg.throwMinMs,
+        cfg.throwDefaultMs,
+      );
+      const speed = minDistance / Math.max(1, throwMs / 16.67);
+
+      player.capturedEnemyId = enemy.id;
+      player.capturedUntil = now + cfg.captureMs;
+      player.throwUntil = player.capturedUntil + throwMs;
+      player.throwVx = dirX * speed;
+      player.throwVy = dirY * speed;
+      player.wallImpactArmed = true;
+      player.vx = 0;
+      player.vy = 0;
+
+      // Coloca o player na frente do alien imediatamente para evitar bugs de sobreposição.
+      player.x = enemy.x - player.w * 0.72;
+      player.y = enemy.y + enemy.h / 2 - player.h / 2;
+      player.invincibleUntil = Math.max(player.invincibleUntil, player.throwUntil + 250);
+      player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+      player.stretchVx = -4.5;
+      player.stretchVy = 0;
+      tocarSom(CONFIG.sounds.enemyHit, 0.22, "hit");
+    }
+
+    function atualizarCapturaAlien(delta: number, canvas: HTMLCanvasElement) {
+      const player = playerRef.current;
+      if (player.capturedEnemyId === null) return false;
+
+      const now = performance.now();
+      const alien = enemiesRef.current.find((enemy) => enemy.id === player.capturedEnemyId);
+      const speedFactor = delta / 16.67;
+
+      if (now < player.capturedUntil && alien) {
+        const angle = now * 0.012;
+        const orbitX = Math.cos(angle) * 28;
+        const orbitY = Math.sin(angle) * 18;
+        player.x = alien.x - player.w * 0.58 + orbitX;
+        player.y = alien.y + alien.h / 2 - player.h / 2 + orbitY;
+        player.vx = 0;
+        player.vy = 0;
+        player.tilt += 0.38;
+        player.stretchUntil = now + 120;
+        player.stretchVx = Math.cos(angle) * 2.8;
+        player.stretchVy = Math.sin(angle) * 2.8;
+        return true;
+      }
+
+      if (now < player.throwUntil) {
+        player.x += player.throwVx * speedFactor;
+        player.y += player.throwVy * speedFactor;
+        player.vx = player.throwVx;
+        player.vy = player.throwVy;
+        player.tilt += 0.45;
+        player.stretchUntil = now + 120;
+        player.stretchVx = player.throwVx;
+        player.stretchVy = player.throwVy;
+
+        const hitWall =
+          player.x <= 0 ||
+          player.x >= canvas.width - player.w ||
+          player.y <= 0 ||
+          player.y >= canvas.height - player.h;
+
+        if (hitWall && player.wallImpactArmed) {
+          player.x = clamp(player.x, 0, canvas.width - player.w);
+          player.y = clamp(player.y, 0, canvas.height - player.h);
+          player.wallImpactArmed = false;
+          player.capturedEnemyId = null;
+          player.throwUntil = 0;
+          player.capturedUntil = 0;
+          player.vx = 0;
+          player.vy = 0;
+          player.invincibleUntil = 0;
+          criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#ffe18c", 18);
+          if (CONFIG.settings.enableScreenShake) {
+            shakeRef.current = {
+              intensity: CONFIG.gameplay.enemies.alien.throwImpactShake,
+              endAt: now + 220,
+            };
+          }
+          receberDano(CONFIG.gameplay.enemies.alien.throwDamage);
+        }
+        return true;
+      }
+
+      player.capturedEnemyId = null;
+      player.throwUntil = 0;
+      player.capturedUntil = 0;
+      return false;
     }
 
     function resolverColisoes() {
@@ -3117,6 +3371,11 @@ export default function JogoPage() {
           if (enemiesToRemove.has(enemy.id)) continue;
 
           if (rectsCollide(playerHitbox, enemy)) {
+            if (enemy.kind === "alien") {
+              iniciarCapturaAlien(enemy);
+              continue;
+            }
+
             enemiesToRemove.add(enemy.id);
 
             if (enemy.kind === "asteroid") {
@@ -3318,7 +3577,43 @@ export default function JogoPage() {
       atualizarInimigos(delta, canvas);
       resolverColisoes();
       atualizarParticulas(delta);
+      atualizarShockwaves(delta);
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+    }
+
+    function criarParticulasGameOver(cx: number, cy: number, amount: number, explosive = false) {
+      if (!CONFIG.settings.enableParticles) return;
+      const player = playerRef.current;
+      const finalAmount = Math.min(
+        CONFIG.gameplay.gameOver.maxParticlesOnDeath,
+        Math.max(0, Math.round(amount * CONFIG.settings.particleQuality)),
+      );
+
+      for (let i = 0; i < finalAmount; i++) {
+        // Nasce dentro do corpo da nave, não do meio da tela.
+        const sx = player.x + rand(player.w * 0.12, player.w * 0.88);
+        const sy = player.y + rand(player.h * 0.18, player.h * 0.82);
+        const dx = sx - cx;
+        const dy = sy - cy;
+        const baseAngle = Math.atan2(dy, dx);
+        const angle = baseAngle + rand(-0.95, 0.95);
+        const speed = explosive ? rand(5.5, 16) : rand(1.8, 7.2);
+
+        particlesRef.current.push({
+          id: enemyIdRef.current++,
+          x: sx,
+          y: sy,
+          vx: Math.cos(angle) * speed + rand(-1.2, 1.2),
+          vy: Math.sin(angle) * speed + rand(-1.2, 1.2),
+          // Pixels quadrados brilhantes. Nada de efeito redondo.
+          size: explosive ? rand(5, 14) : rand(3, 9),
+          life: explosive ? rand(520, 980) : rand(260, 560),
+          maxLife: explosive ? 980 : 560,
+          color: corParticulaQuente(),
+        });
+      }
+
+      particlesRef.current = particlesRef.current.slice(-CONFIG.gameplay.gameOver.maxParticlesOnDeath);
     }
 
     function atualizarGameOverCutscene() {
@@ -3336,16 +3631,16 @@ export default function JogoPage() {
       if (elapsed < cfg.slowExplosionMs) {
         if (now - gameOverLastBurstAtRef.current > cfg.smallBurstEveryMs) {
           gameOverLastBurstAtRef.current = now;
-          player.stretchUntil = now + 180;
-          player.stretchVx = rand(-3.5, 3.5);
-          player.stretchVy = rand(-2.5, 2.5);
-          criarParticulasHit(
-            cx + rand(-player.w * 0.35, player.w * 0.35),
-            cy + rand(-player.h * 0.35, player.h * 0.35),
-            corParticulaQuente(),
-            5,
+          player.stretchUntil = now + 210;
+          player.stretchVx = rand(-2.6, 2.6);
+          player.stretchVy = rand(-2.0, 2.0);
+          criarParticulasGameOver(
+            cx + rand(-player.w * 0.34, player.w * 0.34),
+            cy + rand(-player.h * 0.34, player.h * 0.34),
+            8,
+            false,
           );
-          tocarSom(CONFIG.sounds.enemyHit, 0.12, "hit");
+          tocarSom(CONFIG.sounds.enemyHit, 0.1, "hit");
         }
         return;
       }
@@ -3353,28 +3648,27 @@ export default function JogoPage() {
       if (elapsed < cfg.slowExplosionMs + cfg.bigExplosionMs) {
         if (now - gameOverLastBurstAtRef.current > cfg.bigBurstEveryMs) {
           gameOverLastBurstAtRef.current = now;
-          player.stretchUntil = now + 220;
-          player.stretchVx = rand(-5.5, 5.5);
-          player.stretchVy = rand(-4.0, 4.0);
-          criarExplosao(
-            cx + rand(-player.w * 0.48, player.w * 0.48),
-            cy + rand(-player.h * 0.48, player.h * 0.48),
-            corParticulaQuente(),
+          player.stretchUntil = now + 250;
+          player.stretchVx = rand(-5.2, 5.2);
+          player.stretchVy = rand(-3.8, 3.8);
+          criarParticulasGameOver(
+            cx + rand(-player.w * 0.44, player.w * 0.44),
+            cy + rand(-player.h * 0.44, player.h * 0.44),
             cfg.fireParticleAmount,
+            true,
           );
-          particlesRef.current = particlesRef.current.slice(-cfg.maxParticlesOnDeath);
-          tocarSom(CONFIG.sounds.explosion || CONFIG.sounds.enemyDeath, 0.18, "hit");
+          tocarSom(CONFIG.sounds.gameOverExplosion || CONFIG.sounds.explosion, 0.2, "hit");
         }
         return;
       }
 
       if (elapsed >= cfg.slowExplosionMs + cfg.bigExplosionMs && !gameOverFlash) {
         setGameOverFlashOrigin({
-          x: `${clamp(((cx) / CONFIG.canvasWidth) * 100, 0, 100)}%`,
-          y: `${clamp(((cy) / CONFIG.canvasHeight) * 100, 0, 100)}%`,
+          x: `${clamp((cx / CONFIG.canvasWidth) * 100, 0, 100)}%`,
+          y: `${clamp((cy / CONFIG.canvasHeight) * 100, 0, 100)}%`,
         });
-        criarExplosao(cx, cy, "#fff1a8", cfg.finalFlashParticleAmount);
-        particlesRef.current = particlesRef.current.slice(-cfg.maxParticlesOnDeath);
+        criarParticulasGameOver(cx, cy, cfg.finalFlashParticleAmount, true);
+        tocarSom(CONFIG.sounds.gameOverExplosion || CONFIG.sounds.explosion, 0.45, "hit");
         setGameOverFlash(true);
       }
 
@@ -3407,6 +3701,7 @@ export default function JogoPage() {
       for (const enemy of enemiesRef.current) desenharEnemy(renderCtx, enemy);
       for (const bullet of enemyProjectilesRef.current)
         desenharEnemyProjectile(renderCtx, bullet);
+      desenharShockwaves(renderCtx);
       desenharParticulas(renderCtx);
 
       if (
@@ -3555,6 +3850,7 @@ export default function JogoPage() {
         if (key === "8") spawnEnemy("red");
         if (key === "9") spawnEnemy("black");
         if (key === "0") spawnEnemy("purple");
+        if (key === "5") spawnEnemy("alien");
         if (key === "-") spawnEnemy("asteroid");
       }
 
@@ -3804,7 +4100,14 @@ export default function JogoPage() {
           <aside className="game-settings-panel">
             <div className="game-settings-header">
               <p className="game-panel-label">CONFIGURAÇÕES</p>
-              <span>ESC/Q: voltar • ↑↓ escolher • ←→ alterar</span>
+              <button
+                type="button"
+                className="game-settings-close"
+                onClick={voltarAoMenuPrincipal}
+                aria-label="Fechar configurações"
+              >
+                X
+              </button>
             </div>
 
             <div className="game-settings-list">
@@ -3850,10 +4153,18 @@ export default function JogoPage() {
                               {option.label}
                             </span>
                             <span className="game-setting-control">
-                              <span className="game-setting-bar">
-                                <span style={{ width: `${ratio * 100}%` }} />
-                              </span>
-                              <strong>{formatarConfiguracao(option)}</strong>
+                              {option.kind === "toggle" ? (
+                                <strong className={`game-setting-toggle ${value ? "is-on" : "is-off"}`}>
+                                  {value ? "✓ CORRETO" : "✕ ERRADO"}
+                                </strong>
+                              ) : (
+                                <>
+                                  <span className="game-setting-bar">
+                                    <span style={{ width: `${ratio * 100}%` }} />
+                                  </span>
+                                  <strong>{formatarConfiguracao(option)}</strong>
+                                </>
+                              )}
                             </span>
                           </button>
                         );
@@ -3944,7 +4255,7 @@ export default function JogoPage() {
         </section>
       )}
 
-      {gameState === "gameOverCutscene" && (
+      {(gameState === "gameOverCutscene" || gameState === "gameOver") && (
         <div
           className={`game-over-white-flash ${gameOverFlash ? "show" : ""}`}
           style={{

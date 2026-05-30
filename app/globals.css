@@ -3657,3 +3657,317 @@ body.reduce-motion *::after {
     display: none !important;
   }
 }
+
+/* AJUSTE FINAL: Game Over branco vindo da nave + mobile limpo */
+.game-over-white-flash {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 91 !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  background: #fffdf1 !important;
+  clip-path: circle(0% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%)) !important;
+  mix-blend-mode: normal !important;
+  transition: none !important;
+}
+
+.game-over-white-flash.show {
+  opacity: 1 !important;
+  animation: gameOverFlashFromShip 0.82s cubic-bezier(0.12, 0.86, 0.17, 1) forwards !important;
+}
+
+@keyframes gameOverFlashFromShip {
+  0% {
+    opacity: 0.15;
+    clip-path: circle(0% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+    filter: brightness(1.6);
+  }
+  35% {
+    opacity: 1;
+    clip-path: circle(36% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+    filter: brightness(2.2);
+  }
+  100% {
+    opacity: 1;
+    clip-path: circle(170% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+    filter: brightness(1);
+  }
+}
+
+.game-over-screen {
+  z-index: 96 !important;
+  background: rgba(255, 253, 241, 0.42) !important;
+  backdrop-filter: none !important;
+}
+
+.game-over-card {
+  background: linear-gradient(rgba(28, 13, 22, 0.96), rgba(8, 3, 10, 0.98)) !important;
+}
+
+@media (pointer: coarse), (max-width: 900px) {
+  .game-mobile-top-actions {
+    top: max(8px, env(safe-area-inset-top)) !important;
+    right: max(8px, env(safe-area-inset-right)) !important;
+    gap: 8px !important;
+    transform: scale(0.82) !important;
+    transform-origin: top right !important;
+  }
+
+  .game-mobile-controls {
+    inset: 0 !important;
+    pointer-events: none !important;
+  }
+
+  .game-mobile-joystick {
+    position: fixed !important;
+    left: max(22px, env(safe-area-inset-left)) !important;
+    bottom: max(18px, env(safe-area-inset-bottom)) !important;
+    width: clamp(98px, 18vw, 142px) !important;
+    height: clamp(98px, 18vw, 142px) !important;
+    pointer-events: auto !important;
+  }
+
+  .game-mobile-actions {
+    position: fixed !important;
+    right: max(18px, env(safe-area-inset-right)) !important;
+    bottom: max(16px, env(safe-area-inset-bottom)) !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, clamp(54px, 9vw, 72px)) !important;
+    grid-template-rows: repeat(2, clamp(54px, 9vw, 72px)) !important;
+    gap: clamp(8px, 1.6vw, 14px) !important;
+    pointer-events: auto !important;
+    transform: none !important;
+  }
+
+  .game-mobile-actions button {
+    position: static !important;
+    width: clamp(54px, 9vw, 72px) !important;
+    height: clamp(54px, 9vw, 72px) !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    transform: none !important;
+  }
+
+  .game-mobile-actions img,
+  .game-mobile-actions button img {
+    width: 62% !important;
+    height: 62% !important;
+    object-fit: contain !important;
+  }
+
+  .game-ability-hud {
+    left: max(10px, env(safe-area-inset-left)) !important;
+    top: max(70px, env(safe-area-inset-top)) !important;
+    transform: scale(0.72) !important;
+    transform-origin: top left !important;
+  }
+
+  .game-life-hud {
+    left: max(10px, env(safe-area-inset-left)) !important;
+    top: max(8px, env(safe-area-inset-top)) !important;
+    transform: scale(0.74) !important;
+    transform-origin: top left !important;
+  }
+
+  .game-wave-hud,
+  .game-score-hud {
+    transform: scale(0.72) !important;
+    transform-origin: top right !important;
+  }
+}
+
+/* === FINAL FIXES: settings organizadas + flash permanente === */
+.game-settings-screen {
+  z-index: 95 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 22px !important;
+}
+
+.game-settings-panel {
+  width: min(1120px, 94vw) !important;
+  max-height: 88vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 18px !important;
+}
+
+.game-settings-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 18px !important;
+}
+
+.game-settings-header span {
+  display: none !important;
+}
+
+.game-settings-close {
+  width: 54px !important;
+  height: 54px !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 3px solid #f8e7b0 !important;
+  background: #160918 !important;
+  color: #ffe18c !important;
+  font-family: var(--game-menu-font), Impact, sans-serif !important;
+  font-size: 28px !important;
+  font-weight: 1000 !important;
+  box-shadow: 5px 5px 0 #08030a !important;
+}
+
+.game-settings-close:hover,
+.game-settings-close:focus-visible {
+  background: #2a1630 !important;
+  color: #fff7e6 !important;
+  transform: translate(-2px, -2px) !important;
+}
+
+.game-settings-list {
+  overflow: auto !important;
+  padding-right: 8px !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+}
+
+.game-settings-category {
+  min-width: 0 !important;
+  padding: 18px !important;
+  border: 3px solid rgba(248, 231, 176, 0.72) !important;
+  background: rgba(8, 3, 10, 0.58) !important;
+}
+
+.game-settings-category h3 {
+  margin: 0 0 14px !important;
+  color: #ffe18c !important;
+  font-size: clamp(20px, 2vw, 34px) !important;
+}
+
+.game-settings-category-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.game-setting-row {
+  min-height: 62px !important;
+  padding: 10px 14px !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 16px !important;
+  align-items: center !important;
+  color: #b8b1bd !important;
+}
+
+.game-setting-row.is-selected {
+  color: #fff7e6 !important;
+}
+
+.game-setting-label {
+  font-size: clamp(15px, 1.35vw, 21px) !important;
+  color: inherit !important;
+}
+
+.game-setting-control {
+  min-width: 160px !important;
+  justify-content: flex-end !important;
+}
+
+.game-setting-control strong {
+  font-size: clamp(20px, 1.8vw, 32px) !important;
+  color: #fff7e6 !important;
+}
+
+.game-setting-bar {
+  width: 120px !important;
+  height: 16px !important;
+}
+
+.game-setting-toggle {
+  min-width: 120px !important;
+  text-align: right !important;
+  font-family: var(--game-ui-font), Arial, sans-serif !important;
+  font-size: clamp(18px, 1.5vw, 28px) !important;
+  color: #9ca3af !important;
+}
+
+.game-setting-toggle.is-on {
+  color: #9ca3af !important;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.18) !important;
+}
+
+.game-setting-toggle.is-off {
+  color: #6b7280 !important;
+  opacity: 0.86 !important;
+}
+
+/* Flash branco permanente do Game Over: nasce na nave e fica na tela de GAME OVER. */
+.game-over-white-flash {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 92 !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  background: radial-gradient(
+    circle at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%),
+    #fff 0%,
+    #fff8dc 36%,
+    #fff 100%
+  ) !important;
+  clip-path: circle(0% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%)) !important;
+}
+
+.game-over-white-flash.show {
+  opacity: 1 !important;
+  animation: gameOverFlashExpandFinal 0.88s cubic-bezier(0.12, 0.8, 0.2, 1) forwards !important;
+}
+
+@keyframes gameOverFlashExpandFinal {
+  0% {
+    clip-path: circle(0% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+  }
+  62% {
+    clip-path: circle(58% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+  }
+  100% {
+    clip-path: circle(180% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+  }
+}
+
+.game-over-screen {
+  z-index: 96 !important;
+  background: transparent !important;
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  .game-settings-panel {
+    width: min(92vw, 980px) !important;
+    max-height: 78vh !important;
+  }
+
+  .game-settings-list {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .game-setting-row {
+    min-height: 54px !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .game-setting-label {
+    font-size: 14px !important;
+  }
+
+  .game-setting-control {
+    min-width: 112px !important;
+  }
+
+  .game-setting-control strong,
+  .game-setting-toggle {
+    font-size: 18px !important;
+  }
+}
