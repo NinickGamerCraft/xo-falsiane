@@ -11,7 +11,9 @@ type GameState =
   | "tutorialChoice"
   | "tutorial"
   | "playing"
-  | "paused";
+  | "paused"
+  | "gameOverCutscene"
+  | "gameOver";
 
 type GameMode = "story" | "infinite";
 
@@ -288,7 +290,7 @@ const CONFIG = {
   gameplay: {
     player: {
       // Tamanho visual da nave na tela.
-      width: 132,
+      width: 150,
       height: 74,
 
       // Hitbox configurável da nave.
@@ -324,6 +326,7 @@ const CONFIG = {
       maxCharge: 15,
       damage: 3.5,
       durationMs: 260,
+      postInvincibleMs: 500,
       speed: 15.5,
       knockback: 8.5,
       particleAmount: 24,
@@ -340,6 +343,18 @@ const CONFIG = {
       durationMs: 500,
       cooldownMs: 10000,
       speedImpulse: 4.5,
+    },
+
+    gameOver: {
+      slowExplosionMs: 1300,
+      bigExplosionMs: 1600,
+      whiteFlashMs: 850,
+      menuDelayMs: 3450,
+      smallBurstEveryMs: 180,
+      bigBurstEveryMs: 90,
+      shakeIntensity: 13,
+      shakeMs: 2200,
+      fireParticleAmount: 34,
     },
 
     score: {
@@ -390,16 +405,16 @@ const CONFIG = {
 
     shots: {
       normal: {
-        width: 60,
-        height: 60,
+        width: 30,
+        height: 30,
         speed: 8.2,
         damage: 1,
         cooldownFrames: 28,
       },
 
       strong: {
-        width: 72,
-        height: 72,
+        width: 60,
+        height: 60,
         speed: 10,
         damage: 5,
         cooldownMs: 8000,
@@ -1187,6 +1202,10 @@ export default function JogoPage() {
     strong: true,
   });
 
+  const gameOverStartedAtRef = useRef(0);
+  const gameOverLastBurstAtRef = useRef(0);
+  const [gameOverFlash, setGameOverFlash] = useState(false);
+
   function setEstado(estado: GameState) {
     gameStateRef.current = estado;
     setGameState(estado);
@@ -1409,8 +1428,48 @@ export default function JogoPage() {
     };
     setPlayerHp(player.hp);
     setIsLowHp(false);
+    setGameOverFlash(false);
 
     setEstado("playing");
+  }
+
+  function iniciarGameOverCutscene() {
+    const player = playerRef.current;
+    const now = performance.now();
+
+    player.vx = 0;
+    player.vy = 0;
+    player.boostVx = 0;
+    player.boostVy = 0;
+    player.normalCooldown = 999999;
+    player.invincibleUntil = now + 999999;
+
+    keysRef.current = {};
+    mobileShootRef.current = false;
+    resetarJoystick();
+    enemyProjectilesRef.current = [];
+    shotsRef.current = [];
+
+    gameOverStartedAtRef.current = now;
+    gameOverLastBurstAtRef.current = 0;
+    setGameOverFlash(false);
+    setIsLowHp(false);
+
+    if (alarmAudioRef.current) {
+      alarmAudioRef.current.pause();
+      alarmAudioRef.current.currentTime = 0;
+    }
+
+    tocarSom(CONFIG.sounds.explosion || CONFIG.sounds.enemyDeath, 0.58, "hit");
+
+    if (CONFIG.settings.enableScreenShake) {
+      shakeRef.current = {
+        intensity: CONFIG.gameplay.gameOver.shakeIntensity,
+        endAt: now + CONFIG.gameplay.gameOver.shakeMs,
+      };
+    }
+
+    setEstado("gameOverCutscene");
   }
 
   function receberDano(dano: number, forcarHpUm = false) {
@@ -1461,15 +1520,9 @@ export default function JogoPage() {
     shakeRef.current = { intensity: 5, endAt: now + 160 };
 
     if (player.hp <= 0) {
-      player.hp = CONFIG.gameplay.player.maxHp;
-      player.x = 100;
-      player.y = 320;
-      player.vx = 0;
-      player.vy = 0;
-      player.invincibleUntil = now + 2500;
-      setPlayerHp(player.hp);
-      setIsLowHp(false);
-      setEstado("paused");
+      player.hp = 0;
+      setPlayerHp(0);
+      iniciarGameOverCutscene();
     }
   }
 
@@ -1493,6 +1546,7 @@ export default function JogoPage() {
     limparCombate();
     resetarWaves(null);
     setIsLowHp(false);
+    setGameOverFlash(false);
     setEstado("mainMenu");
     setIndiceMenu(0);
     setEscurecendo(false);
@@ -1555,7 +1609,7 @@ export default function JogoPage() {
     player.boostVy = dirY * CONFIG.gameplay.boost.speed;
     player.invincibleUntil = Math.max(
       player.invincibleUntil,
-      player.boostUntil,
+      player.boostUntil + CONFIG.gameplay.boost.postInvincibleMs,
     );
     player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
     player.stretchVx = player.boostVx;
@@ -3180,11 +3234,61 @@ export default function JogoPage() {
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
     }
 
+    function atualizarGameOverCutscene() {
+      if (gameStateRef.current !== "gameOverCutscene") {
+        return;
+      }
+
+      const now = performance.now();
+      const elapsed = now - gameOverStartedAtRef.current;
+      const player = playerRef.current;
+      const cx = player.x + player.w / 2;
+      const cy = player.y + player.h / 2;
+      const cfg = CONFIG.gameplay.gameOver;
+
+      if (elapsed < cfg.slowExplosionMs) {
+        if (now - gameOverLastBurstAtRef.current > cfg.smallBurstEveryMs) {
+          gameOverLastBurstAtRef.current = now;
+          criarParticulasHit(
+            cx + rand(-player.w * 0.35, player.w * 0.35),
+            cy + rand(-player.h * 0.35, player.h * 0.35),
+            "#ffb703",
+            8,
+          );
+          tocarSom(CONFIG.sounds.enemyHit, 0.18, "hit");
+        }
+        return;
+      }
+
+      if (elapsed < cfg.slowExplosionMs + cfg.bigExplosionMs) {
+        if (now - gameOverLastBurstAtRef.current > cfg.bigBurstEveryMs) {
+          gameOverLastBurstAtRef.current = now;
+          criarExplosao(
+            cx + rand(-player.w * 0.55, player.w * 0.55),
+            cy + rand(-player.h * 0.55, player.h * 0.55),
+            "#ff8c00",
+            cfg.fireParticleAmount,
+          );
+          tocarSom(CONFIG.sounds.explosion || CONFIG.sounds.enemyDeath, 0.28, "hit");
+        }
+        return;
+      }
+
+      if (elapsed >= cfg.slowExplosionMs + cfg.bigExplosionMs) {
+        setGameOverFlash(true);
+      }
+
+      if (elapsed >= cfg.menuDelayMs) {
+        setEstado("gameOver");
+      }
+    }
+
     function loop(time: number) {
       const delta = Math.min(32, time - lastTime);
       lastTime = time;
 
       atualizar(delta, renderCanvas);
+      atualizarGameOverCutscene();
 
       const shake = shakeRef.current;
       const shaking = performance.now() < shake.endAt;
@@ -3207,7 +3311,8 @@ export default function JogoPage() {
 
       if (
         gameStateRef.current === "playing" ||
-        gameStateRef.current === "paused"
+        gameStateRef.current === "paused" ||
+        gameStateRef.current === "gameOverCutscene"
       ) {
         desenharPlayer(renderCtx, delta);
       }
@@ -3318,6 +3423,18 @@ export default function JogoPage() {
         if (key === "9") spawnEnemy("black");
         if (key === "0") spawnEnemy("purple");
         if (key === "-") spawnEnemy("asteroid");
+      }
+
+      if (gameStateRef.current === "gameOver") {
+        if (key === "enter" || key === " ") {
+          iniciarJogo(currentModeRef.current ?? "infinite");
+          return;
+        }
+
+        if (key === "escape" || key === "q") {
+          voltarAoMenuPrincipal();
+          return;
+        }
       }
 
       if (key === "p" || key === "escape") {
@@ -3689,6 +3806,23 @@ export default function JogoPage() {
             <p className="game-panel-label">JOGO PAUSADO</p>
             <h2>PAUSADO</h2>
             <button onClick={pausarOuVoltar}>CONTINUAR</button>
+            <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+          </div>
+        </section>
+      )}
+
+      {gameState === "gameOverCutscene" && (
+        <div className={`game-over-white-flash ${gameOverFlash ? "show" : ""}`} />
+      )}
+
+      {gameState === "gameOver" && (
+        <section className="game-screen game-over-screen">
+          <div className="game-over-card">
+            <p>MISSÃO FALHOU</p>
+            <h1>GAME OVER</h1>
+            <button onClick={() => iniciarJogo(currentModeRef.current ?? "infinite")}>
+              TENTAR NOVAMENTE
+            </button>
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
         </section>
