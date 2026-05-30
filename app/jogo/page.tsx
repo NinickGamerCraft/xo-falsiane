@@ -290,7 +290,7 @@ const CONFIG = {
   gameplay: {
     player: {
       // Tamanho visual da nave na tela.
-      width: 150,
+      width: 132,
       height: 74,
 
       // Hitbox configurável da nave.
@@ -346,16 +346,17 @@ const CONFIG = {
     },
 
     gameOver: {
-      slowExplosionMs: 1300,
-      bigExplosionMs: 1600,
+      slowExplosionMs: 1250,
+      bigExplosionMs: 1350,
       whiteFlashMs: 850,
-      menuDelayMs: 3450,
-      smallBurstEveryMs: 130,
-      bigBurstEveryMs: 70,
-      shakeIntensity: 13,
-      shakeMs: 2200,
-      fireParticleAmount: 42,
-      finalFlashParticleAmount: 160,
+      menuDelayMs: 3300,
+      smallBurstEveryMs: 180,
+      bigBurstEveryMs: 120,
+      shakeIntensity: 9,
+      shakeMs: 1800,
+      fireParticleAmount: 16,
+      finalFlashParticleAmount: 54,
+      maxParticlesOnDeath: 120,
     },
 
     score: {
@@ -406,19 +407,22 @@ const CONFIG = {
 
     shots: {
       normal: {
-        width: 60,
-        height: 60,
+        width: 30,
+        height: 30,
         speed: 8.2,
         damage: 1,
-        cooldownFrames: 28,
+        cooldownFrames: 40,
       },
 
       strong: {
-        width: 72,
-        height: 72,
+        width: 60,
+        height: 60,
         speed: 10,
         damage: 5,
         cooldownMs: 8000,
+        shockwaveRadius: 230,
+        shockwaveKnockback: 8.5,
+        shockwaveSpin: 0.018,
       },
     },
 
@@ -2088,6 +2092,55 @@ export default function JogoPage() {
     }
   }
 
+  function aplicarKnockbackInimigo(
+    enemy: Enemy,
+    originX: number,
+    originY: number,
+    force: number,
+    spinStrength = 0.012,
+  ) {
+    const cx = enemy.x + enemy.w / 2;
+    const cy = enemy.y + enemy.h / 2;
+    const dx = cx - originX;
+    const dy = cy - originY;
+    const len = Math.max(0.001, Math.hypot(dx, dy));
+    const dirX = dx / len;
+    const dirY = dy / len;
+
+    enemy.vx += dirX * force;
+    enemy.vy += dirY * force;
+    enemy.rotation = enemy.rotation ?? 0;
+    enemy.rotationSpeed = (enemy.rotationSpeed ?? 0) + spinStrength * (dirY >= 0 ? 1 : -1);
+    enemy.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
+  }
+
+  function aplicarShockwaveDeTiroForte(originX: number, originY: number) {
+    const strongCfg = CONFIG.gameplay.shots.strong;
+    const radius = strongCfg.shockwaveRadius ?? 230;
+    const force = strongCfg.shockwaveKnockback ?? 8.5;
+    const spin = strongCfg.shockwaveSpin ?? 0.018;
+
+    criarExplosao(originX, originY, "#fff1a8", 12);
+
+    for (const enemy of enemiesRef.current) {
+      const cx = enemy.x + enemy.w / 2;
+      const cy = enemy.y + enemy.h / 2;
+      const distance = Math.hypot(cx - originX, cy - originY);
+
+      if (distance > radius) continue;
+
+      const falloff = clamp(1 - distance / radius, 0.18, 1);
+      aplicarKnockbackInimigo(enemy, originX, originY, force * falloff, spin * falloff);
+    }
+
+    if (CONFIG.settings.enableScreenShake) {
+      shakeRef.current = {
+        intensity: 4.5,
+        endAt: performance.now() + 130,
+      };
+    }
+  }
+
   function triggerPlayerStretch(vx: number, vy: number) {
     const now = performance.now();
     const player = playerRef.current;
@@ -2796,7 +2849,7 @@ export default function JogoPage() {
         ctx.globalAlpha = alpha;
         ctx.fillStyle = particle.color;
         ctx.shadowColor = particle.color;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = 3;
         ctx.fillRect(
           particle.x - particle.size / 2,
           particle.y - particle.size / 2,
@@ -2969,8 +3022,14 @@ export default function JogoPage() {
             if (enemy.kind === "asteroid" && enemy.hp <= enemy.maxHp / 2) {
               enemy.cracked = true;
             }
-            criarParticulasHit(shot.x + shot.w / 2, shot.y + shot.h / 2);
+            const hitX = shot.x + shot.w / 2;
+            const hitY = shot.y + shot.h / 2;
+            criarParticulasHit(hitX, hitY);
             tocarSom(CONFIG.sounds.enemyHit, 0.25, "hit");
+
+            if (shot.type === "strong") {
+              aplicarShockwaveDeTiroForte(hitX, hitY);
+            }
 
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
@@ -3018,6 +3077,24 @@ export default function JogoPage() {
             const dirX = player.boostVx || 1;
             const dirY = player.boostVy || 0;
             const len = Math.max(0.001, Math.hypot(dirX, dirY));
+            const impactX = player.x + player.w / 2;
+            const impactY = player.y + player.h / 2;
+
+            // Knockback sempre acontece no contato do boost, mesmo se o alvo sobreviver.
+            aplicarKnockbackInimigo(
+              enemy,
+              impactX,
+              impactY,
+              CONFIG.gameplay.boost.knockback,
+              0.024,
+            );
+
+            // O player rebate levemente para não ficar preso dentro do objeto.
+            player.x -= (dirX / len) * 18;
+            player.y -= (dirY / len) * 18;
+            player.vx = -(dirX / len) * 3.4;
+            player.vy = -(dirY / len) * 2.4;
+            player.boostUntil = Math.min(player.boostUntil, now + 45);
 
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
@@ -3028,12 +3105,6 @@ export default function JogoPage() {
               } else {
                 tocarSom(CONFIG.sounds.enemyDeath, 0.38, "hit");
               }
-            } else {
-              // Se o boost não matar, empurra e NÃO aplica colisão normal depois.
-              enemy.vx += (dirX / len) * CONFIG.gameplay.boost.knockback;
-              enemy.vy += (dirY / len) * CONFIG.gameplay.boost.knockback;
-              enemy.stretchUntil =
-                performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
             }
           }
         }
@@ -3265,13 +3336,16 @@ export default function JogoPage() {
       if (elapsed < cfg.slowExplosionMs) {
         if (now - gameOverLastBurstAtRef.current > cfg.smallBurstEveryMs) {
           gameOverLastBurstAtRef.current = now;
+          player.stretchUntil = now + 180;
+          player.stretchVx = rand(-3.5, 3.5);
+          player.stretchVy = rand(-2.5, 2.5);
           criarParticulasHit(
-            cx + rand(-player.w * 0.4, player.w * 0.4),
-            cy + rand(-player.h * 0.4, player.h * 0.4),
+            cx + rand(-player.w * 0.35, player.w * 0.35),
+            cy + rand(-player.h * 0.35, player.h * 0.35),
             corParticulaQuente(),
-            12,
+            5,
           );
-          tocarSom(CONFIG.sounds.enemyHit, 0.16, "hit");
+          tocarSom(CONFIG.sounds.enemyHit, 0.12, "hit");
         }
         return;
       }
@@ -3279,19 +3353,28 @@ export default function JogoPage() {
       if (elapsed < cfg.slowExplosionMs + cfg.bigExplosionMs) {
         if (now - gameOverLastBurstAtRef.current > cfg.bigBurstEveryMs) {
           gameOverLastBurstAtRef.current = now;
+          player.stretchUntil = now + 220;
+          player.stretchVx = rand(-5.5, 5.5);
+          player.stretchVy = rand(-4.0, 4.0);
           criarExplosao(
-            cx + rand(-player.w * 0.62, player.w * 0.62),
-            cy + rand(-player.h * 0.62, player.h * 0.62),
+            cx + rand(-player.w * 0.48, player.w * 0.48),
+            cy + rand(-player.h * 0.48, player.h * 0.48),
             corParticulaQuente(),
             cfg.fireParticleAmount,
           );
-          tocarSom(CONFIG.sounds.explosion || CONFIG.sounds.enemyDeath, 0.25, "hit");
+          particlesRef.current = particlesRef.current.slice(-cfg.maxParticlesOnDeath);
+          tocarSom(CONFIG.sounds.explosion || CONFIG.sounds.enemyDeath, 0.18, "hit");
         }
         return;
       }
 
       if (elapsed >= cfg.slowExplosionMs + cfg.bigExplosionMs && !gameOverFlash) {
+        setGameOverFlashOrigin({
+          x: `${clamp(((cx) / CONFIG.canvasWidth) * 100, 0, 100)}%`,
+          y: `${clamp(((cy) / CONFIG.canvasHeight) * 100, 0, 100)}%`,
+        });
         criarExplosao(cx, cy, "#fff1a8", cfg.finalFlashParticleAmount);
+        particlesRef.current = particlesRef.current.slice(-cfg.maxParticlesOnDeath);
         setGameOverFlash(true);
       }
 
@@ -3436,6 +3519,39 @@ export default function JogoPage() {
       }
 
       if (gameStateRef.current === "playing") {
+        if (key === "r") {
+          iniciarJogo(currentModeRef.current ?? "infinite");
+          return;
+        }
+
+        if (key === "7") {
+          enemiesRef.current = [];
+          enemyProjectilesRef.current = [];
+          shotsRef.current = [];
+          waveStateRef.current.queue = [];
+          iniciarWaveInfinita((waveStateRef.current.wave || 0) + 1);
+          return;
+        }
+
+        if (key === "6") {
+          const player = playerRef.current;
+          player.hp = CONFIG.gameplay.player.maxHp;
+          player.invincibleUntil = performance.now() + 700;
+          setPlayerHp(player.hp);
+          setIsLowHp(false);
+          return;
+        }
+
+        if (key === "=" || key === "+") {
+          for (const enemy of enemiesRef.current) {
+            registrarAbate(enemy.kind);
+            criarExplosao(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#ffe18c", 8);
+          }
+          enemiesRef.current = [];
+          enemyProjectilesRef.current = [];
+          return;
+        }
+
         if (key === "8") spawnEnemy("red");
         if (key === "9") spawnEnemy("black");
         if (key === "0") spawnEnemy("purple");

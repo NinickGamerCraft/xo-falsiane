@@ -3496,3 +3496,164 @@ body.reduce-motion *::after {
     height: clamp(50px, 11vh, 66px) !important;
   }
 }
+
+/* ===== CORREÇÕES SOLICITADAS: MOBILE, FLASH E PIXEL PARTICLES ===== */
+
+/* Flash branco deve permanecer cobrindo a tela até aparecer/escolher no Game Over. */
+.game-over-white-flash.show {
+  opacity: 1 !important;
+  visibility: visible !important;
+  clip-path: circle(180% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%)) !important;
+  animation: gameOverFlashFillScreenStable 0.95s cubic-bezier(0.1, 0.8, 0.2, 1) forwards !important;
+  background: #ffffff !important;
+}
+
+@keyframes gameOverFlashFillScreenStable {
+  0% {
+    opacity: 0.1;
+    clip-path: circle(0% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+    filter: brightness(1.2);
+  }
+
+  55% {
+    opacity: 1;
+    clip-path: circle(105% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+    filter: brightness(2.1);
+  }
+
+  100% {
+    opacity: 1;
+    clip-path: circle(180% at var(--game-over-flash-x, 50%) var(--game-over-flash-y, 50%));
+    filter: brightness(1);
+  }
+}
+
+.game-over-screen {
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: none !important;
+}
+
+/* Mobile: força controles embaixo e evita sobreposição no topo. */
+@media (pointer: coarse), (max-width: 900px) {
+  .game-mobile-top-actions {
+    position: fixed !important;
+    top: max(8px, env(safe-area-inset-top)) !important;
+    right: max(8px, env(safe-area-inset-right)) !important;
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 8px !important;
+    z-index: 120 !important;
+    transform: none !important;
+  }
+
+  .game-mobile-top-actions button {
+    width: clamp(38px, 8vw, 50px) !important;
+    height: clamp(38px, 8vw, 50px) !important;
+    padding: 5px !important;
+    border-radius: 999px !important;
+  }
+
+  .game-mobile-controls {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    transform: none !important;
+    display: block !important;
+    pointer-events: none !important;
+    z-index: 100 !important;
+  }
+
+  .game-mobile-joystick {
+    position: absolute !important;
+    left: max(18px, env(safe-area-inset-left)) !important;
+    bottom: max(18px, env(safe-area-inset-bottom)) !important;
+    width: clamp(98px, 18vw, 128px) !important;
+    height: clamp(98px, 18vw, 128px) !important;
+    pointer-events: auto !important;
+    transform: none !important;
+  }
+
+  .game-mobile-joystick-knob {
+    width: 34% !important;
+    height: 34% !important;
+  }
+
+  .game-mobile-actions {
+    position: absolute !important;
+    right: max(18px, env(safe-area-inset-right)) !important;
+    bottom: max(18px, env(safe-area-inset-bottom)) !important;
+    width: clamp(150px, 24vw, 190px) !important;
+    height: clamp(138px, 22vw, 178px) !important;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    grid-template-rows: 1fr 1fr !important;
+    gap: 10px !important;
+    pointer-events: auto !important;
+    transform: none !important;
+  }
+
+  .game-mobile-actions button {
+    position: static !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 6px !important;
+    border-radius: 16px !important;
+    transform: none !important;
+  }
+
+  .game-mobile-actions button:nth-child(1) { grid-column: 1 !important; grid-row: 1 !important; }
+  .game-mobile-actions button:nth-child(2) { grid-column: 2 !important; grid-row: 1 !important; }
+  .game-mobile-actions button:nth-child(3) { grid-column: 1 !important; grid-row: 2 !important; }
+  .game-mobile-actions button:nth-child(4) { grid-column: 2 !important; grid-row: 2 !important; }
+
+  .game-mobile-actions img,
+  .game-mobile-top-actions img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    pointer-events: none !important;
+    -webkit-user-drag: none !important;
+    user-select: none !important;
+  }
+
+  .game-ability-hud {
+    left: max(12px, env(safe-area-inset-left)) !important;
+    top: max(76px, calc(env(safe-area-inset-top) + 62px)) !important;
+    gap: 6px !important;
+    transform: scale(0.74) !important;
+    transform-origin: top left !important;
+    z-index: 90 !important;
+  }
+
+  .game-life-hud {
+    left: max(12px, env(safe-area-inset-left)) !important;
+    top: max(8px, env(safe-area-inset-top)) !important;
+    transform: scale(0.76) !important;
+    transform-origin: top left !important;
+  }
+
+  .game-wave-hud {
+    top: max(8px, env(safe-area-inset-top)) !important;
+    right: max(116px, calc(env(safe-area-inset-right) + 112px)) !important;
+    transform: scale(0.76) !important;
+    transform-origin: top right !important;
+  }
+
+  .game-score-hud {
+    top: max(78px, calc(env(safe-area-inset-top) + 70px)) !important;
+    right: max(116px, calc(env(safe-area-inset-right) + 112px)) !important;
+    transform: scale(0.76) !important;
+    transform-origin: top right !important;
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  .game-mobile-controls,
+  .game-mobile-top-actions,
+  .game-ability-hud {
+    display: none !important;
+  }
+}
