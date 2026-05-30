@@ -350,11 +350,12 @@ const CONFIG = {
       bigExplosionMs: 1600,
       whiteFlashMs: 850,
       menuDelayMs: 3450,
-      smallBurstEveryMs: 180,
-      bigBurstEveryMs: 90,
+      smallBurstEveryMs: 130,
+      bigBurstEveryMs: 70,
       shakeIntensity: 13,
       shakeMs: 2200,
-      fireParticleAmount: 34,
+      fireParticleAmount: 42,
+      finalFlashParticleAmount: 160,
     },
 
     score: {
@@ -405,16 +406,16 @@ const CONFIG = {
 
     shots: {
       normal: {
-        width: 30,
-        height: 30,
+        width: 60,
+        height: 60,
         speed: 8.2,
         damage: 1,
         cooldownFrames: 28,
       },
 
       strong: {
-        width: 60,
-        height: 60,
+        width: 72,
+        height: 72,
         speed: 10,
         damage: 5,
         cooldownMs: 8000,
@@ -1205,6 +1206,7 @@ export default function JogoPage() {
   const gameOverStartedAtRef = useRef(0);
   const gameOverLastBurstAtRef = useRef(0);
   const [gameOverFlash, setGameOverFlash] = useState(false);
+  const [gameOverFlashOrigin, setGameOverFlashOrigin] = useState({ x: "50%", y: "50%" });
 
   function setEstado(estado: GameState) {
     gameStateRef.current = estado;
@@ -1436,6 +1438,11 @@ export default function JogoPage() {
   function iniciarGameOverCutscene() {
     const player = playerRef.current;
     const now = performance.now();
+
+    setGameOverFlashOrigin({
+      x: `${clamp(((player.x + player.w / 2) / CONFIG.canvasWidth) * 100, 0, 100)}%`,
+      y: `${clamp(((player.y + player.h / 2) / CONFIG.canvasHeight) * 100, 0, 100)}%`,
+    });
 
     player.vx = 0;
     player.vy = 0;
@@ -2560,6 +2567,15 @@ export default function JogoPage() {
       ctx.save();
       ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
 
+      if (gameStateRef.current === "gameOverCutscene") {
+        const elapsed = performance.now() - gameOverStartedAtRef.current;
+        const intensity = clamp(elapsed / CONFIG.gameplay.gameOver.bigExplosionMs, 0, 1);
+        const wobble = Math.sin(elapsed * 0.028) * 0.035 * (0.35 + intensity);
+        const squeeze = Math.cos(elapsed * 0.021) * 0.025 * (0.35 + intensity);
+        ctx.scale(1 + wobble, 1 - squeeze);
+        ctx.rotate(Math.sin(elapsed * 0.018) * 0.035 * intensity);
+      }
+
       if (boosting && CONFIG.settings.enableBoostFireSprite) {
         const boostFire = assetsRef.current.get("boostFire");
         const speed = Math.hypot(player.boostVx, player.boostVy);
@@ -3250,12 +3266,12 @@ export default function JogoPage() {
         if (now - gameOverLastBurstAtRef.current > cfg.smallBurstEveryMs) {
           gameOverLastBurstAtRef.current = now;
           criarParticulasHit(
-            cx + rand(-player.w * 0.35, player.w * 0.35),
-            cy + rand(-player.h * 0.35, player.h * 0.35),
-            "#ffb703",
-            8,
+            cx + rand(-player.w * 0.4, player.w * 0.4),
+            cy + rand(-player.h * 0.4, player.h * 0.4),
+            corParticulaQuente(),
+            12,
           );
-          tocarSom(CONFIG.sounds.enemyHit, 0.18, "hit");
+          tocarSom(CONFIG.sounds.enemyHit, 0.16, "hit");
         }
         return;
       }
@@ -3264,17 +3280,18 @@ export default function JogoPage() {
         if (now - gameOverLastBurstAtRef.current > cfg.bigBurstEveryMs) {
           gameOverLastBurstAtRef.current = now;
           criarExplosao(
-            cx + rand(-player.w * 0.55, player.w * 0.55),
-            cy + rand(-player.h * 0.55, player.h * 0.55),
-            "#ff8c00",
+            cx + rand(-player.w * 0.62, player.w * 0.62),
+            cy + rand(-player.h * 0.62, player.h * 0.62),
+            corParticulaQuente(),
             cfg.fireParticleAmount,
           );
-          tocarSom(CONFIG.sounds.explosion || CONFIG.sounds.enemyDeath, 0.28, "hit");
+          tocarSom(CONFIG.sounds.explosion || CONFIG.sounds.enemyDeath, 0.25, "hit");
         }
         return;
       }
 
-      if (elapsed >= cfg.slowExplosionMs + cfg.bigExplosionMs) {
+      if (elapsed >= cfg.slowExplosionMs + cfg.bigExplosionMs && !gameOverFlash) {
+        criarExplosao(cx, cy, "#fff1a8", cfg.finalFlashParticleAmount);
         setGameOverFlash(true);
       }
 
@@ -3812,7 +3829,13 @@ export default function JogoPage() {
       )}
 
       {gameState === "gameOverCutscene" && (
-        <div className={`game-over-white-flash ${gameOverFlash ? "show" : ""}`} />
+        <div
+          className={`game-over-white-flash ${gameOverFlash ? "show" : ""}`}
+          style={{
+            "--game-over-flash-x": gameOverFlashOrigin.x,
+            "--game-over-flash-y": gameOverFlashOrigin.y,
+          } as CSSProperties}
+        />
       )}
 
       {gameState === "gameOver" && (
@@ -3835,7 +3858,11 @@ export default function JogoPage() {
         >
           <button
             type="button"
-            onClick={solicitarFullscreen}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              solicitarFullscreen();
+            }}
             aria-label="fullscreen"
           >
             <img
@@ -3844,7 +3871,15 @@ export default function JogoPage() {
               alt="fullscreen"
             />
           </button>
-          <button type="button" onClick={pausarOuVoltar} aria-label="pause">
+          <button
+            type="button"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              pausarOuVoltar();
+            }}
+            aria-label="pause"
+          >
             <img
               draggable={false}
               src={CONFIG.uiImages.mobilePause}
@@ -3862,10 +3897,13 @@ export default function JogoPage() {
           <div
             className="game-mobile-joystick"
             onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
               event.currentTarget.setPointerCapture(event.pointerId);
               atualizarJoystick(event);
             }}
             onPointerMove={(event) => {
+              event.preventDefault();
               if (event.currentTarget.hasPointerCapture(event.pointerId)) {
                 atualizarJoystick(event);
               }
@@ -3888,7 +3926,11 @@ export default function JogoPage() {
           <div className="game-mobile-actions">
             <button
               type="button"
-              onClick={executarEsquiva}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                executarEsquiva();
+              }}
               aria-label="esquiva"
             >
               <img
@@ -3900,7 +3942,11 @@ export default function JogoPage() {
 
             <button
               type="button"
-              onClick={executarBoost}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                executarBoost();
+              }}
               disabled={boostCharge < CONFIG.gameplay.boost.maxCharge}
               aria-label="boost"
             >
@@ -3912,8 +3958,15 @@ export default function JogoPage() {
             </button>
 
             <button
-              onPointerDown={() => (mobileShootRef.current = true)}
-              onPointerUp={() => (mobileShootRef.current = false)}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                mobileShootRef.current = true;
+              }}
+              onPointerUp={(event) => {
+                event.preventDefault();
+                mobileShootRef.current = false;
+              }}
               onPointerLeave={() => (mobileShootRef.current = false)}
               onPointerCancel={() => (mobileShootRef.current = false)}
             >
@@ -3924,7 +3977,14 @@ export default function JogoPage() {
               />
             </button>
 
-            <button onClick={tiroForteMobile} disabled={strongCooldown > 0}>
+            <button
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                tiroForteMobile();
+              }}
+              disabled={strongCooldown > 0}
+            >
               {strongCooldown > 0 ? (
                 <span>{strongCooldown}s</span>
               ) : (
