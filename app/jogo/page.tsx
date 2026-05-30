@@ -21,6 +21,9 @@ type SpriteKey =
   | "player"
   | "playerDodge"
   | "boostFire"
+  | "powerRegen"
+  | "powerFireRate"
+  | "powerTripleRegen"
   | "normalShot"
   | "strongShot"
   | "background"
@@ -28,6 +31,7 @@ type SpriteKey =
   | "titleBackground"
   | "portal"
   | "chocado"
+  | "bossServo"
   | "enemyRed"
   | "enemyBlack"
   | "enemyPurple"
@@ -88,6 +92,8 @@ type Enemy = {
   alienBeamWidth?: number;
   alienBeamHeight?: number;
   tilt?: number;
+  knockedBack?: boolean;
+  knockedAt?: number;
 };
 
 type EnemyProjectile = {
@@ -114,6 +120,29 @@ type Particle = {
   color: string;
 };
 
+type PowerUpKind = "regen" | "tripleRegen" | "fireRate";
+
+type PowerUp = {
+  id: number;
+  kind: PowerUpKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  vx: number;
+  vy: number;
+  age: number;
+  life: number;
+  wavePhase: number;
+};
+
+type ActivePowerUpUi = {
+  kind: PowerUpKind;
+  label: string;
+  icon: string;
+  remainingMs?: number;
+};
+
 type Shockwave = {
   id: number;
   x: number;
@@ -121,6 +150,51 @@ type Shockwave = {
   radius: number;
   life: number;
   maxLife: number;
+};
+
+type BossProjectileKind = "servo" | "servoWave" | "laser" | "aimLaser" | "orb";
+
+type BossProjectile = {
+  id: number;
+  kind: BossProjectileKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  vx: number;
+  vy: number;
+  damage: number;
+  life: number;
+  maxLife: number;
+  angle?: number;
+  activeAt?: number;
+  homingUntil?: number;
+  speed?: number;
+  startY?: number;
+  targetY?: number;
+  travelMs?: number;
+  phase?: number;
+  locked?: boolean;
+  returnAt?: number;
+  returning?: boolean;
+};
+
+type BossState = {
+  active: boolean;
+  intro: boolean;
+  defeated: boolean;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  hp: number;
+  maxHp: number;
+  age: number;
+  introStartedAt: number;
+  battleStartedAt: number;
+  nextAttackAt: number;
+  attackIndex: number;
+  roarDone: boolean;
 };
 
 type SpriteConfig = {
@@ -238,6 +312,10 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     fps: 12,
   },
 
+  powerRegen: { src: "/game/powerups/regen.png" },
+  powerFireRate: { src: "/game/powerups/fire-rate.png" },
+  powerTripleRegen: { src: "/game/powerups/triple-regen.png" },
+
   normalShot: { src: "/game/shots/normal.png" },
   strongShot: { src: "/game/shots/strong.png" },
   background: { src: "/game/backgrounds/space.png" },
@@ -258,6 +336,14 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     frameHeight: 128,
     frames: 6,
     fps: 7,
+  },
+
+  bossServo: {
+    src: "/game/bosses/chocado-servo.png",
+    frameWidth: 48,
+    frameHeight: 48,
+    frames: 1,
+    fps: 8,
   },
 
   enemyRed: {
@@ -360,7 +446,9 @@ const CONFIG = {
       keyKillsToFull: 15,
       startCharge: 7.5,
       maxCharge: 15,
+      damageChargeGain: 0.2,
       damage: 3.5,
+      hitBounceBack: 46,
       durationMs: 260,
       postInvincibleMs: 500,
       speed: 15.5,
@@ -458,10 +546,26 @@ const CONFIG = {
         speed: 10,
         damage: 5,
         cooldownMs: 8000,
-        shockwaveRadius: 360,
-        shockwaveKnockback: 11.5,
-        shockwaveSpin: 0.018,
+        shockwaveRadius: 430,
+        shockwaveKnockback: 13.5,
+        shockwaveSpin: 0.022,
       },
+    },
+
+    powerups: {
+      width: 42,
+      height: 42,
+      speed: 2.1,
+      waveAmplitude: 26,
+      waveFrequency: 0.0045,
+      lifeMs: 11500,
+      regenChanceOnKill: 0.075,
+      regenChanceOnBossDamage: 0.035,
+      tripleRegenChanceLowHp: 0.16,
+      fireRateChanceOnKill: 0.085,
+      fireRateDurationMs: 10000,
+      fireRateCooldownMultiplier: 0.48,
+      bossDamageSpawnCooldownMs: 1350,
     },
 
     infiniteWaves: {
@@ -481,6 +585,48 @@ const CONFIG = {
       difficultyPerWave: 0.045,
       maxDifficulty: 3.2,
       messageMs: 1500,
+    },
+
+    boss: {
+      chocado: {
+        width: 360,
+        height: 650,
+        hp: 500,
+        introBarMs: 1800,
+        introRoarMs: 900,
+        floatAmplitude: 16,
+        floatSpeed: 0.0022,
+        attackDelayMs: 1200,
+        servoCountMin: 8,
+        servoCountMax: 12,
+        servoSpeed: 4.15,
+        servoHomingMs: 2300,
+        servoBulletLifeMs: 13000,
+        servoReturnAtMs: 7600,
+        servoReturnDamage: 10,
+        servoDamage: 1,
+        servoWaveCountMin: 18,
+        servoWaveCountMax: 28,
+        servoWaveSpeed: 3.85,
+        servoWaveSize: 20,
+        servoWaveTravelMs: 1900,
+        servoWaveLifeMs: 7600,
+        laserTelegraphMs: 850,
+        laserActiveMs: 1450,
+        laserDamage: 1,
+        laserThicknessX: 92,
+        laserThicknessTriple: 74,
+        aimLaserWindupMs: 1550,
+        aimLaserActiveMs: 2150,
+        aimLaserThickness: 112,
+        aimLaserLength: 1800,
+        aimLaserFollow: 0.072,
+        aimLaserShake: 5,
+        cannonOrbSpeed: 5.2,
+        cannonOrbDamage: 1,
+        enragedHp: 200,
+        enragedAttackRate: 0.68,
+      },
     },
 
     enemies: {
@@ -583,6 +729,11 @@ const CONFIG = {
     asteroidBreak: "/sounds/asteroid-break.mp3",
     waveStart: "/sounds/wave-start.mp3",
     bossIntro: "/sounds/boss-intro.mp3",
+    chocadoRoar: "/sounds/chocado-roar.mp3",
+    chocadoServo: "/sounds/chocado-servo.mp3",
+    chocadoLaser: "/sounds/chocado-laser.mp3",
+    chocadoCannon: "/sounds/chocado-cannon.mp3",
+    chocadoDefeat: "/sounds/chocado-defeat.mp3",
   },
 
   uiImages: {
@@ -600,6 +751,9 @@ const CONFIG = {
     mobileBoost: "/game/ui/mobile-boost.png",
     mobileDodge: "/game/ui/mobile-dodge.png",
     mobileFullscreen: "/game/ui/mobile-fullscreen.png",
+    powerRegen: "/game/powerups/regen.png",
+    powerFireRate: "/game/powerups/fire-rate.png",
+    powerTripleRegen: "/game/powerups/triple-regen.png",
   },
 
   settings: {
@@ -1269,6 +1423,30 @@ export default function JogoPage() {
   const enemyProjectilesRef = useRef<EnemyProjectile[]>([]);
   const particlesRef = useRef<Particle[]>([]);
   const shockwavesRef = useRef<Shockwave[]>([]);
+  const bossProjectilesRef = useRef<BossProjectile[]>([]);
+  const powerUpsRef = useRef<PowerUp[]>([]);
+  const powerUpIdRef = useRef(0);
+  const fireRateUntilRef = useRef(0);
+  const lastBossPowerUpAtRef = useRef(0);
+  const [activePowerUpsUi, setActivePowerUpsUi] = useState<ActivePowerUpUi[]>([]);
+  const bossProjectileIdRef = useRef(0);
+  const bossRef = useRef<BossState>({
+    active: false,
+    intro: false,
+    defeated: false,
+    x: 0,
+    y: 0,
+    w: CONFIG.gameplay.boss.chocado.width,
+    h: CONFIG.gameplay.boss.chocado.height,
+    hp: CONFIG.gameplay.boss.chocado.hp,
+    maxHp: CONFIG.gameplay.boss.chocado.hp,
+    age: 0,
+    introStartedAt: 0,
+    battleStartedAt: 0,
+    nextAttackAt: 0,
+    attackIndex: 0,
+    roarDone: false,
+  });
 
   const shakeRef = useRef({ intensity: 0, endAt: 0 });
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1454,6 +1632,13 @@ export default function JogoPage() {
     enemyProjectilesRef.current = [];
     particlesRef.current = [];
     shockwavesRef.current = [];
+    bossProjectilesRef.current = [];
+    powerUpsRef.current = [];
+    fireRateUntilRef.current = 0;
+    setActivePowerUpsUi([]);
+    bossRef.current.active = false;
+    bossRef.current.intro = false;
+    bossRef.current.defeated = false;
     const player = playerRef.current;
     player.capturedUntil = 0;
     player.throwUntil = 0;
@@ -1664,11 +1849,12 @@ export default function JogoPage() {
     setScore(scoreRef.current);
   }
 
-  function carregarBoostPorAbate() {
-    if (!CONFIG.gameplay.boost.enabled) return;
+  function carregarBoostPorDano(dano: number) {
+    if (!CONFIG.gameplay.boost.enabled || dano <= 0) return;
 
+    const ganho = dano * CONFIG.gameplay.boost.damageChargeGain;
     const next = clamp(
-      boostChargeRef.current + 1,
+      boostChargeRef.current + ganho,
       0,
       CONFIG.gameplay.boost.maxCharge,
     );
@@ -1685,7 +1871,6 @@ export default function JogoPage() {
 
   function registrarAbate(kind: EnemyKind) {
     adicionarPontuacao(CONFIG.gameplay.score[kind]);
-    carregarBoostPorAbate();
   }
 
   function executarBoost() {
@@ -2245,15 +2430,18 @@ export default function JogoPage() {
     const verticalDir =
       Math.abs(dirY) < 0.22 ? (Math.random() > 0.5 ? 0.62 : -0.62) : dirY;
 
-    enemy.vx += dirX * force;
-    enemy.vy += verticalDir * force * 0.78;
+    // No espaço: o knockback vira velocidade constante.
+    // Isso deixa o impacto mais divertido e evita inimigos presos fora da tela.
+    enemy.vx = dirX * force;
+    enemy.vy = verticalDir * force * 0.78;
     enemy.isDashing = true;
+    enemy.knockedBack = true;
+    enemy.knockedAt = performance.now();
     enemy.rotation = enemy.rotation ?? 0;
     enemy.rotationSpeed =
-      (enemy.rotationSpeed ?? 0) +
       spinStrength *
-        (verticalDir >= 0 ? 1 : -1) *
-        (0.85 + Math.random() * 0.55);
+      (verticalDir >= 0 ? 1 : -1) *
+      (0.85 + Math.random() * 0.55);
     enemy.stretchUntil =
       performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
   }
@@ -2336,6 +2524,41 @@ export default function JogoPage() {
     player.lastStretchAt = now;
   }
 
+  function spawnBossChocado() {
+    const now = performance.now();
+    const cfg = CONFIG.gameplay.boss.chocado;
+
+    bossProjectilesRef.current = [];
+    enemiesRef.current = enemiesRef.current.filter(
+      (enemy) => enemy.kind === "asteroid" || enemy.kind === "fragment",
+    );
+
+    bossRef.current = {
+      active: true,
+      intro: true,
+      defeated: false,
+      x: CONFIG.canvasWidth - cfg.width - 8,
+      y: (CONFIG.canvasHeight - cfg.height) / 2,
+      w: cfg.width,
+      h: cfg.height,
+      hp: cfg.hp,
+      maxHp: cfg.hp,
+      age: 0,
+      introStartedAt: now,
+      battleStartedAt: 0,
+      nextAttackAt: now + cfg.introBarMs + cfg.introRoarMs + cfg.attackDelayMs,
+      attackIndex: 0,
+      roarDone: false,
+    };
+
+    mostrarMensagemWave("CHOCADO CHEGOU", true);
+    tocarSom(CONFIG.sounds.bossIntro, 0.62, "sfx");
+  }
+
+  function bossEstaAtivo() {
+    return bossRef.current.active && bossRef.current.hp > 0;
+  }
+
   function mostrarMensagemWave(message: string, bossWave = false) {
     const wave = waveStateRef.current;
     const until = performance.now() + CONFIG.gameplay.infiniteWaves.messageMs;
@@ -2357,6 +2580,7 @@ export default function JogoPage() {
     const cfg = CONFIG.gameplay.infiniteWaves;
     const events: WaveSpawnEvent[] = [];
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
+    if (bossWave) return [];
     const groupCount = bossWave
       ? Math.min(
           cfg.maxGroups,
@@ -2510,6 +2734,10 @@ export default function JogoPage() {
       bossWave ? CONFIG.sounds.bossIntro : CONFIG.sounds.waveStart,
       bossWave ? 0.6 : 0.48,
     );
+
+    if (bossWave) {
+      spawnBossChocado();
+    }
   }
 
   function atualizarWavesInfinitas() {
@@ -2543,9 +2771,40 @@ export default function JogoPage() {
       setWaveUi((current) => ({ ...current, message: "" }));
     }
 
-    const waveEnemiesAlive = enemiesRef.current.some(
-      (enemy) => enemy.kind !== "asteroid" && enemy.kind !== "fragment",
-    );
+    // Limpeza anti-softlock: depois que todos os spawns da wave já entraram,
+    // inimigos de wave jogados muito para fora da tela são removidos.
+    // Asteroides/fragmentos continuam independentes e não contam para terminar wave.
+    if (wave.queue.length === 0) {
+      enemiesRef.current = enemiesRef.current.filter((enemy) => {
+        if (enemy.kind === "asteroid" || enemy.kind === "fragment") return true;
+        const margin = 220;
+        return (
+          enemy.x > -enemy.w - margin &&
+          enemy.x < CONFIG.canvasWidth + enemy.w + margin &&
+          enemy.y > -enemy.h - margin &&
+          enemy.y < CONFIG.canvasHeight + enemy.h + margin
+        );
+      });
+    }
+
+    const bossAliveForWave = bossEstaAtivo();
+    const waveEnemiesAlive =
+      bossAliveForWave ||
+      enemiesRef.current.some((enemy) => {
+        if (enemy.kind === "asteroid" || enemy.kind === "fragment")
+          return false;
+
+        // Se um inimigo foi lançado para fora da área útil por knockback,
+        // ele não deve segurar a wave invisivelmente.
+        const margin = 80;
+        const visibleEnough =
+          enemy.x > -enemy.w - margin &&
+          enemy.x < CONFIG.canvasWidth + enemy.w + margin &&
+          enemy.y > -enemy.h - margin &&
+          enemy.y < CONFIG.canvasHeight + enemy.h + margin;
+
+        return visibleEnough && enemy.hp > 0;
+      });
 
     if (wave.queue.length === 0 && !waveEnemiesAlive) {
       wave.active = false;
@@ -2567,6 +2826,115 @@ export default function JogoPage() {
         message: wave.message,
       });
     }
+  }
+
+
+
+  function powerUpIcon(kind: PowerUpKind) {
+    if (kind === "regen") return CONFIG.uiImages.powerRegen;
+    if (kind === "tripleRegen") return CONFIG.uiImages.powerTripleRegen;
+    return CONFIG.uiImages.powerFireRate;
+  }
+
+  function powerUpLabel(kind: PowerUpKind) {
+    if (kind === "regen") return "+1 HP";
+    if (kind === "tripleRegen") return "+3 HP";
+    return "TIRO+";
+  }
+
+  function spawnPowerUp(kind: PowerUpKind, x: number, y: number) {
+    const cfg = CONFIG.gameplay.powerups;
+    powerUpsRef.current.push({
+      id: powerUpIdRef.current++,
+      kind,
+      x,
+      y,
+      w: cfg.width,
+      h: cfg.height,
+      vx: -cfg.speed,
+      vy: 0,
+      age: 0,
+      life: cfg.lifeMs,
+      wavePhase: rand(0, Math.PI * 2),
+    });
+  }
+
+  function tentarSpawnPowerUp(x: number, y: number, bossDamage = false) {
+    const player = playerRef.current;
+    const cfg = CONFIG.gameplay.powerups;
+    const now = performance.now();
+
+    if (bossDamage) {
+      if (now - lastBossPowerUpAtRef.current < cfg.bossDamageSpawnCooldownMs) return;
+      if (Math.random() < cfg.regenChanceOnBossDamage && player.hp < CONFIG.gameplay.player.maxHp) {
+        lastBossPowerUpAtRef.current = now;
+        spawnPowerUp(player.hp <= 2 && Math.random() < cfg.tripleRegenChanceLowHp ? "tripleRegen" : "regen", x, y);
+      }
+      return;
+    }
+
+    if (player.hp <= 2 && Math.random() < cfg.tripleRegenChanceLowHp) {
+      spawnPowerUp("tripleRegen", x, y);
+      return;
+    }
+
+    if (player.hp < CONFIG.gameplay.player.maxHp && Math.random() < cfg.regenChanceOnKill) {
+      spawnPowerUp("regen", x, y);
+      return;
+    }
+
+    if (Math.random() < cfg.fireRateChanceOnKill) {
+      spawnPowerUp("fireRate", x, y);
+    }
+  }
+
+  function aplicarPowerUp(kind: PowerUpKind) {
+    const player = playerRef.current;
+    if (kind === "regen") {
+      player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 1);
+      setPlayerHp(player.hp);
+      setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+      tocarSom(CONFIG.sounds.abilityReady, 0.35, "ability");
+      return;
+    }
+
+    if (kind === "tripleRegen") {
+      player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 3);
+      setPlayerHp(player.hp);
+      setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+      tocarSom(CONFIG.sounds.abilityReady, 0.42, "ability");
+      return;
+    }
+
+    fireRateUntilRef.current = performance.now() + CONFIG.gameplay.powerups.fireRateDurationMs;
+    tocarSom(CONFIG.sounds.abilityReady, 0.42, "ability");
+  }
+
+  function atualizarPowerUpUi() {
+    const now = performance.now();
+    const active: ActivePowerUpUi[] = [];
+
+    if (fireRateUntilRef.current > now) {
+      active.push({
+        kind: "fireRate",
+        label: "TIRO+",
+        icon: CONFIG.uiImages.powerFireRate,
+        remainingMs: fireRateUntilRef.current - now,
+      });
+    }
+
+    setActivePowerUpsUi(active);
+  }
+
+  function cooldownTiroNormalAtual() {
+    const boosted = fireRateUntilRef.current > performance.now();
+    return Math.max(
+      6,
+      Math.round(
+        CONFIG.gameplay.shots.normal.cooldownFrames *
+          (boosted ? CONFIG.gameplay.powerups.fireRateCooldownMultiplier : 1),
+      ),
+    );
   }
 
   useEffect(() => {
@@ -2661,7 +3029,7 @@ export default function JogoPage() {
       });
 
       tocarSom(CONFIG.sounds.normalShot, 0.45, "sfx");
-      player.normalCooldown = CONFIG.gameplay.shots.normal.cooldownFrames;
+      player.normalCooldown = cooldownTiroNormalAtual();
     }
 
     function shootStrong() {
@@ -3056,6 +3424,634 @@ export default function JogoPage() {
       ctx.restore();
     }
 
+    function getBossHitbox() {
+      const boss = bossRef.current;
+      return {
+        x: boss.x + boss.w * 0.12,
+        y: boss.y + boss.h * 0.06,
+        w: boss.w * 0.78,
+        h: boss.h * 0.88,
+      };
+    }
+
+    function spawnBossServoPair(count: number) {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const player = playerRef.current;
+      const safeCount = Math.max(2, count + (count % 2));
+      const pairs = safeCount / 2;
+
+      for (let i = 0; i < pairs; i++) {
+        const spacing = 42;
+        const topY = boss.y + 70 + i * spacing;
+        const bottomY = boss.y + boss.h - 110 - i * spacing;
+        const spawnX = boss.x + 52;
+
+        for (const y of [topY, bottomY]) {
+          const dx = player.x + player.w / 2 - spawnX;
+          const dy = player.y + player.h / 2 - y;
+          const len = Math.max(1, Math.hypot(dx, dy));
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "servo",
+            x: spawnX,
+            y,
+            w: 34,
+            h: 34,
+            vx: (dx / len) * cfg.servoSpeed,
+            vy: (dy / len) * cfg.servoSpeed,
+            damage: cfg.servoDamage,
+            life: cfg.servoBulletLifeMs,
+            maxLife: cfg.servoBulletLifeMs,
+            homingUntil: performance.now() + cfg.servoHomingMs,
+            returnAt: performance.now() + cfg.servoReturnAtMs,
+            speed: cfg.servoSpeed,
+          });
+        }
+      }
+
+      tocarSom(CONFIG.sounds.chocadoServo, 0.5, "sfx");
+    }
+
+    function spawnBossLaser(pattern: "x" | "triple") {
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const life = cfg.laserTelegraphMs + cfg.laserActiveMs;
+
+      if (pattern === "x") {
+        const centerX = CONFIG.canvasWidth / 2;
+        const centerY = CONFIG.canvasHeight / 2;
+        for (const angle of [0.43, -0.43]) {
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "laser",
+            x: centerX,
+            y: centerY,
+            w: 1740,
+            h: cfg.laserThicknessX,
+            vx: 0,
+            vy: 0,
+            damage: cfg.laserDamage,
+            life,
+            maxLife: life,
+            angle,
+            activeAt: now + cfg.laserTelegraphMs,
+          });
+        }
+      } else {
+        const lanes = [126, 360, 594];
+        for (const y of lanes) {
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "laser",
+            x: CONFIG.canvasWidth / 2,
+            y,
+            w: 1740,
+            h: cfg.laserThicknessTriple,
+            vx: 0,
+            vy: 0,
+            damage: cfg.laserDamage,
+            life,
+            maxLife: life,
+            angle: 0,
+            activeAt: now + cfg.laserTelegraphMs,
+          });
+        }
+      }
+
+      tocarSom(CONFIG.sounds.chocadoLaser, 0.55, "sfx");
+    }
+
+    function spawnBossCannonBurst() {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const cannons = [
+        boss.y + 115,
+        boss.y + boss.h / 2,
+        boss.y + boss.h - 135,
+      ];
+      const now = performance.now();
+      let delay = 0;
+
+      for (let volley = 0; volley < 4; volley++) {
+        for (const y of cannons) {
+          const wobble = (volley - 1.5) * 0.45;
+          const angle = Math.PI + wobble * 0.18;
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "orb",
+            x: boss.x + 30,
+            y,
+            w: volley === 1 ? 34 : 26,
+            h: volley === 1 ? 34 : 26,
+            vx: Math.cos(angle) * cfg.cannonOrbSpeed,
+            vy: Math.sin(angle) * cfg.cannonOrbSpeed,
+            damage: cfg.cannonOrbDamage,
+            life: 5200 + delay,
+            maxLife: 5200 + delay,
+            activeAt: now + delay,
+          });
+        }
+        delay += 180;
+      }
+
+      tocarSom(CONFIG.sounds.chocadoCannon, 0.5, "sfx");
+    }
+
+    function spawnBossServoWaveAttack() {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const count = Math.max(
+        2,
+        Math.floor(rand(cfg.servoWaveCountMin, cfg.servoWaveCountMax + 1) / 2) * 2,
+      );
+      const pairs = count / 2;
+      const topStart = boss.y + 66;
+      const bottomStart = boss.y + boss.h - 96;
+      const topTarget = CONFIG.canvasHeight - cfg.servoWaveSize - 28;
+      const bottomTarget = 28;
+      const spawnX = boss.x + 38;
+
+      for (let i = 0; i < pairs; i++) {
+        const delay = i * 110;
+        for (const variant of [0, 1]) {
+          const fromTop = variant === 0;
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "servoWave",
+            x: spawnX + i * 4,
+            y: fromTop ? topStart : bottomStart,
+            w: cfg.servoWaveSize,
+            h: cfg.servoWaveSize,
+            vx: -cfg.servoWaveSpeed,
+            vy: 0,
+            damage: cfg.servoDamage,
+            life: cfg.servoWaveLifeMs + delay,
+            maxLife: cfg.servoWaveLifeMs + delay,
+            activeAt: now + delay,
+            speed: cfg.servoWaveSpeed,
+            startY: fromTop ? topStart : bottomStart,
+            targetY: fromTop ? topTarget : bottomTarget,
+            travelMs: cfg.servoWaveTravelMs,
+            phase: fromTop ? 0 : Math.PI,
+          });
+        }
+      }
+      tocarSom(CONFIG.sounds.chocadoServo, 0.55, "sfx");
+    }
+
+    function spawnBossAimedLaser() {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const player = playerRef.current;
+      const originX = boss.x + 28;
+      const originY = boss.y + boss.h / 2;
+      const dx = player.x + player.w / 2 - originX;
+      const dy = player.y + player.h / 2 - originY;
+
+      bossProjectilesRef.current.push({
+        id: bossProjectileIdRef.current++,
+        kind: "aimLaser",
+        x: originX,
+        y: originY,
+        w: cfg.aimLaserLength,
+        h: cfg.aimLaserThickness,
+        vx: 0,
+        vy: 0,
+        damage: cfg.laserDamage,
+        life: cfg.aimLaserWindupMs + cfg.aimLaserActiveMs,
+        maxLife: cfg.aimLaserWindupMs + cfg.aimLaserActiveMs,
+        angle: Math.atan2(dy, dx),
+        activeAt: now + cfg.aimLaserWindupMs,
+        locked: false,
+      });
+      tocarSom(CONFIG.sounds.chocadoLaser, 0.46, "sfx");
+    }
+
+    function iniciarProximoAtaqueDoBoss() {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const attack = boss.attackIndex % 4;
+      const enraged = boss.hp <= cfg.enragedHp;
+      const rate = enraged ? cfg.enragedAttackRate : 1;
+      const now = performance.now();
+
+      if (attack === 0) {
+        const evenCount = Math.max(
+          2,
+          Math.floor(rand(cfg.servoCountMin, cfg.servoCountMax + 1) / 2) * 2,
+        );
+        spawnBossServoPair(evenCount);
+        boss.nextAttackAt = now + 2600 * rate;
+      } else if (attack === 1) {
+        spawnBossLaser(Math.random() < 0.5 ? "x" : "triple");
+        boss.nextAttackAt = now + (cfg.laserTelegraphMs + cfg.laserActiveMs + 1150) * rate;
+      } else if (attack === 2) {
+        spawnBossServoWaveAttack();
+        boss.nextAttackAt = now + 3200 * rate;
+      } else {
+        spawnBossAimedLaser();
+        boss.nextAttackAt = now + (cfg.aimLaserWindupMs + cfg.aimLaserActiveMs + 1050) * rate;
+      }
+
+      boss.attackIndex += 1;
+    }
+
+    function atualizarBoss(delta: number) {
+      const boss = bossRef.current;
+      if (!boss.active) return;
+
+      const now = performance.now();
+      const cfg = CONFIG.gameplay.boss.chocado;
+      boss.age += delta;
+      boss.y =
+        (CONFIG.canvasHeight - boss.h) / 2 +
+        Math.sin(boss.age * cfg.floatSpeed) * cfg.floatAmplitude;
+
+      if (boss.intro) {
+        const introElapsed = now - boss.introStartedAt;
+        if (introElapsed >= cfg.introBarMs && !boss.roarDone) {
+          boss.roarDone = true;
+          tocarSom(CONFIG.sounds.chocadoRoar, 0.72, "sfx");
+          if (CONFIG.settings.enableScreenShake) {
+            shakeRef.current = { intensity: 12, endAt: now + cfg.introRoarMs };
+          }
+        }
+        if (introElapsed >= cfg.introBarMs + cfg.introRoarMs) {
+          boss.intro = false;
+          boss.battleStartedAt = now;
+          boss.nextAttackAt = now + cfg.attackDelayMs;
+          mostrarMensagemWave("BATALHA INICIADA", true);
+        }
+      } else if (now >= boss.nextAttackAt) {
+        iniciarProximoAtaqueDoBoss();
+      }
+
+      if (boss.hp <= 0 && !boss.defeated) {
+        boss.defeated = true;
+        boss.active = false;
+        bossProjectilesRef.current = [];
+        tocarSom(
+          CONFIG.sounds.chocadoDefeat || CONFIG.sounds.enemyDeath,
+          0.72,
+          "hit",
+        );
+        criarExplosao(boss.x + boss.w / 2, boss.y + boss.h / 2, "#ffe18c", 72);
+        adicionarPontuacao(CONFIG.gameplay.score.bossWaveClear);
+        mostrarMensagemWave("CHOCADO DERROTADO", true);
+      }
+    }
+
+    function atualizarBossProjectiles(delta: number) {
+      const now = performance.now();
+      const speedFactor = delta / 16.67;
+      const player = playerRef.current;
+
+      bossProjectilesRef.current = bossProjectilesRef.current
+        .map((projectile) => {
+          const updated = { ...projectile, life: projectile.life - delta };
+          if (updated.activeAt && now < updated.activeAt) return updated;
+
+          if (updated.kind === "servo") {
+            const boss = bossRef.current;
+            const shouldReturn = Boolean(updated.returnAt && now >= updated.returnAt && boss.active && boss.hp > 0);
+            if (shouldReturn) {
+              updated.returning = true;
+              const targetX = boss.x + boss.w * 0.28;
+              const targetY = boss.y + boss.h * 0.5;
+              const dx = targetX - (updated.x + updated.w / 2);
+              const dy = targetY - (updated.y + updated.h / 2);
+              const len = Math.max(1, Math.hypot(dx, dy));
+              const speed = (updated.speed ?? CONFIG.gameplay.boss.chocado.servoSpeed) * 1.22;
+              updated.vx += ((dx / len) * speed - updated.vx) * 0.13;
+              updated.vy += ((dy / len) * speed - updated.vy) * 0.13;
+            } else if (updated.homingUntil && now < updated.homingUntil) {
+              const dx = player.x + player.w / 2 - (updated.x + updated.w / 2);
+              const dy = player.y + player.h / 2 - (updated.y + updated.h / 2);
+              const len = Math.max(1, Math.hypot(dx, dy));
+              const speed = updated.speed ?? CONFIG.gameplay.boss.chocado.servoSpeed;
+              updated.vx += ((dx / len) * speed - updated.vx) * 0.105;
+              updated.vy += ((dy / len) * speed - updated.vy) * 0.105;
+            }
+          }
+
+          if (updated.kind === "servoWave") {
+            const travelMs = Math.max(350, updated.travelMs ?? 1800);
+            const activeElapsed = Math.max(
+              0,
+              now - (updated.activeAt ?? now),
+            );
+            const ping = (activeElapsed % (travelMs * 2)) / travelMs;
+            const t = ping <= 1 ? ping : 2 - ping;
+            const eased = 0.5 - Math.cos(t * Math.PI) * 0.5;
+            const startY = updated.startY ?? updated.y;
+            const targetY = updated.targetY ?? updated.y;
+            const nextY = startY + (targetY - startY) * eased;
+            updated.vy = (nextY - updated.y) / Math.max(0.001, speedFactor);
+            updated.y = nextY;
+          }
+
+          if (updated.kind === "aimLaser") {
+            const active = !updated.activeAt || now >= updated.activeAt;
+            if (!active) {
+              const dx = player.x + player.w / 2 - updated.x;
+              const dy = player.y + player.h / 2 - updated.y;
+              const target = Math.atan2(dy, dx);
+              const current = updated.angle ?? target;
+              const diff = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+              updated.angle = current + diff * CONFIG.gameplay.boss.chocado.aimLaserFollow;
+            } else {
+              if (!updated.locked) updated.locked = true;
+              if (CONFIG.settings.enableScreenShake) {
+                shakeRef.current = {
+                  intensity: CONFIG.gameplay.boss.chocado.aimLaserShake,
+                  endAt: performance.now() + 90,
+                };
+              }
+            }
+          }
+
+          if (updated.kind !== "laser" && updated.kind !== "aimLaser") {
+            updated.x += updated.vx * speedFactor;
+            if (updated.kind !== "servoWave") {
+              updated.y += updated.vy * speedFactor;
+            }
+          }
+
+          return updated;
+        })
+        .filter((projectile) => {
+          if (projectile.kind === "servo" && projectile.returning && bossRef.current.active && bossRef.current.hp > 0) {
+            const bossHitbox = getBossHitbox();
+            if (rectsCollide(projectile, bossHitbox)) {
+              const dano = CONFIG.gameplay.boss.chocado.servoReturnDamage;
+              bossRef.current.hp = Math.max(0, bossRef.current.hp - dano);
+              carregarBoostPorDano(dano);
+              criarExplosao(projectile.x + projectile.w / 2, projectile.y + projectile.h / 2, "#ffb703", 14);
+              tocarSom(CONFIG.sounds.enemyHit, 0.35, "hit");
+              return false;
+            }
+          }
+          if (projectile.life <= 0) return false;
+          if (projectile.kind === "laser" || projectile.kind === "aimLaser") return true;
+          return (
+            projectile.x > -180 &&
+            projectile.x < CONFIG.canvasWidth + 180 &&
+            projectile.y > -180 &&
+            projectile.y < CONFIG.canvasHeight + 180
+          );
+        });
+    }
+
+    function desenharBoss(ctx: CanvasRenderingContext2D) {
+      const boss = bossRef.current;
+      if (!boss.active) return;
+
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const img = assetsRef.current.get("chocado");
+      const progress = boss.intro
+        ? clamp(
+            (performance.now() - boss.introStartedAt) / cfg.introBarMs,
+            0,
+            1,
+          )
+        : clamp(boss.hp / boss.maxHp, 0, 1);
+
+      ctx.save();
+      ctx.translate(boss.x + boss.w / 2, boss.y + boss.h / 2);
+      ctx.rotate(Math.sin(boss.age * 0.003) * 0.018);
+
+      if (CONFIG.useSprites && img) {
+        ctx.drawImage(img, -boss.w / 2, -boss.h / 2, boss.w, boss.h);
+      } else {
+        ctx.fillStyle = "#3a1028";
+        ctx.fillRect(-boss.w / 2, -boss.h / 2, boss.w, boss.h);
+        ctx.fillStyle = "#f8e7b0";
+        ctx.fillRect(-boss.w / 2 - 24, -boss.h * 0.32, 62, 28);
+        ctx.fillRect(-boss.w / 2 - 24, -14, 86, 32);
+        ctx.fillRect(-boss.w / 2 - 24, boss.h * 0.32, 62, 28);
+      }
+      ctx.restore();
+
+      // Barra de vida do boss no topo.
+      const barW = 760;
+      const barH = 24;
+      const barX = (CONFIG.canvasWidth - barW) / 2;
+      const barY = 20;
+      ctx.save();
+      ctx.fillStyle = "rgba(8, 3, 10, 0.88)";
+      ctx.fillRect(barX - 10, barY - 4, barW + 20, 78);
+      ctx.strokeStyle = "#f8e7b0";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(barX - 10, barY - 4, barW + 20, 78);
+      ctx.fillStyle = "#fff7e6";
+      ctx.font = `30px ${CONFIG.fonts.menu}`;
+      ctx.textAlign = "center";
+      ctx.fillText("CHOCADO", CONFIG.canvasWidth / 2, barY + 4);
+      ctx.fillStyle = "#1b0612";
+      ctx.fillRect(barX, barY + 18, barW, barH);
+      const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+      gradient.addColorStop(0, "#ff3355");
+      gradient.addColorStop(0.55, "#ffb703");
+      gradient.addColorStop(1, "#fff1a8");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(barX, barY + 18, barW * progress, barH);
+      ctx.strokeStyle = "#f8e7b0";
+      ctx.strokeRect(barX, barY + 18, barW, barH);
+      ctx.fillStyle = "#f8e7b0";
+      ctx.font = `18px ${CONFIG.fonts.ui}`;
+      const hpText = boss.intro
+        ? "CARREGANDO..."
+        : `${Math.ceil(Math.max(0, boss.hp))} / ${boss.maxHp} HP`;
+      ctx.fillText(hpText, CONFIG.canvasWidth / 2, barY + 66);
+      ctx.restore();
+    }
+
+    function desenharBossProjectile(
+      ctx: CanvasRenderingContext2D,
+      projectile: BossProjectile,
+    ) {
+      const now = performance.now();
+      const active = !projectile.activeAt || now >= projectile.activeAt;
+
+      if (projectile.kind === "laser" || projectile.kind === "aimLaser") {
+        const isAim = projectile.kind === "aimLaser";
+        const activeTime = Math.max(0, performance.now() - (projectile.activeAt ?? 0));
+        const pulse = isAim && active ? 1 + Math.sin(activeTime * 0.082) * 0.24 : 1;
+        const drawHeight = projectile.h * pulse;
+
+        ctx.save();
+        ctx.translate(projectile.x, projectile.y);
+        ctx.rotate(projectile.angle ?? 0);
+        if (isAim) {
+          ctx.translate(projectile.w / 2, 0);
+        }
+        ctx.globalAlpha = active ? 0.92 : 0.26;
+        ctx.fillStyle = active ? (isAim ? "#ff214f" : "#ff3366") : "#fff1a8";
+        ctx.fillRect(
+          -projectile.w / 2,
+          -drawHeight / 2,
+          projectile.w,
+          drawHeight,
+        );
+        ctx.fillStyle = active ? "#fff7e6" : "#f8e7b0";
+        ctx.fillRect(-projectile.w / 2, -Math.max(5, drawHeight * 0.08), projectile.w, Math.max(10, drawHeight * 0.16));
+        if (!active && isAim) {
+          const t = performance.now() * 0.006;
+          ctx.strokeStyle = "#fff1a8";
+          ctx.lineWidth = 5;
+          ctx.setLineDash([18, 14]);
+          ctx.lineDashOffset = -t * 18;
+          ctx.strokeRect(-projectile.w / 2, -drawHeight / 2, projectile.w, drawHeight);
+          ctx.setLineDash([]);
+          // Mira automática no estilo Death Egg: retículo na ponta do raio.
+          ctx.strokeStyle = "#ff3355";
+          ctx.lineWidth = 4;
+          const aimX = -projectile.w / 2 + 110;
+          ctx.beginPath();
+          ctx.moveTo(aimX - 26, 0);
+          ctx.lineTo(aimX + 26, 0);
+          ctx.moveTo(aimX, -26);
+          ctx.lineTo(aimX, 26);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(aimX, 0, 31 + Math.sin(t * 4) * 4, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+        return;
+      }
+
+      const img =
+        projectile.kind === "servo" || projectile.kind === "servoWave"
+          ? assetsRef.current.get("bossServo")
+          : assetsRef.current.get("enemyBullet");
+      const color = projectile.kind === "servo" || projectile.kind === "servoWave" ? "#ffb703" : "#ff4d6d";
+      drawVelocityStretchedImage(
+        ctx,
+        img,
+        projectile.x,
+        projectile.y,
+        projectile.w,
+        projectile.h,
+        projectile.vx,
+        projectile.vy,
+        Math.atan2(projectile.vy, projectile.vx),
+        color,
+        getStretchSettings("shot").multiplier,
+        getStretchPulse(performance.now() + 60, "shot"),
+      );
+    }
+
+    function rectHitsRotatedBeam(
+      rect: { x: number; y: number; w: number; h: number },
+      beam: BossProjectile,
+    ) {
+      const angle = -(beam.angle ?? 0);
+      const points = [
+        { x: rect.x, y: rect.y },
+        { x: rect.x + rect.w, y: rect.y },
+        { x: rect.x, y: rect.y + rect.h },
+        { x: rect.x + rect.w, y: rect.y + rect.h },
+        { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 },
+      ];
+
+      return points.some((point) => {
+        const originCenterX = beam.kind === "aimLaser" ? beam.x + Math.cos(beam.angle ?? 0) * (beam.w / 2) : beam.x;
+        const originCenterY = beam.kind === "aimLaser" ? beam.y + Math.sin(beam.angle ?? 0) * (beam.w / 2) : beam.y;
+        const dx = point.x - originCenterX;
+        const dy = point.y - originCenterY;
+        const rx = dx * Math.cos(angle) - dy * Math.sin(angle);
+        const ry = dx * Math.sin(angle) + dy * Math.cos(angle);
+        return Math.abs(rx) <= beam.w / 2 && Math.abs(ry) <= beam.h / 2;
+      });
+    }
+
+    function atualizarPowerUps(delta: number, canvas: HTMLCanvasElement) {
+      if (gameStateRef.current !== "playing") return;
+
+      const speedFactor = delta / 16.67;
+      const cfg = CONFIG.gameplay.powerups;
+
+      powerUpsRef.current = powerUpsRef.current
+        .map((power) => ({
+          ...power,
+          age: power.age + delta,
+          life: power.life - delta,
+          x: power.x + power.vx * speedFactor,
+          y:
+            power.y +
+            Math.sin((power.age + delta) * cfg.waveFrequency + power.wavePhase) *
+              cfg.waveAmplitude *
+              0.035 *
+              speedFactor,
+        }))
+        .filter(
+          (power) =>
+            power.life > 0 &&
+            power.x > -120 &&
+            power.x < canvas.width + 120 &&
+            power.y > -90 &&
+            power.y < canvas.height + 90,
+        );
+    }
+
+    function desenharPowerUps(ctx: CanvasRenderingContext2D) {
+      ctx.save();
+      for (const power of powerUpsRef.current) {
+        const key: SpriteKey =
+          power.kind === "regen"
+            ? "powerRegen"
+            : power.kind === "tripleRegen"
+              ? "powerTripleRegen"
+              : "powerFireRate";
+        const img = assetsRef.current.get(key);
+        const pulse = 1 + Math.sin(power.age * 0.009) * 0.08;
+        ctx.save();
+        ctx.translate(power.x + power.w / 2, power.y + power.h / 2);
+        ctx.scale(pulse, pulse);
+        ctx.shadowColor = power.kind === "fireRate" ? "#ffb703" : "#5eea7a";
+        ctx.shadowBlur = 14;
+        if (img) {
+          ctx.drawImage(img, -power.w / 2, -power.h / 2, power.w, power.h);
+        } else {
+          ctx.fillStyle =
+            power.kind === "fireRate"
+              ? "#ffb703"
+              : power.kind === "tripleRegen"
+                ? "#ff5d8f"
+                : "#53e86b";
+          ctx.fillRect(-power.w / 2, -power.h / 2, power.w, power.h);
+          ctx.fillStyle = "#08030a";
+          ctx.font = `18px ${CONFIG.fonts.ui}`;
+          ctx.textAlign = "center";
+          ctx.fillText(power.kind === "fireRate" ? "F" : "+", 0, 7);
+        }
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function resolverPowerUps() {
+      const player = playerRef.current;
+      const playerHitbox = getPlayerHitbox(player);
+      const collected = new Set<number>();
+
+      for (const power of powerUpsRef.current) {
+        if (rectsCollide(playerHitbox, power)) {
+          collected.add(power.id);
+          aplicarPowerUp(power.kind);
+          criarParticulasHit(power.x + power.w / 2, power.y + power.h / 2, "#fff1a8", 8);
+        }
+      }
+
+      if (collected.size > 0) {
+        powerUpsRef.current = powerUpsRef.current.filter((power) => !collected.has(power.id));
+      }
+    }
+
     function atualizarParticulas(delta: number) {
       const speedFactor = delta / 16.67;
 
@@ -3127,6 +4123,21 @@ export default function JogoPage() {
       enemiesRef.current = enemiesRef.current
         .map((enemy) => {
           const updated = { ...enemy, age: enemy.age + delta };
+
+          // Knockback livre: quando um inimigo é lançado por boost/shockwave,
+          // ele deixa temporariamente o padrão dele e segue em linha reta no espaço.
+          // Assim ele pode sair da tela e ser despawnado sem travar a wave.
+          if (
+            updated.knockedBack &&
+            updated.kind !== "asteroid" &&
+            updated.kind !== "fragment"
+          ) {
+            updated.x += updated.vx * speedFactor;
+            updated.y += updated.vy * speedFactor;
+            updated.rotation =
+              (updated.rotation ?? 0) + (updated.rotationSpeed ?? 0) * delta;
+            return updated;
+          }
 
           if (updated.kind === "red") {
             const fireRedBullet = () => {
@@ -3286,7 +4297,7 @@ export default function JogoPage() {
           if (updated.kind === "fragment") {
             updated.x += updated.vx * speedFactor;
             updated.y += updated.vy * speedFactor;
-            updated.vy += 0.015 * speedFactor;
+            // Sem gravidade no espaço: fragmentos seguem velocidade constante.
             updated.rotation =
               (updated.rotation ?? 0) + (updated.rotationSpeed ?? 0) * delta;
           }
@@ -3296,10 +4307,10 @@ export default function JogoPage() {
         .filter((enemy) => {
           if (enemy.hp <= 0) return false;
 
-          const marginX =
-            enemy.kind === "asteroid" || enemy.kind === "fragment" ? 260 : 90;
-          const marginY =
-            enemy.kind === "asteroid" || enemy.kind === "fragment" ? 220 : 90;
+          const isHazard =
+            enemy.kind === "asteroid" || enemy.kind === "fragment";
+          const marginX = isHazard ? 300 : enemy.knockedBack ? 40 : 120;
+          const marginY = isHazard ? 260 : enemy.knockedBack ? 40 : 120;
 
           return (
             enemy.x > -enemy.w - marginX &&
@@ -3383,7 +4394,7 @@ export default function JogoPage() {
         player.y = alien.y + alien.h / 2 - player.h / 2;
         player.vx = 0;
         player.vy = 0;
-        player.tilt += 8.5 * speedFactor;
+        player.tilt += 14.5 * speedFactor;
         player.stretchUntil = now + 90;
         player.stretchVx = Math.cos(angle) * 1.6;
         player.stretchVy = Math.sin(angle) * 1.0;
@@ -3468,7 +4479,9 @@ export default function JogoPage() {
           if (enemiesToRemove.has(enemy.id)) continue;
 
           if (rectsCollide(shot, enemy)) {
+            const danoAplicado = Math.min(shot.damage, Math.max(0, enemy.hp));
             enemy.hp -= shot.damage;
+            carregarBoostPorDano(danoAplicado);
             shotsToRemove.add(shot.id);
             if (enemy.kind === "asteroid" && enemy.hp <= enemy.maxHp / 2) {
               enemy.cracked = true;
@@ -3485,6 +4498,7 @@ export default function JogoPage() {
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
               registrarAbate(enemy.kind);
+              tentarSpawnPowerUp(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
 
               if (enemy.kind === "asteroid") {
                 spawnAsteroidFragments(enemy);
@@ -3508,6 +4522,53 @@ export default function JogoPage() {
       const boosting = now < player.boostUntil;
       const intangible =
         now < player.invincibleUntil || now < player.dodgeUntil || boosting;
+
+      const boss = bossRef.current;
+      const bossHitbox = getBossHitbox();
+      if (boss.active && !boss.intro && boss.hp > 0) {
+        for (const shot of shotsRef.current) {
+          if (shotsToRemove.has(shot.id)) continue;
+          if (rectsCollide(shot, bossHitbox)) {
+            const hitX = shot.x + shot.w / 2;
+            const hitY = shot.y + shot.h / 2;
+            const danoAplicadoBoss = Math.min(shot.damage, Math.max(0, boss.hp));
+            boss.hp -= shot.damage;
+            carregarBoostPorDano(danoAplicadoBoss);
+            tentarSpawnPowerUp(hitX, hitY, true);
+            shotsToRemove.add(shot.id);
+            criarParticulasHit(hitX, hitY, "#ffe18c", 10);
+            tocarSom(CONFIG.sounds.enemyHit, 0.25, "hit");
+            if (shot.type === "strong") {
+              aplicarShockwaveDeTiroForte(hitX, hitY);
+            }
+            if (boss.hp <= 0) {
+              boss.hp = 0;
+            }
+          }
+        }
+      }
+
+      if (boss.active && !boss.intro && boss.hp > 0 && rectsCollide(playerHitbox, bossHitbox)) {
+        const hitCenterY = player.y + player.h / 2;
+        const bossCenterY = bossHitbox.y + bossHitbox.h / 2;
+        const bossLeft = bossHitbox.x;
+
+        if (boosting && !boostHitEnemiesRef.current.has(-9999)) {
+          boostHitEnemiesRef.current.add(-9999);
+          const danoBoostBoss = Math.min(CONFIG.gameplay.boost.damage, Math.max(0, boss.hp));
+          boss.hp -= CONFIG.gameplay.boost.damage;
+          carregarBoostPorDano(danoBoostBoss);
+          tentarSpawnPowerUp(bossHitbox.x, hitCenterY, true);
+          criarExplosao(bossHitbox.x, hitCenterY, "#fb8500", 18);
+          tocarSom(CONFIG.sounds.boostHit, 0.45, "hit");
+          aplicarShockwaveDeTiroForte(bossHitbox.x, hitCenterY);
+        }
+
+        // Barreira física: o jogador não entra no corpo do Chocado.
+        player.x = Math.min(player.x, bossLeft - CONFIG.gameplay.player.hitboxOffsetX - player.w * 0.08);
+        player.vx = Math.min(player.vx, -3.6);
+        player.vy += hitCenterY < bossCenterY ? -1.4 : 1.4;
+      }
 
       // Alien captura pelo sprite inteiro, mesmo que o player esteja em i-frame/boost.
       // Isso evita o bug de atravessar o alien sem interação.
@@ -3541,7 +4602,12 @@ export default function JogoPage() {
             }
 
             boostHitEnemiesRef.current.add(enemy.id);
+            const danoBoostAplicado = Math.min(
+              CONFIG.gameplay.boost.damage,
+              Math.max(0, enemy.hp),
+            );
             enemy.hp -= CONFIG.gameplay.boost.damage;
+            carregarBoostPorDano(danoBoostAplicado);
             criarExplosao(
               enemy.x + enemy.w / 2,
               enemy.y + enemy.h / 2,
@@ -3566,15 +4632,16 @@ export default function JogoPage() {
             );
 
             // O player rebate levemente para não ficar preso dentro do objeto.
-            player.x -= (dirX / len) * 18;
-            player.y -= (dirY / len) * 18;
-            player.vx = -(dirX / len) * 3.4;
-            player.vy = -(dirY / len) * 2.4;
+            player.x -= (dirX / len) * CONFIG.gameplay.boost.hitBounceBack;
+            player.y -= (dirY / len) * (CONFIG.gameplay.boost.hitBounceBack * 0.42);
+            player.vx = -(dirX / len) * 5.2;
+            player.vy = -(dirY / len) * 3.0;
             player.boostUntil = Math.min(player.boostUntil, now + 45);
 
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
               registrarAbate(enemy.kind);
+              tentarSpawnPowerUp(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
 
               if (enemy.kind === "asteroid") {
                 spawnAsteroidFragments(enemy);
@@ -3634,6 +4701,25 @@ export default function JogoPage() {
         }
       }
 
+      if (!intangible) {
+        for (const projectile of bossProjectilesRef.current) {
+          const active =
+            !projectile.activeAt || performance.now() >= projectile.activeAt;
+          if (!active) continue;
+          const hit =
+            projectile.kind === "laser" || projectile.kind === "aimLaser"
+              ? rectHitsRotatedBeam(playerHitbox, projectile)
+              : rectsCollide(playerHitbox, projectile);
+          if (hit) {
+            if (projectile.kind !== "laser" && projectile.kind !== "aimLaser") {
+              projectilesToRemove.add(projectile.id);
+            }
+            receberDano(projectile.damage);
+            break;
+          }
+        }
+      }
+
       if (shotsToRemove.size > 0) {
         shotsRef.current = shotsRef.current.filter(
           (shot) => !shotsToRemove.has(shot.id),
@@ -3649,6 +4735,9 @@ export default function JogoPage() {
       if (projectilesToRemove.size > 0) {
         enemyProjectilesRef.current = enemyProjectilesRef.current.filter(
           (bullet) => !projectilesToRemove.has(bullet.id),
+        );
+        bossProjectilesRef.current = bossProjectilesRef.current.filter(
+          (projectile) => !projectilesToRemove.has(projectile.id),
         );
       }
     }
@@ -3666,8 +4755,13 @@ export default function JogoPage() {
       if (player.capturedEnemyId !== null) {
         atualizarWavesInfinitas();
         atualizarInimigos(delta, canvas);
+        atualizarBoss(delta);
+        atualizarBossProjectiles(delta);
         atualizarCapturaAlien(delta, canvas);
+        atualizarPowerUps(delta, canvas);
+        resolverPowerUps();
         atualizarParticulas(delta);
+        atualizarPowerUpUi();
         atualizarShockwaves(delta);
         setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
         return;
@@ -3814,8 +4908,13 @@ export default function JogoPage() {
 
       atualizarWavesInfinitas();
       atualizarInimigos(delta, canvas);
+      atualizarBoss(delta);
+      atualizarBossProjectiles(delta);
+      atualizarPowerUps(delta, canvas);
       resolverColisoes();
+      resolverPowerUps();
       atualizarParticulas(delta);
+      atualizarPowerUpUi();
       atualizarShockwaves(delta);
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
     }
@@ -3956,8 +5055,11 @@ export default function JogoPage() {
 
       for (const shot of shotsRef.current) desenharTiro(renderCtx, shot);
       for (const enemy of enemiesRef.current) desenharEnemy(renderCtx, enemy);
+      desenharBoss(renderCtx);
       for (const bullet of enemyProjectilesRef.current)
         desenharEnemyProjectile(renderCtx, bullet);
+      for (const projectile of bossProjectilesRef.current)
+        desenharBossProjectile(renderCtx, projectile);
       desenharShockwaves(renderCtx);
       desenharParticulas(renderCtx);
 
@@ -4113,6 +5215,18 @@ export default function JogoPage() {
         if (key === "9") spawnEnemy("black");
         if (key === "0") spawnEnemy("purple");
         if (key === "5") spawnEnemy("alien");
+        if (key === "4") {
+          waveStateRef.current.bossWave = true;
+          waveStateRef.current.active = true;
+          waveStateRef.current.queue = [];
+          setWaveUi((current) => ({
+            ...current,
+            bossWave: true,
+            active: true,
+            message: "BOSS WAVE TESTE",
+          }));
+          spawnBossChocado();
+        }
         if (key === "-") spawnEnemy("asteroid");
       }
 
@@ -4214,6 +5328,20 @@ export default function JogoPage() {
       )}
 
       {(gameState === "playing" || gameState === "paused") &&
+        activePowerUpsUi.length > 0 && (
+          <div className="game-powerup-hud">
+            {activePowerUpsUi.map((power) => (
+              <div className="game-powerup-slot" key={power.kind}>
+                <img src={power.icon} alt={power.label} draggable={false} />
+                {power.remainingMs !== undefined && (
+                  <span>{Math.ceil(power.remainingMs / 1000)}S</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+      {(gameState === "playing" || gameState === "paused") &&
         waveUi.mode === "infinite" && (
           <div className="game-wave-hud">
             <strong>WAVE {waveUi.wave || 1}</strong>
@@ -4224,6 +5352,20 @@ export default function JogoPage() {
                   ? "EM ANDAMENTO"
                   : "PREPARANDO"}
             </span>
+          </div>
+        )}
+
+      {(gameState === "playing" || gameState === "paused") &&
+        activePowerUpsUi.length > 0 && (
+          <div className="game-powerup-hud">
+            {activePowerUpsUi.map((power) => (
+              <div className="game-powerup-slot" key={power.kind}>
+                <img src={power.icon} alt={power.label} draggable={false} />
+                {power.remainingMs !== undefined && (
+                  <span>{Math.ceil(power.remainingMs / 1000)}S</span>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
