@@ -4339,3 +4339,20 @@ body.reduce-motion *::after {
     letter-spacing: 0.08em !important;
   }
 }
+
+/* PATCH: pixel art sem suavização */
+.game-fullscreen-canvas,
+.game-fullscreen-page canvas {
+  image-rendering: pixelated !important;
+  image-rendering: crisp-edges !important;
+  -ms-interpolation-mode: nearest-neighbor;
+}
+
+.game-fullscreen-page img,
+.game-mobile-controls img,
+.game-life-hud img,
+.game-active-powerups img {
+  image-rendering: pixelated !important;
+  image-rendering: crisp-edges !important;
+  -ms-interpolation-mode: nearest-neighbor;
+}
