@@ -4188,3 +4188,154 @@ body.reduce-motion *::after {
     transform-origin: top left;
   }
 }
+
+/* Correção: power-ups ativos não ficam mais escondidos pelas barras verticais */
+.game-powerup-hud {
+  left: 280px !important;
+  top: 24px !important;
+  z-index: 86 !important;
+}
+
+.game-powerup-slot.shield img,
+.game-powerup-slot img[alt="SHIELD"] {
+  filter:
+    drop-shadow(0 0 8px rgba(167, 243, 208, 0.85))
+    drop-shadow(0 0 16px rgba(45, 212, 191, 0.35)) !important;
+}
+
+@media (pointer: coarse), (max-width: 768px) {
+  .game-powerup-hud {
+    left: 214px !important;
+    top: 18px !important;
+    transform: scale(0.74) !important;
+    transform-origin: top left !important;
+  }
+}
+
+/* AJUSTE FINAL: UI maior e power-ups sem obstruir barras */
+.game-life-hud {
+  top: 18px !important;
+  left: 22px !important;
+  transform: none !important;
+}
+
+.game-life-hud img {
+  width: 34px !important;
+  height: 34px !important;
+}
+
+.game-powerup-hud {
+  position: fixed !important;
+  z-index: 84 !important;
+  left: 24px !important;
+  top: 92px !important;
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 10px !important;
+  pointer-events: none !important;
+}
+
+.game-powerup-slot {
+  width: 58px !important;
+  height: 58px !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 3px solid #f8e7b0 !important;
+  background: rgba(8, 3, 10, 0.74) !important;
+  box-shadow: 5px 5px 0 rgba(0,0,0,.7), 0 0 16px rgba(255,225,140,.24) !important;
+}
+
+.game-powerup-slot img {
+  width: 42px !important;
+  height: 42px !important;
+  image-rendering: pixelated !important;
+}
+
+.game-powerup-slot span {
+  position: absolute !important;
+  bottom: -18px !important;
+  font-family: var(--game-ui-font), monospace !important;
+  font-size: 18px !important;
+  color: #fff7e6 !important;
+  text-shadow: 2px 2px 0 #08030a !important;
+}
+
+.game-ability-hud {
+  top: 166px !important;
+  left: 26px !important;
+  gap: 20px !important;
+  z-index: 83 !important;
+}
+
+.game-ability-meter {
+  width: 50px !important;
+  height: 176px !important;
+}
+
+.game-ability-fill strong {
+  font-family: var(--game-ui-font), monospace !important;
+  font-size: 18px !important;
+  letter-spacing: 0.12em !important;
+  color: #fff7e6 !important;
+  text-shadow: 2px 2px 0 #08030a, 0 0 10px rgba(255,225,140,.6) !important;
+}
+
+.game-ability-meter.ready .game-ability-fill strong {
+  font-size: 17px !important;
+}
+
+.game-wave-hud strong,
+.game-score-hud span,
+.game-boss-hp-ui,
+.game-setting-control strong {
+  font-size: 1.18em !important;
+}
+
+@media (pointer: coarse), (max-width: 900px) {
+  .game-life-hud {
+    top: 12px !important;
+    left: 14px !important;
+  }
+
+  .game-life-hud img {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .game-powerup-hud {
+    top: 54px !important;
+    left: 14px !important;
+    gap: 7px !important;
+  }
+
+  .game-powerup-slot {
+    width: 42px !important;
+    height: 42px !important;
+  }
+
+  .game-powerup-slot img {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .game-powerup-slot span {
+    font-size: 12px !important;
+    bottom: -13px !important;
+  }
+
+  .game-ability-hud {
+    top: 102px !important;
+    left: 14px !important;
+    gap: 10px !important;
+  }
+
+  .game-ability-meter {
+    width: 34px !important;
+    height: 116px !important;
+  }
+
+  .game-ability-fill strong {
+    font-size: 11px !important;
+    letter-spacing: 0.08em !important;
+  }
+}

@@ -24,6 +24,7 @@ type SpriteKey =
   | "powerRegen"
   | "powerFireRate"
   | "powerTripleRegen"
+  | "powerShield"
   | "normalShot"
   | "strongShot"
   | "background"
@@ -120,7 +121,7 @@ type Particle = {
   color: string;
 };
 
-type PowerUpKind = "regen" | "tripleRegen" | "fireRate";
+type PowerUpKind = "regen" | "tripleRegen" | "fireRate" | "shield";
 
 type PowerUp = {
   id: number;
@@ -175,6 +176,8 @@ type BossProjectile = {
   travelMs?: number;
   phase?: number;
   locked?: boolean;
+  aimX?: number;
+  aimY?: number;
   returnAt?: number;
   returning?: boolean;
 };
@@ -315,6 +318,7 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
   powerRegen: { src: "/game/powerups/regen.png" },
   powerFireRate: { src: "/game/powerups/fire-rate.png" },
   powerTripleRegen: { src: "/game/powerups/triple-regen.png" },
+  powerShield: { src: "/game/powerups/shield.png" },
 
   normalShot: { src: "/game/shots/normal.png" },
   strongShot: { src: "/game/shots/strong.png" },
@@ -546,23 +550,32 @@ const CONFIG = {
         speed: 10,
         damage: 5,
         cooldownMs: 8000,
-        shockwaveRadius: 430,
-        shockwaveKnockback: 13.5,
-        shockwaveSpin: 0.022,
+        shockwaveRadius: 520,
+        shockwaveKnockback: 14.5,
+        shockwaveSpin: 0.024,
+        shockwaveDamage: 2.2,
+        shockwaveDamageScore: 42,
       },
     },
 
     powerups: {
-      width: 42,
-      height: 42,
-      speed: 2.1,
-      waveAmplitude: 26,
+      width: 46,
+      height: 46,
+      speed: 1.55,
+      waveAmplitude: 30,
       waveFrequency: 0.0045,
-      lifeMs: 11500,
-      regenChanceOnKill: 0.075,
-      regenChanceOnBossDamage: 0.035,
-      tripleRegenChanceLowHp: 0.16,
-      fireRateChanceOnKill: 0.085,
+      lifeMs: 13500,
+      trailAmount: 9,
+      collectGlowMs: 720,
+
+      // Power-ups aparecem no mapa; nada é entregue automaticamente.
+      regenChanceOnKill: 0.07,
+      regenChanceOnBossDamage: 0.03,
+      tripleRegenChanceLowHp: 0.13,
+      fireRateChanceOnKill: 0.075,
+      shieldChanceOnKill: 0.055,
+      shieldChanceOnBossDamage: 0.025,
+
       fireRateDurationMs: 10000,
       fireRateCooldownMultiplier: 0.48,
       bossDamageSpawnCooldownMs: 1350,
@@ -598,30 +611,32 @@ const CONFIG = {
         floatSpeed: 0.0022,
         attackDelayMs: 1200,
         servoCountMin: 8,
-        servoCountMax: 12,
-        servoSpeed: 4.15,
-        servoHomingMs: 2300,
-        servoBulletLifeMs: 13000,
-        servoReturnAtMs: 7600,
+        servoCountMax: 14,
+        servoSpeed: 3.95,
+        servoHomingMs: 3600,
+        servoBulletLifeMs: 18000,
+        servoReturnAtMs: 12500,
         servoReturnDamage: 10,
         servoDamage: 1,
-        servoWaveCountMin: 18,
-        servoWaveCountMax: 28,
-        servoWaveSpeed: 3.85,
+        servoWaveCountMin: 28,
+        servoWaveCountMax: 42,
+        servoWaveSpeed: 3.95,
         servoWaveSize: 20,
         servoWaveTravelMs: 1900,
         servoWaveLifeMs: 7600,
         laserTelegraphMs: 850,
         laserActiveMs: 1450,
         laserDamage: 1,
-        laserThicknessX: 92,
-        laserThicknessTriple: 74,
-        aimLaserWindupMs: 1550,
-        aimLaserActiveMs: 2150,
-        aimLaserThickness: 112,
+        laserThicknessX: 100,
+        laserThicknessTriple: 82,
+        laserShake: 3.8,
+        aimLaserWindupMs: 1850,
+        aimLaserLockBeforeMs: 430,
+        aimLaserActiveMs: 1850,
+        aimLaserThickness: 116,
         aimLaserLength: 1800,
-        aimLaserFollow: 0.072,
-        aimLaserShake: 5,
+        aimLaserFollow: 0.115,
+        aimLaserShake: 6.5,
         cannonOrbSpeed: 5.2,
         cannonOrbDamage: 1,
         enragedHp: 200,
@@ -710,6 +725,8 @@ const CONFIG = {
     transition: "/sounds/game-transition.mp3",
 
     abilityReady: "/sounds/ability-ready.mp3",
+    powerUpPickup: "/sounds/powerup-pickup.mp3",
+    shieldBreak: "/sounds/shield-break.mp3",
     boostReady: "/sounds/boost-ready.mp3",
     dodgeReady: "/sounds/dodge-ready.mp3",
     strongReady: "/sounds/strong-ready.mp3",
@@ -754,6 +771,7 @@ const CONFIG = {
     powerRegen: "/game/powerups/regen.png",
     powerFireRate: "/game/powerups/fire-rate.png",
     powerTripleRegen: "/game/powerups/triple-regen.png",
+    powerShield: "/game/powerups/shield.png",
   },
 
   settings: {
@@ -1429,6 +1447,10 @@ export default function JogoPage() {
   const fireRateUntilRef = useRef(0);
   const lastBossPowerUpAtRef = useRef(0);
   const [activePowerUpsUi, setActivePowerUpsUi] = useState<ActivePowerUpUi[]>([]);
+  const shieldActiveRef = useRef(false);
+  const [, setShieldActive] = useState(false);
+  const powerGlowRef = useRef({ color: "", endAt: 0 });
+  const audioPoolRef = useRef(new Map<string, HTMLAudioElement[]>());
   const bossProjectileIdRef = useRef(0);
   const bossRef = useRef<BossState>({
     active: false,
@@ -1590,13 +1612,33 @@ export default function JogoPage() {
             ? CONFIG.settings.abilityVolume
             : CONFIG.settings.sfxVolume;
 
-    const audio = new Audio(src);
-    audio.volume = clamp(
+    const finalVolume = clamp(
       volume * CONFIG.settings.masterVolume * categoryVolume,
       0,
       1,
     );
-    audio.play().catch(() => {});
+
+    let pool = audioPoolRef.current.get(src);
+    if (!pool) {
+      pool = Array.from({ length: 6 }, () => {
+        const audio = new Audio(src);
+        audio.preload = "auto";
+        return audio;
+      });
+      audioPoolRef.current.set(src, pool);
+    }
+
+    const audio = pool.find((item) => item.paused || item.ended) ?? pool[0];
+    try {
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = finalVolume;
+      audio.play().catch(() => {});
+    } catch {
+      const fallback = new Audio(src);
+      fallback.volume = finalVolume;
+      fallback.play().catch(() => {});
+    }
   }
 
   function tocarSomHabilidadePronta(tipo: "boost" | "dodge" | "strong") {
@@ -1636,6 +1678,9 @@ export default function JogoPage() {
     powerUpsRef.current = [];
     fireRateUntilRef.current = 0;
     setActivePowerUpsUi([]);
+    shieldActiveRef.current = false;
+    setShieldActive(false);
+    powerGlowRef.current = { color: "", endAt: 0 };
     bossRef.current.active = false;
     bossRef.current.intro = false;
     bossRef.current.defeated = false;
@@ -1757,6 +1802,16 @@ export default function JogoPage() {
     const now = performance.now();
 
     if (now < player.invincibleUntil) {
+      return;
+    }
+
+    if (shieldActiveRef.current) {
+      shieldActiveRef.current = false;
+      setShieldActive(false);
+      player.invincibleUntil = now + 650;
+      tocarSom(CONFIG.sounds.shieldBreak || CONFIG.sounds.playerDamage, 0.55, "ability");
+      criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#a7f3d0", 22);
+      shakeRef.current = { intensity: 4, endAt: now + 140 };
       return;
     }
 
@@ -2470,6 +2525,15 @@ export default function JogoPage() {
       if (distance > radius) continue;
 
       const falloff = clamp(1 - distance / radius, 0.18, 1);
+      const damage = (strongCfg.shockwaveDamage ?? 0) * falloff;
+      if (damage > 0 && enemy.hp > 0) {
+        const applied = Math.min(damage, enemy.hp);
+        enemy.hp -= damage;
+        carregarBoostPorDano(applied);
+        adicionarPontuacao(Math.ceil(applied * (strongCfg.shockwaveDamageScore ?? 25)));
+        criarParticulasHit(cx, cy, "#fff1a8", 6);
+      }
+
       aplicarKnockbackInimigo(
         enemy,
         originX,
@@ -2833,22 +2897,36 @@ export default function JogoPage() {
   function powerUpIcon(kind: PowerUpKind) {
     if (kind === "regen") return CONFIG.uiImages.powerRegen;
     if (kind === "tripleRegen") return CONFIG.uiImages.powerTripleRegen;
+    if (kind === "shield") return CONFIG.uiImages.powerShield;
     return CONFIG.uiImages.powerFireRate;
   }
 
   function powerUpLabel(kind: PowerUpKind) {
     if (kind === "regen") return "+1 HP";
     if (kind === "tripleRegen") return "+3 HP";
+    if (kind === "shield") return "SHIELD";
     return "TIRO+";
+  }
+
+  function powerUpColor(kind: PowerUpKind) {
+    if (kind === "fireRate") return "#38bdf8";
+    if (kind === "shield") return "#a7f3d0";
+    if (kind === "tripleRegen") return "#ff4d6d";
+    return "#ff6b6b";
   }
 
   function spawnPowerUp(kind: PowerUpKind, x: number, y: number) {
     const cfg = CONFIG.gameplay.powerups;
+    const player = playerRef.current;
+    const minX = Math.max(CONFIG.canvasWidth * 0.42, player.x + player.w + 180);
+    const spawnX = clamp(x + rand(-32, 140), minX, CONFIG.canvasWidth - cfg.width - 70);
+    const spawnY = clamp(y + rand(-90, 90), 72, CONFIG.canvasHeight - cfg.height - 72);
+
     powerUpsRef.current.push({
       id: powerUpIdRef.current++,
       kind,
-      x,
-      y,
+      x: spawnX,
+      y: spawnY,
       w: cfg.width,
       h: cfg.height,
       vx: -cfg.speed,
@@ -2864,37 +2942,51 @@ export default function JogoPage() {
     const cfg = CONFIG.gameplay.powerups;
     const now = performance.now();
 
+    const rollPower = () => {
+      if (player.hp <= 2 && Math.random() < cfg.tripleRegenChanceLowHp) return "tripleRegen" as PowerUpKind;
+      if (player.hp < CONFIG.gameplay.player.maxHp && Math.random() < cfg.regenChanceOnKill) return "regen" as PowerUpKind;
+      if (!shieldActiveRef.current && Math.random() < cfg.shieldChanceOnKill) return "shield" as PowerUpKind;
+      if (Math.random() < cfg.fireRateChanceOnKill) return "fireRate" as PowerUpKind;
+      return null;
+    };
+
     if (bossDamage) {
       if (now - lastBossPowerUpAtRef.current < cfg.bossDamageSpawnCooldownMs) return;
-      if (Math.random() < cfg.regenChanceOnBossDamage && player.hp < CONFIG.gameplay.player.maxHp) {
+      const bossKind =
+        player.hp <= 2 && Math.random() < cfg.tripleRegenChanceLowHp
+          ? "tripleRegen"
+          : player.hp < CONFIG.gameplay.player.maxHp && Math.random() < cfg.regenChanceOnBossDamage
+            ? "regen"
+            : !shieldActiveRef.current && Math.random() < cfg.shieldChanceOnBossDamage
+              ? "shield"
+              : null;
+      if (bossKind) {
         lastBossPowerUpAtRef.current = now;
-        spawnPowerUp(player.hp <= 2 && Math.random() < cfg.tripleRegenChanceLowHp ? "tripleRegen" : "regen", x, y);
+        spawnPowerUp(bossKind, x, y);
       }
       return;
     }
 
-    if (player.hp <= 2 && Math.random() < cfg.tripleRegenChanceLowHp) {
-      spawnPowerUp("tripleRegen", x, y);
-      return;
-    }
-
-    if (player.hp < CONFIG.gameplay.player.maxHp && Math.random() < cfg.regenChanceOnKill) {
-      spawnPowerUp("regen", x, y);
-      return;
-    }
-
-    if (Math.random() < cfg.fireRateChanceOnKill) {
-      spawnPowerUp("fireRate", x, y);
-    }
+    const kind = rollPower();
+    if (kind) spawnPowerUp(kind, x, y);
   }
 
   function aplicarPowerUp(kind: PowerUpKind) {
     const player = playerRef.current;
+    const now = performance.now();
+    const glowColor = powerUpColor(kind);
+    powerGlowRef.current = {
+      color: glowColor,
+      endAt: now + CONFIG.gameplay.powerups.collectGlowMs,
+    };
+
+    tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.abilityReady, 0.5, "ability");
+    criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, glowColor, 18);
+
     if (kind === "regen") {
       player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 1);
       setPlayerHp(player.hp);
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
-      tocarSom(CONFIG.sounds.abilityReady, 0.35, "ability");
       return;
     }
 
@@ -2902,17 +2994,29 @@ export default function JogoPage() {
       player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 3);
       setPlayerHp(player.hp);
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
-      tocarSom(CONFIG.sounds.abilityReady, 0.42, "ability");
       return;
     }
 
-    fireRateUntilRef.current = performance.now() + CONFIG.gameplay.powerups.fireRateDurationMs;
-    tocarSom(CONFIG.sounds.abilityReady, 0.42, "ability");
+    if (kind === "shield") {
+      shieldActiveRef.current = true;
+      setShieldActive(true);
+      return;
+    }
+
+    fireRateUntilRef.current = now + CONFIG.gameplay.powerups.fireRateDurationMs;
   }
 
   function atualizarPowerUpUi() {
     const now = performance.now();
     const active: ActivePowerUpUi[] = [];
+
+    if (shieldActiveRef.current) {
+      active.push({
+        kind: "shield",
+        label: "SHIELD",
+        icon: CONFIG.uiImages.powerShield,
+      });
+    }
 
     if (fireRateUntilRef.current > now) {
       active.push({
@@ -3281,6 +3385,25 @@ export default function JogoPage() {
         ctx.restore();
       }
 
+      if (shieldActiveRef.current) {
+        const t = now * 0.006;
+        const rX = player.w * (0.68 + Math.sin(t) * 0.018);
+        const rY = player.h * (0.74 + Math.cos(t * 1.2) * 0.02);
+        ctx.save();
+        ctx.globalAlpha = 0.48 + Math.sin(t * 2) * 0.12;
+        ctx.strokeStyle = "#a7f3d0";
+        ctx.lineWidth = 4;
+        ctx.shadowColor = "#67e8f9";
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rX, rY, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.14;
+        ctx.fillStyle = "#67e8f9";
+        ctx.fill();
+        ctx.restore();
+      }
+
       ctx.restore();
     }
 
@@ -3446,6 +3569,7 @@ export default function JogoPage() {
         const topY = boss.y + 70 + i * spacing;
         const bottomY = boss.y + boss.h - 110 - i * spacing;
         const spawnX = boss.x + 52;
+        const waveDelay = Math.floor(i / 2) * 260;
 
         for (const y of [topY, bottomY]) {
           const dx = player.x + player.w / 2 - spawnX;
@@ -3461,10 +3585,11 @@ export default function JogoPage() {
             vx: (dx / len) * cfg.servoSpeed,
             vy: (dy / len) * cfg.servoSpeed,
             damage: cfg.servoDamage,
-            life: cfg.servoBulletLifeMs,
-            maxLife: cfg.servoBulletLifeMs,
-            homingUntil: performance.now() + cfg.servoHomingMs,
-            returnAt: performance.now() + cfg.servoReturnAtMs,
+            life: cfg.servoBulletLifeMs + waveDelay,
+            maxLife: cfg.servoBulletLifeMs + waveDelay,
+            activeAt: performance.now() + waveDelay,
+            homingUntil: performance.now() + waveDelay + cfg.servoHomingMs,
+            returnAt: performance.now() + waveDelay + cfg.servoReturnAtMs,
             speed: cfg.servoSpeed,
           });
         }
@@ -3624,6 +3749,8 @@ export default function JogoPage() {
         life: cfg.aimLaserWindupMs + cfg.aimLaserActiveMs,
         maxLife: cfg.aimLaserWindupMs + cfg.aimLaserActiveMs,
         angle: Math.atan2(dy, dx),
+        aimX: player.x + player.w / 2,
+        aimY: player.y + player.h / 2,
         activeAt: now + cfg.aimLaserWindupMs,
         locked: false,
       });
@@ -3712,7 +3839,9 @@ export default function JogoPage() {
       bossProjectilesRef.current = bossProjectilesRef.current
         .map((projectile) => {
           const updated = { ...projectile, life: projectile.life - delta };
-          if (updated.activeAt && now < updated.activeAt) return updated;
+          if (updated.activeAt && now < updated.activeAt && updated.kind !== "laser" && updated.kind !== "aimLaser") {
+            return updated;
+          }
 
           if (updated.kind === "servo") {
             const boss = bossRef.current;
@@ -3754,22 +3883,43 @@ export default function JogoPage() {
           }
 
           if (updated.kind === "aimLaser") {
-            const active = !updated.activeAt || now >= updated.activeAt;
-            if (!active) {
-              const dx = player.x + player.w / 2 - updated.x;
-              const dy = player.y + player.h / 2 - updated.y;
+            const activeAt = updated.activeAt ?? now;
+            const active = now >= activeAt;
+            const cfg = CONFIG.gameplay.boss.chocado;
+            const lockAt = activeAt - (cfg.aimLaserLockBeforeMs ?? 380);
+
+            if (!active && now < lockAt) {
+              const targetX = player.x + player.w / 2;
+              const targetY = player.y + player.h / 2;
+              const follow = cfg.aimLaserFollow;
+              updated.aimX = (updated.aimX ?? targetX) + (targetX - (updated.aimX ?? targetX)) * follow;
+              updated.aimY = (updated.aimY ?? targetY) + (targetY - (updated.aimY ?? targetY)) * follow;
+
+              const dx = updated.aimX - updated.x;
+              const dy = updated.aimY - updated.y;
               const target = Math.atan2(dy, dx);
               const current = updated.angle ?? target;
               const diff = Math.atan2(Math.sin(target - current), Math.cos(target - current));
-              updated.angle = current + diff * CONFIG.gameplay.boss.chocado.aimLaserFollow;
+              updated.angle = current + diff * Math.min(0.2, follow * 1.45);
+            } else if (!active) {
+              updated.locked = true;
             } else {
-              if (!updated.locked) updated.locked = true;
               if (CONFIG.settings.enableScreenShake) {
                 shakeRef.current = {
-                  intensity: CONFIG.gameplay.boss.chocado.aimLaserShake,
-                  endAt: performance.now() + 90,
+                  intensity: cfg.aimLaserShake,
+                  endAt: performance.now() + 95,
                 };
               }
+            }
+          }
+
+          if (updated.kind === "laser") {
+            const active = !updated.activeAt || now >= updated.activeAt;
+            if (active && CONFIG.settings.enableScreenShake) {
+              shakeRef.current = {
+                intensity: CONFIG.gameplay.boss.chocado.laserShake ?? 3.2,
+                endAt: performance.now() + 70,
+              };
             }
           }
 
@@ -3875,11 +4025,14 @@ export default function JogoPage() {
     ) {
       const now = performance.now();
       const active = !projectile.activeAt || now >= projectile.activeAt;
+      if (!active && projectile.kind !== "laser" && projectile.kind !== "aimLaser") {
+        return;
+      }
 
       if (projectile.kind === "laser" || projectile.kind === "aimLaser") {
         const isAim = projectile.kind === "aimLaser";
         const activeTime = Math.max(0, performance.now() - (projectile.activeAt ?? 0));
-        const pulse = isAim && active ? 1 + Math.sin(activeTime * 0.082) * 0.24 : 1;
+        const pulse = active ? 1 + Math.sin(activeTime * (isAim ? 0.11 : 0.095)) * (isAim ? 0.26 : 0.18) : 1;
         const drawHeight = projectile.h * pulse;
 
         ctx.save();
@@ -3888,37 +4041,44 @@ export default function JogoPage() {
         if (isAim) {
           ctx.translate(projectile.w / 2, 0);
         }
-        ctx.globalAlpha = active ? 0.92 : 0.26;
-        ctx.fillStyle = active ? (isAim ? "#ff214f" : "#ff3366") : "#fff1a8";
-        ctx.fillRect(
-          -projectile.w / 2,
-          -drawHeight / 2,
-          projectile.w,
-          drawHeight,
-        );
-        ctx.fillStyle = active ? "#fff7e6" : "#f8e7b0";
-        ctx.fillRect(-projectile.w / 2, -Math.max(5, drawHeight * 0.08), projectile.w, Math.max(10, drawHeight * 0.16));
+        ctx.globalAlpha = active ? 0.94 : isAim ? 0 : 0.24;
+        if (active || !isAim) {
+          ctx.fillStyle = active ? "#ffd166" : "#fff1a8";
+          ctx.fillRect(
+            -projectile.w / 2,
+            -drawHeight / 2,
+            projectile.w,
+            drawHeight,
+          );
+          ctx.fillStyle = active ? "#fff7e6" : "#f8e7b0";
+          ctx.fillRect(-projectile.w / 2, -Math.max(5, drawHeight * 0.08), projectile.w, Math.max(10, drawHeight * 0.16));
+        }
+
         if (!active && isAim) {
+          ctx.restore();
+          ctx.save();
           const t = performance.now() * 0.006;
-          ctx.strokeStyle = "#fff1a8";
+          const aimX = projectile.aimX ?? playerRef.current.x + playerRef.current.w / 2;
+          const aimY = projectile.aimY ?? playerRef.current.y + playerRef.current.h / 2;
+          ctx.globalAlpha = 0.92;
+          ctx.strokeStyle = "#ffd166";
+          ctx.shadowColor = "#ffd166";
+          ctx.shadowBlur = 15;
           ctx.lineWidth = 5;
-          ctx.setLineDash([18, 14]);
-          ctx.lineDashOffset = -t * 18;
-          ctx.strokeRect(-projectile.w / 2, -drawHeight / 2, projectile.w, drawHeight);
+          ctx.setLineDash([14, 10]);
+          ctx.lineDashOffset = -t * 24;
+          ctx.beginPath();
+          ctx.arc(aimX, aimY, 44 + Math.sin(t * 5) * 5, 0, Math.PI * 2);
+          ctx.stroke();
           ctx.setLineDash([]);
-          // Mira automática no estilo Death Egg: retículo na ponta do raio.
-          ctx.strokeStyle = "#ff3355";
-          ctx.lineWidth = 4;
-          const aimX = -projectile.w / 2 + 110;
           ctx.beginPath();
-          ctx.moveTo(aimX - 26, 0);
-          ctx.lineTo(aimX + 26, 0);
-          ctx.moveTo(aimX, -26);
-          ctx.lineTo(aimX, 26);
+          ctx.moveTo(aimX - 34, aimY);
+          ctx.lineTo(aimX + 34, aimY);
+          ctx.moveTo(aimX, aimY - 34);
+          ctx.lineTo(aimX, aimY + 34);
           ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(aimX, 0, 31 + Math.sin(t * 4) * 4, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.restore();
+          return;
         }
         ctx.restore();
         return;
@@ -4000,34 +4160,53 @@ export default function JogoPage() {
 
     function desenharPowerUps(ctx: CanvasRenderingContext2D) {
       ctx.save();
+      const cfg = CONFIG.gameplay.powerups;
+
       for (const power of powerUpsRef.current) {
         const key: SpriteKey =
           power.kind === "regen"
             ? "powerRegen"
             : power.kind === "tripleRegen"
               ? "powerTripleRegen"
-              : "powerFireRate";
+              : power.kind === "shield"
+                ? "powerShield"
+                : "powerFireRate";
         const img = assetsRef.current.get(key);
+        const color = powerUpColor(power.kind);
         const pulse = 1 + Math.sin(power.age * 0.009) * 0.08;
+
+        // Trail pixelada da cor do power-up.
+        for (let i = 0; i < cfg.trailAmount; i++) {
+          const t = (i + 1) / cfg.trailAmount;
+          ctx.globalAlpha = (1 - t) * 0.42;
+          ctx.fillStyle = color;
+          ctx.shadowColor = color;
+          ctx.shadowBlur = 8;
+          ctx.fillRect(
+            power.x + power.w / 2 + i * 9,
+            power.y + power.h / 2 + Math.sin(power.age * 0.006 - i) * 8 - 3,
+            Math.max(4, power.w * (0.18 - t * 0.08)),
+            Math.max(4, power.h * (0.18 - t * 0.08)),
+          );
+        }
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+
         ctx.save();
         ctx.translate(power.x + power.w / 2, power.y + power.h / 2);
         ctx.scale(pulse, pulse);
-        ctx.shadowColor = power.kind === "fireRate" ? "#ffb703" : "#5eea7a";
-        ctx.shadowBlur = 14;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 16;
         if (img) {
           ctx.drawImage(img, -power.w / 2, -power.h / 2, power.w, power.h);
         } else {
-          ctx.fillStyle =
-            power.kind === "fireRate"
-              ? "#ffb703"
-              : power.kind === "tripleRegen"
-                ? "#ff5d8f"
-                : "#53e86b";
+          ctx.fillStyle = color;
           ctx.fillRect(-power.w / 2, -power.h / 2, power.w, power.h);
           ctx.fillStyle = "#08030a";
           ctx.font = `18px ${CONFIG.fonts.ui}`;
           ctx.textAlign = "center";
-          ctx.fillText(power.kind === "fireRate" ? "F" : "+", 0, 7);
+          const label = power.kind === "fireRate" ? "F" : power.kind === "shield" ? "S" : "+";
+          ctx.fillText(label, 0, 7);
         }
         ctx.restore();
       }
@@ -4040,10 +4219,17 @@ export default function JogoPage() {
       const collected = new Set<number>();
 
       for (const power of powerUpsRef.current) {
-        if (rectsCollide(playerHitbox, power)) {
+        const pickupBox = {
+          x: power.x + power.w * 0.14,
+          y: power.y + power.h * 0.14,
+          w: power.w * 0.72,
+          h: power.h * 0.72,
+        };
+
+        if (rectsCollide(playerHitbox, pickupBox)) {
           collected.add(power.id);
           aplicarPowerUp(power.kind);
-          criarParticulasHit(power.x + power.w / 2, power.y + power.h / 2, "#fff1a8", 8);
+          criarParticulasHit(power.x + power.w / 2, power.y + power.h / 2, powerUpColor(power.kind), 12);
         }
       }
 
@@ -5352,20 +5538,6 @@ export default function JogoPage() {
                   ? "EM ANDAMENTO"
                   : "PREPARANDO"}
             </span>
-          </div>
-        )}
-
-      {(gameState === "playing" || gameState === "paused") &&
-        activePowerUpsUi.length > 0 && (
-          <div className="game-powerup-hud">
-            {activePowerUpsUi.map((power) => (
-              <div className="game-powerup-slot" key={power.kind}>
-                <img src={power.icon} alt={power.label} draggable={false} />
-                {power.remainingMs !== undefined && (
-                  <span>{Math.ceil(power.remainingMs / 1000)}S</span>
-                )}
-              </div>
-            ))}
           </div>
         )}
 
