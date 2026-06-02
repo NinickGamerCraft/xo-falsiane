@@ -4356,3 +4356,648 @@ body.reduce-motion *::after {
   image-rendering: crisp-edges !important;
   -ms-interpolation-mode: nearest-neighbor;
 }
+
+/* ======================================================
+   SPACE NEWS — PATCH FINAL: HUD, FLASHBANG, INVERT, PIXEL
+   Cole no final do globals.css, ou use o globals corrigido.
+   ====================================================== */
+
+.game-fullscreen-page {
+  overflow: hidden !important;
+  background: #050616 !important;
+}
+
+.game-fullscreen-canvas,
+.game-fullscreen-page canvas,
+.game-fullscreen-page img,
+.game-mobile-controls img,
+.game-life-hud img,
+.game-powerup-hud img,
+.game-active-powerups img {
+  image-rendering: pixelated !important;
+  image-rendering: crisp-edges !important;
+  -ms-interpolation-mode: nearest-neighbor !important;
+}
+
+/* HUD de vida: corações vermelhos primeiro, dourados à direita */
+.game-life-hud {
+  position: fixed !important;
+  top: 18px !important;
+  left: 22px !important;
+  z-index: 96 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  width: auto !important;
+  max-width: none !important;
+  padding: 8px 10px !important;
+  background: rgba(8, 3, 10, 0.68) !important;
+  border: 2px solid rgba(248, 231, 176, 0.88) !important;
+  box-shadow:
+    4px 4px 0 #08030a,
+    0 0 14px rgba(255, 225, 140, 0.18) !important;
+  pointer-events: none !important;
+  transform: none !important;
+}
+
+.game-life-hud img,
+.game-life-hud .game-heart-fallback {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
+  object-fit: contain !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  pointer-events: none !important;
+}
+
+.game-life-hud .game-normal-heart {
+  order: 1 !important;
+}
+
+.game-life-hud .game-golden-heart,
+.game-life-hud .game-heart-fallback {
+  order: 2 !important;
+  margin-left: 4px !important;
+  filter:
+    drop-shadow(0 0 5px rgba(255, 209, 102, 0.95))
+    drop-shadow(0 0 14px rgba(255, 209, 102, 0.55)) !important;
+}
+
+.game-life-hud .game-heart-fallback {
+  color: #ffd166 !important;
+  font-size: 28px !important;
+  line-height: 1 !important;
+  text-shadow:
+    2px 2px 0 #08030a,
+    0 0 10px rgba(255, 209, 102, 0.75) !important;
+}
+
+/* Power-ups bons e ruins aparecem na mesma barra de status perto da vida */
+.game-powerup-hud,
+.game-active-powerups {
+  position: fixed !important;
+  z-index: 95 !important;
+  left: 24px !important;
+  top: 82px !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  pointer-events: none !important;
+  transform: none !important;
+}
+
+.game-powerup-slot,
+.game-active-powerup {
+  position: relative !important;
+  width: 58px !important;
+  height: 58px !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 3px solid #f8e7b0 !important;
+  background: rgba(8, 3, 10, 0.78) !important;
+  box-shadow:
+    5px 5px 0 rgba(0, 0, 0, 0.72),
+    0 0 16px rgba(255, 225, 140, 0.24) !important;
+  overflow: visible !important;
+}
+
+.game-powerup-slot img,
+.game-active-powerup img {
+  width: 42px !important;
+  height: 42px !important;
+  object-fit: contain !important;
+}
+
+.game-powerup-slot span,
+.game-active-powerup span {
+  position: absolute !important;
+  bottom: -18px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  font-family: var(--game-ui-font), monospace !important;
+  font-size: 18px !important;
+  font-weight: 1000 !important;
+  color: #fff7e6 !important;
+  white-space: nowrap !important;
+  text-shadow:
+    2px 2px 0 #08030a,
+    0 0 8px rgba(255, 225, 140, 0.48) !important;
+}
+
+.game-powerup-slot.bad,
+.game-active-powerup.bad,
+.game-powerup-slot.flashbang,
+.game-powerup-slot.invert,
+.game-powerup-slot.slow {
+  border-color: #ff6b6b !important;
+  box-shadow:
+    5px 5px 0 rgba(0, 0, 0, 0.72),
+    0 0 18px rgba(255, 85, 85, 0.46) !important;
+}
+
+/* Barra de habilidades mais baixa para não cobrir power-ups */
+.game-ability-hud {
+  top: 166px !important;
+  left: 26px !important;
+  z-index: 83 !important;
+}
+
+/* Flashbang estilo CS: primeiro branco suave, depois tela marcada/blur */
+.game-flash-white {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999990 !important;
+  pointer-events: none !important;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.98) 42%, rgba(245, 246, 255, 0.88) 100%) !important;
+  mix-blend-mode: screen !important;
+  animation: spaceNewsFlashWhite 2.2s cubic-bezier(0.18, 0.82, 0.22, 1) both !important;
+  will-change: opacity, filter;
+}
+
+.game-flash-afterimage {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999980 !important;
+  pointer-events: none !important;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.22), transparent 42%),
+    linear-gradient(90deg, rgba(255,255,255,0.07), rgba(180,220,255,0.05), rgba(255,255,255,0.07)) !important;
+  backdrop-filter: blur(18px) contrast(1.45) brightness(1.38) saturate(0.72) !important;
+  -webkit-backdrop-filter: blur(18px) contrast(1.45) brightness(1.38) saturate(0.72) !important;
+  mix-blend-mode: screen !important;
+  animation: spaceNewsCs2Afterimage 5.6s cubic-bezier(0.16, 0.84, 0.2, 1) both !important;
+  will-change: opacity, filter, transform;
+}
+
+.game-flash-afterimage::before,
+.game-flash-afterimage::after {
+  content: "";
+  position: absolute;
+  inset: -4%;
+  pointer-events: none;
+}
+
+.game-flash-afterimage::before {
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.10) 0 1px, transparent 1px 5px),
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.20), transparent 52%);
+  opacity: 0.48;
+  filter: blur(1.5px);
+  animation: spaceNewsFlashScanFade 5.6s ease-out both;
+}
+
+.game-flash-afterimage::after {
+  border: 12px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 0 90px rgba(255,255,255,0.28),
+    0 0 90px rgba(255,255,255,0.20);
+  opacity: 0.62;
+  filter: blur(8px);
+  animation: spaceNewsFlashGhostFade 5.6s ease-out both;
+}
+
+@keyframes spaceNewsFlashWhite {
+  0% {
+    opacity: 0;
+    filter: brightness(1) blur(0px);
+  }
+  14% {
+    opacity: 1;
+    filter: brightness(3.8) blur(0px);
+  }
+  42% {
+    opacity: 0.98;
+    filter: brightness(3.2) blur(1px);
+  }
+  100% {
+    opacity: 0;
+    filter: brightness(1.15) blur(5px);
+  }
+}
+
+@keyframes spaceNewsCs2Afterimage {
+  0% {
+    opacity: 0;
+    filter: brightness(1.2) blur(0px);
+    transform: scale(1);
+  }
+  10% {
+    opacity: 0.92;
+    filter: brightness(2.1) blur(12px);
+    transform: scale(1.006);
+  }
+  36% {
+    opacity: 0.74;
+    filter: brightness(1.72) blur(18px);
+    transform: scale(1.01);
+  }
+  72% {
+    opacity: 0.32;
+    filter: brightness(1.25) blur(10px);
+    transform: scale(1.004);
+  }
+  100% {
+    opacity: 0;
+    filter: brightness(1) blur(0px);
+    transform: scale(1);
+  }
+}
+
+@keyframes spaceNewsFlashScanFade {
+  0%, 20% { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+
+@keyframes spaceNewsFlashGhostFade {
+  0%, 18% { opacity: 0.64; }
+  100% { opacity: 0; }
+}
+
+.no-flashing .game-flash-white {
+  animation-duration: 1.2s !important;
+}
+
+.no-flashing .game-flash-afterimage {
+  backdrop-filter: blur(8px) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(8px) brightness(1.08) !important;
+}
+
+/* Inverter tela = virar a tela, não inverter cores */
+.game-screen-rotated .game-fullscreen-canvas,
+.game-screen-rotated .game-life-hud,
+.game-screen-rotated .game-powerup-hud,
+.game-screen-rotated .game-active-powerups,
+.game-screen-rotated .game-ability-hud,
+.game-screen-rotated .game-wave-hud,
+.game-screen-rotated .game-score-hud,
+.game-screen-rotated .game-boss-hp-ui,
+.game-screen-rotated .game-mobile-controls {
+  transform: rotate(180deg) !important;
+  transform-origin: center center !important;
+}
+
+.game-screen-rotated .game-life-hud {
+  transform-origin: top left !important;
+}
+
+.game-screen-rotated .game-wave-hud,
+.game-screen-rotated .game-score-hud {
+  transform-origin: top right !important;
+}
+
+@media (pointer: coarse), (max-width: 900px) {
+  .game-life-hud {
+    top: 12px !important;
+    left: 14px !important;
+    gap: 5px !important;
+    padding: 6px 8px !important;
+  }
+
+  .game-life-hud img,
+  .game-life-hud .game-heart-fallback {
+    width: 24px !important;
+    height: 24px !important;
+    min-width: 24px !important;
+    font-size: 20px !important;
+  }
+
+  .game-powerup-hud,
+  .game-active-powerups {
+    top: 54px !important;
+    left: 14px !important;
+    gap: 7px !important;
+  }
+
+  .game-powerup-slot,
+  .game-active-powerup {
+    width: 42px !important;
+    height: 42px !important;
+  }
+
+  .game-powerup-slot img,
+  .game-active-powerup img {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .game-powerup-slot span,
+  .game-active-powerup span {
+    font-size: 12px !important;
+    bottom: -13px !important;
+  }
+
+  .game-ability-hud {
+    top: 102px !important;
+    left: 14px !important;
+  }
+}
+
+/* ==========================================================
+   PATCH DEFINITIVO — FLASHBANG / INVERT / HOMING FALLBACK
+   Este bloco deve ficar NO FINAL do globals.css.
+   ========================================================== */
+
+.game-flash-white {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999990 !important;
+  pointer-events: none !important;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.98) 38%, rgba(242, 247, 255, 0.92) 74%, rgba(220, 235, 255, 0.82) 100%) !important;
+  mix-blend-mode: screen !important;
+  filter: brightness(1.28) saturate(0.8) !important;
+  will-change: opacity, filter;
+  animation: none !important;
+}
+
+.game-flash-afterimage {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999980 !important;
+  pointer-events: none !important;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.34), rgba(230, 240, 255, 0.12) 34%, rgba(255, 255, 255, 0.04) 62%, transparent 100%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.09) 0 1px, transparent 1px 4px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(180, 215, 255, 0.06), rgba(255, 255, 255, 0.05)) !important;
+  mix-blend-mode: screen !important;
+  box-shadow:
+    inset 0 0 120px rgba(255, 255, 255, 0.28),
+    inset 0 0 260px rgba(170, 210, 255, 0.18) !important;
+  will-change: opacity, filter, backdrop-filter;
+  animation: none !important;
+}
+
+.game-flash-afterimage::before,
+.game-flash-afterimage::after {
+  content: "";
+  position: absolute;
+  inset: -5%;
+  pointer-events: none;
+}
+
+.game-flash-afterimage::before {
+  opacity: 0.55;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.42), transparent 43%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 7px) !important;
+  filter: blur(2px) !important;
+}
+
+.game-flash-afterimage::after {
+  opacity: 0.5;
+  border: 14px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 0 80px rgba(255, 255, 255, 0.24),
+    0 0 100px rgba(255, 255, 255, 0.18) !important;
+  filter: blur(9px) !important;
+}
+
+.no-flashing .game-flash-white {
+  filter: brightness(1.04) !important;
+}
+
+.no-flashing .game-flash-afterimage {
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+}
+
+/* Inverter tela = girar o jogo inteiro, não inverter cores. */
+.game-fullscreen-page.game-screen-rotated {
+  transform: rotate(180deg) !important;
+  transform-origin: center center !important;
+  transition: transform 0.28s ease !important;
+}
+
+/* Evita rotação dupla dos patches antigos. */
+.game-fullscreen-page.game-screen-rotated .game-fullscreen-canvas,
+.game-fullscreen-page.game-screen-rotated .game-life-hud,
+.game-fullscreen-page.game-screen-rotated .game-powerup-hud,
+.game-fullscreen-page.game-screen-rotated .game-active-powerups,
+.game-fullscreen-page.game-screen-rotated .game-ability-hud,
+.game-fullscreen-page.game-screen-rotated .game-wave-hud,
+.game-fullscreen-page.game-screen-rotated .game-score-hud,
+.game-fullscreen-page.game-screen-rotated .game-boss-hp-ui,
+.game-fullscreen-page.game-screen-rotated .game-mobile-controls,
+.game-fullscreen-page.game-screen-rotated .game-screen-fade,
+.game-fullscreen-page.game-screen-rotated .game-flash-white,
+.game-fullscreen-page.game-screen-rotated .game-flash-afterimage {
+  transform: none !important;
+}
+
+/* Corações dourados ficam depois dos vermelhos, sempre. */
+.game-life-hud {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.game-life-hud .game-normal-heart {
+  order: 1 !important;
+}
+
+.game-life-hud .game-golden-heart,
+.game-life-hud .game-heart-fallback {
+  order: 2 !important;
+  margin-left: 4px !important;
+}
+
+.game-life-hud img {
+  image-rendering: pixelated !important;
+}
+
+/* Barra de status dos efeitos ruins. */
+.game-powerup-slot.bad,
+.game-active-powerup.bad,
+.game-powerup-slot.flashbang,
+.game-active-powerup.flashbang,
+.game-powerup-slot.invert,
+.game-active-powerup.invert,
+.game-powerup-slot.slow,
+.game-active-powerup.slow {
+  border-color: #ff6b6b !important;
+  box-shadow:
+    5px 5px 0 rgba(0, 0, 0, 0.72),
+    0 0 18px rgba(255, 85, 85, 0.5) !important;
+}
+
+/* ==========================================================
+   SPACE NEWS — PATCH FINAL FLASHBANG / INVERT / GAME OVER
+   Este bloco deve ficar NO FINAL do globals.css.
+   ========================================================== */
+
+.game-flash-white {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999990 !important;
+  pointer-events: none !important;
+  opacity: 0;
+  background: #ffffff !important;
+  mix-blend-mode: normal !important;
+  filter: brightness(1.18) saturate(0.92) !important;
+  will-change: opacity;
+  animation: none !important;
+}
+
+.game-flash-afterimage {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 999980 !important;
+  pointer-events: none !important;
+  opacity: 0;
+  overflow: hidden !important;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.36), rgba(235, 242, 255, 0.16) 32%, rgba(255, 255, 255, 0.06) 64%, transparent 100%),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 5px) !important;
+  mix-blend-mode: screen !important;
+  box-shadow:
+    inset 0 0 160px rgba(255, 255, 255, 0.34),
+    inset 0 0 320px rgba(190, 220, 255, 0.25) !important;
+  will-change: opacity, filter, backdrop-filter;
+  animation: none !important;
+}
+
+.game-flash-afterimage img {
+  position: absolute !important;
+  inset: -6% !important;
+  width: 112% !important;
+  height: 112% !important;
+  object-fit: cover !important;
+  image-rendering: auto !important;
+  opacity: 0.72 !important;
+  filter:
+    blur(10px)
+    brightness(1.95)
+    contrast(1.24)
+    saturate(0.62) !important;
+  mix-blend-mode: screen !important;
+  transform: scale(1.025) translate3d(0, 0, 0) !important;
+}
+
+.game-flash-afterimage::before,
+.game-flash-afterimage::after {
+  content: "";
+  position: absolute;
+  inset: -6%;
+  pointer-events: none;
+}
+
+.game-flash-afterimage::before {
+  opacity: 0.58;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.42), transparent 42%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 8px) !important;
+  filter: blur(3px) !important;
+}
+
+.game-flash-afterimage::after {
+  opacity: 0.55;
+  border: 16px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 0 95px rgba(255, 255, 255, 0.28),
+    0 0 110px rgba(255, 255, 255, 0.22) !important;
+  filter: blur(10px) !important;
+}
+
+.no-flashing .game-flash-white {
+  filter: brightness(1.04) !important;
+}
+
+.no-flashing .game-flash-afterimage {
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+}
+
+.no-flashing .game-flash-afterimage img {
+  opacity: 0.2 !important;
+  filter: blur(4px) brightness(1.1) !important;
+}
+
+/* Inverter tela = girar tudo de verdade, sem inverter cores. */
+.game-fullscreen-page.game-screen-rotated {
+  transform: rotate(180deg) !important;
+  transform-origin: center center !important;
+  transition: transform 0.28s ease !important;
+}
+
+.game-fullscreen-page.game-screen-rotated .game-fullscreen-canvas,
+.game-fullscreen-page.game-screen-rotated .game-life-hud,
+.game-fullscreen-page.game-screen-rotated .game-powerup-hud,
+.game-fullscreen-page.game-screen-rotated .game-active-powerups,
+.game-fullscreen-page.game-screen-rotated .game-ability-hud,
+.game-fullscreen-page.game-screen-rotated .game-wave-hud,
+.game-fullscreen-page.game-screen-rotated .game-score-hud,
+.game-fullscreen-page.game-screen-rotated .game-boss-hp-ui,
+.game-fullscreen-page.game-screen-rotated .game-mobile-controls,
+.game-fullscreen-page.game-screen-rotated .game-screen-fade,
+.game-fullscreen-page.game-screen-rotated .game-flash-white,
+.game-fullscreen-page.game-screen-rotated .game-flash-afterimage {
+  transform: none !important;
+}
+
+.game-over-wave {
+  display: block;
+  margin: 8px auto 20px;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+  color: #ffe18c;
+  font-size: clamp(18px, 2vw, 28px);
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+  text-shadow:
+    3px 3px 0 #08030a,
+    0 0 12px rgba(255, 225, 140, 0.36);
+}
+
+.game-over-card p {
+  max-width: 780px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.15;
+}
+
+/* Corações dourados ficam depois dos vermelhos. */
+.game-life-hud {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.game-life-hud .game-normal-heart {
+  order: 1 !important;
+}
+
+.game-life-hud .game-golden-heart,
+.game-life-hud .game-heart-fallback {
+  order: 2 !important;
+  margin-left: 4px !important;
+}
+
+.game-life-hud img {
+  image-rendering: pixelated !important;
+}
+
+/* ===== PATCH FINAL: game over legível e sem bug de acentuação ===== */
+.game-over-card p {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: clamp(15px, 1.45vw, 22px) !important;
+  line-height: 1.28 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.game-over-wave {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: clamp(13px, 1.35vw, 19px) !important;
+  letter-spacing: 0.08em !important;
+}
