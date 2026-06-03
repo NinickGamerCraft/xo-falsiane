@@ -5001,3 +5001,269 @@ body.reduce-motion *::after {
   font-size: clamp(13px, 1.35vw, 19px) !important;
   letter-spacing: 0.08em !important;
 }
+
+/* ===== FIX: HUD de vida mobile/desktop refletindo HP real ===== */
+.game-life-hud {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+}
+
+.game-life-hud .game-normal-heart,
+.game-life-hud .game-golden-heart {
+  display: block !important;
+  flex: 0 0 auto !important;
+  image-rendering: pixelated !important;
+  transition:
+    opacity 0.16s ease,
+    filter 0.16s ease,
+    transform 0.16s ease !important;
+}
+
+.game-life-hud .game-normal-heart.is-full {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: scale(1) !important;
+}
+
+.game-life-hud .game-normal-heart.is-empty {
+  opacity: 0.28 !important;
+  filter: grayscale(1) brightness(0.45) saturate(0.4) !important;
+  transform: scale(0.92) !important;
+}
+
+.game-life-hud .game-golden-heart {
+  margin-left: 6px !important;
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 8px rgba(255, 209, 102, 0.7)) !important;
+}
+
+@media (pointer: coarse) and (max-width: 1200px) {
+  .game-life-hud .game-normal-heart.is-empty {
+    opacity: 0.24 !important;
+    filter: grayscale(1) brightness(0.38) saturate(0.25) !important;
+  }
+}
+
+
+/* ===== SPACE NEWS PATCH: backgrounds, canvas state and panorama ===== */
+.game-fullscreen-canvas {
+  background: transparent !important;
+}
+
+.game-state-title .game-fullscreen-canvas,
+.game-state-mainMenu .game-fullscreen-canvas,
+.game-state-settings .game-fullscreen-canvas,
+.game-state-storyCutscene .game-fullscreen-canvas,
+.game-state-tutorialChoice .game-fullscreen-canvas,
+.game-state-tutorial .game-fullscreen-canvas {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+.game-state-playing .game-fullscreen-canvas,
+.game-state-paused .game-fullscreen-canvas,
+.game-state-gameOverCutscene .game-fullscreen-canvas,
+.game-state-gameOver .game-fullscreen-canvas {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.game-title-screen {
+  background:
+    linear-gradient(rgba(8, 3, 10, 0.08), rgba(8, 3, 10, 0.28)),
+    var(--game-title-bg) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+.game-main-menu-screen,
+.game-state-tutorialChoice .game-main-menu-screen {
+  background:
+    linear-gradient(90deg, rgba(20, 8, 25, 0.58), rgba(20, 8, 25, 0.05)),
+    var(--game-menu-bg) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+.game-state-settings .game-screen,
+.game-state-tutorial .game-screen,
+.game-state-storyCutscene .game-screen {
+  background:
+    linear-gradient(rgba(8, 3, 10, 0.56), rgba(8, 3, 10, 0.82)),
+    var(--game-menu-bg) !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+}
+
+@media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
+  .game-state-title .game-fullscreen-canvas,
+  .game-state-mainMenu .game-fullscreen-canvas,
+  .game-state-settings .game-fullscreen-canvas,
+  .game-state-storyCutscene .game-fullscreen-canvas,
+  .game-state-tutorialChoice .game-fullscreen-canvas,
+  .game-state-tutorial .game-fullscreen-canvas {
+    opacity: 0 !important;
+    visibility: hidden !important;
+  }
+}
+
+
+/* ===== CORREÇÃO: TITLE/MENU BG + CANVAS OCULTO FORA DO GAMEPLAY ===== */
+.game-fullscreen-canvas.is-menu-hidden {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.game-fullscreen-canvas.is-gameplay-visible {
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.game-state-title .game-title-screen {
+  background:
+    linear-gradient(rgba(14, 8, 22, 0.04), rgba(14, 8, 22, 0.12)),
+    var(--game-title-bg) !important;
+  background-size: contain !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-color: #090512 !important;
+}
+
+.game-state-mainMenu .game-main-menu-screen,
+.game-state-settings .game-main-menu-screen,
+.game-state-tutorialChoice .game-main-menu-screen {
+  background:
+    linear-gradient(90deg, rgba(20, 8, 25, 0.36), rgba(20, 8, 25, 0.06)),
+    var(--game-menu-bg) !important;
+  background-size: contain !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-color: #090512 !important;
+}
+
+.game-title-bg-transition {
+  background:
+    linear-gradient(rgba(14, 8, 22, 0.03), rgba(14, 8, 22, 0.14)),
+    var(--game-menu-bg) !important;
+  background-size: contain !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-color: #090512 !important;
+}
+
+/* Mobile/stage: aplica o mesmo comportamento dentro do 16:9 */
+@media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
+  .game-state-title .game-title-screen,
+  .game-state-mainMenu .game-main-menu-screen,
+  .game-state-settings .game-main-menu-screen,
+  .game-state-tutorialChoice .game-main-menu-screen,
+  .game-title-bg-transition {
+    background-size: contain !important;
+    background-position: center center !important;
+    background-repeat: no-repeat !important;
+  }
+}
+
+
+/* ===== FIX DEFINITIVO: TITLE/MENU BACKGROUND COMO IMAGEM REAL ===== */
+.game-bg-image {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  object-fit: cover !important;
+  object-position: center center !important;
+  image-rendering: pixelated;
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-drag: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.game-bg-image-title {
+  object-fit: cover !important;
+  background: #050616 !important;
+}
+
+.game-bg-image-menu {
+  object-fit: cover !important;
+  background: #050616 !important;
+}
+
+/* Se quiser ver a imagem inteira 1422x1600 sem cortes, troque cover por contain acima. */
+.game-state-title .game-title-screen,
+.game-state-mainMenu .game-main-menu-screen,
+.game-state-settings .game-screen,
+.game-state-storyCutscene .game-screen,
+.game-state-tutorialChoice .game-main-menu-screen,
+.game-state-tutorial .game-screen {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+.game-state-title .game-title-screen,
+.game-state-mainMenu .game-main-menu-screen,
+.game-state-settings .game-screen,
+.game-state-storyCutscene .game-screen,
+.game-state-tutorialChoice .game-main-menu-screen,
+.game-state-tutorial .game-screen,
+.game-retro-panel,
+.game-menu-logo,
+.game-title-content,
+.game-cutscene-frame,
+.game-tutorial-card {
+  position: relative;
+}
+
+.game-state-title .game-title-screen,
+.game-state-mainMenu .game-main-menu-screen,
+.game-state-settings .game-screen,
+.game-state-storyCutscene .game-screen,
+.game-state-tutorialChoice .game-main-menu-screen,
+.game-state-tutorial .game-screen {
+  z-index: 50 !important;
+}
+
+.game-fullscreen-canvas.is-menu-hidden,
+.game-state-title .game-fullscreen-canvas,
+.game-state-mainMenu .game-fullscreen-canvas,
+.game-state-settings .game-fullscreen-canvas,
+.game-state-storyCutscene .game-fullscreen-canvas,
+.game-state-tutorialChoice .game-fullscreen-canvas,
+.game-state-tutorial .game-fullscreen-canvas {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.game-fullscreen-canvas.is-gameplay-visible,
+.game-state-playing .game-fullscreen-canvas,
+.game-state-paused .game-fullscreen-canvas,
+.game-state-gameOverCutscene .game-fullscreen-canvas,
+.game-state-gameOver .game-fullscreen-canvas {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
+@media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
+  .game-bg-image {
+    left: var(--stage-left) !important;
+    top: var(--stage-top) !important;
+    width: var(--stage-w) !important;
+    height: var(--stage-h) !important;
+  }
+}
+
+
+/* PATCH FINAL: remove logo HTML duplicada do menu; a logo fica apenas na imagem menu-bg.png */
+.game-menu-logo {
+  display: none !important;
+}

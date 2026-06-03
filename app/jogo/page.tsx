@@ -46,6 +46,7 @@ type SpriteKey =
   | "bossServo"
   | "enemyRed"
   | "enemyBlack"
+  | "enemyBlackWindup"
   | "enemyPurple"
   | "enemyAlien"
   | "enemyBullet"
@@ -372,9 +373,17 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
   },
 
   chocado: {
-    src: "/game/bosses/chocado-sheet.png",
-    frameWidth: 128,
-    frameHeight: 128,
+    // Boss em sprites separados, não spritesheet.
+    // Coloque estes arquivos em public/game/bosses/.
+    src: "/game/bosses/chocado-1.png",
+    frameSrcs: [
+      "/game/bosses/chocado-1.png",
+      "/game/bosses/chocado-2.png",
+      "/game/bosses/chocado-3.png",
+      "/game/bosses/chocado-4.png",
+      "/game/bosses/chocado-5.png",
+      "/game/bosses/chocado-6.png",
+    ],
     frames: 6,
     fps: 7,
   },
@@ -401,7 +410,7 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
   },
 
   enemyBlack: {
-    // Inimigo preto sem spritesheet: 1 idle + 4 frames separados.
+    // Inimigo preto em resolução visual 256x129, com animação de movimento por arquivos separados.
     src: "/game/enemies/black-idle.png",
     frameSrcs: [
       "/game/enemies/black-move-1.png",
@@ -411,6 +420,17 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     ],
     frames: 4,
     fps: 10,
+  },
+
+  enemyBlackWindup: {
+    // Dois frames separados para o windup/piscada antes do dash.
+    src: "/game/enemies/black-windup-1.png",
+    frameSrcs: [
+      "/game/enemies/black-windup-1.png",
+      "/game/enemies/black-windup-2.png",
+    ],
+    frames: 2,
+    fps: 8,
   },
 
   enemyPurple: {
@@ -743,8 +763,9 @@ const CONFIG = {
       },
 
       black: {
-        width: 72,
-        height: 72,
+        // Tamanho visual final do inimigo preto dentro da escala do jogo.
+        width: 130,
+        height: 100,
         hp: 5,
         appearX: 1040,
         windUpMs: 820,
@@ -1698,6 +1719,7 @@ export default function JogoPage() {
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
   const bossMusicAudioRef = useRef<HTMLAudioElement | null>(null);
   const pauseStartedAtRef = useRef(0);
+  const backgroundOffsetRef = useRef(0);
   const abilityReadyRef = useRef({
     boost: false,
     dodge: true,
@@ -4046,11 +4068,46 @@ export default function JogoPage() {
     function desenharFundo(
       ctx: CanvasRenderingContext2D,
       canvas: HTMLCanvasElement,
+      delta: number,
     ) {
+      const estadoAtual = gameStateRef.current;
+      const deveDesenharGameplayBg =
+        estadoAtual === "playing" ||
+        estadoAtual === "paused" ||
+        estadoAtual === "gameOverCutscene" ||
+        estadoAtual === "gameOver";
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!deveDesenharGameplayBg) {
+        return;
+      }
+
       const bg = assetsRef.current.get("background");
 
       if (CONFIG.useSprites && bg) {
-        ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+
+        // O arquivo space.png é um panorama 1028x256.
+        // Ele é escalado pela altura do canvas e repetido em loop horizontal.
+        const sourceW = 1028;
+        const sourceH = 256;
+        const scale = canvas.height / sourceH;
+        const tileW = sourceW * scale;
+        const tileH = canvas.height;
+        const speed = 34; // px por segundo, em coordenada de tela.
+        if (gameStateRef.current === "playing") {
+          backgroundOffsetRef.current =
+            (backgroundOffsetRef.current + (speed * delta) / 1000) % tileW;
+        }
+        const offset = -backgroundOffsetRef.current;
+
+        for (let x = offset - tileW; x < canvas.width + tileW; x += tileW) {
+          ctx.drawImage(bg, Math.round(x), 0, Math.ceil(tileW), tileH);
+        }
+
+        ctx.restore();
         return;
       }
 
@@ -4290,7 +4347,9 @@ export default function JogoPage() {
       const key: SpriteKey =
         enemy.kind === "asteroid" && enemy.cracked
           ? "asteroidCracked"
-          : getEnemySpriteKey(enemy.kind);
+          : enemy.kind === "black" && enemy.age < enemy.windUpMs
+            ? "enemyBlackWindup"
+            : getEnemySpriteKey(enemy.kind);
 
       const config = ASSETS[key];
       let img = assetsRef.current.get(key);
@@ -4825,7 +4884,13 @@ export default function JogoPage() {
       if (!boss.active) return;
 
       const cfg = CONFIG.gameplay.boss.chocado;
-      const img = assetsRef.current.get("chocado");
+      const bossFrameIndex = Math.floor(
+        (boss.age / Math.max(1, 1000 / (ASSETS.chocado.fps ?? 7))) %
+          Math.max(1, ASSETS.chocado.frames ?? 1),
+      );
+      const img =
+        assetsRef.current.getFrame("chocado", bossFrameIndex) ??
+        assetsRef.current.get("chocado");
       const progress = boss.intro
         ? clamp(
             (performance.now() - boss.introStartedAt) / cfg.introBarMs,
@@ -6303,7 +6368,7 @@ export default function JogoPage() {
         renderCtx.translate(x, y);
       }
 
-      desenharFundo(renderCtx, renderCanvas);
+      desenharFundo(renderCtx, renderCanvas, delta);
 
       for (const shot of shotsRef.current) desenharTiro(renderCtx, shot);
       for (const enemy of enemiesRef.current) desenharEnemy(renderCtx, enemy);
@@ -6575,11 +6640,45 @@ export default function JogoPage() {
 
   return (
     <main
-      className={`game-fullscreen-page ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
+      className={`game-fullscreen-page game-state-${gameState} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
       style={gameStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <canvas ref={canvasRef} className="game-fullscreen-canvas" />
+      <canvas
+        ref={canvasRef}
+        className={`game-fullscreen-canvas ${
+          gameState === "playing" ||
+          gameState === "paused" ||
+          gameState === "gameOverCutscene" ||
+          gameState === "gameOver"
+            ? "is-gameplay-visible"
+            : "is-menu-hidden"
+        }`}
+      />
+
+      {gameState === "title" && (
+        <img
+          className="game-bg-image game-bg-image-title"
+          src={assetUrl(ASSETS.titleBackground.src)}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+        />
+      )}
+
+      {(gameState === "mainMenu" ||
+        gameState === "settings" ||
+        gameState === "tutorialChoice" ||
+        gameState === "tutorial" ||
+        gameState === "storyCutscene") && (
+        <img
+          className="game-bg-image game-bg-image-menu"
+          src={assetUrl(ASSETS.menuBackground.src)}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+        />
+      )}
 
       <div
         className={`game-title-bg-transition ${titleLeaving ? "show" : ""}`}
@@ -6617,25 +6716,35 @@ export default function JogoPage() {
 
       {(gameState === "playing" || gameState === "paused") && (
         <div className="game-life-hud">
-          {normalLifeSlots.map((_, index) => (
-            <img
-              key={`normal-${index}`}
-              className="game-normal-heart"
-              src={assetUrl(index < playerHp ? CONFIG.uiImages.lifeFull : CONFIG.uiImages.lifeEmpty)}
-              alt={index < playerHp ? "vida" : "vida perdida"}
-              draggable={false}
-              onContextMenu={(event) => event.preventDefault()}
-              onError={(event) => {
-                const img = event.currentTarget;
-                const fallback = index < playerHp
-                  ? CONFIG.uiImages.lifeFullFallback
-                  : CONFIG.uiImages.lifeEmptyFallback;
+          {normalLifeSlots.map((_, index) => {
+            const heartIsFull = index < playerHp;
+            const heartSrc = heartIsFull
+              ? CONFIG.uiImages.lifeFull
+              : CONFIG.uiImages.lifeEmpty;
+            const heartFallback = heartIsFull
+              ? CONFIG.uiImages.lifeFullFallback
+              : CONFIG.uiImages.lifeEmptyFallback;
 
-                if (img.src.endsWith(fallback)) return;
-                img.src = fallback;
-              }}
-            />
-          ))}
+            return (
+              <img
+                key={`normal-${index}-${heartIsFull ? "full" : "empty"}`}
+                className={`game-normal-heart ${heartIsFull ? "is-full" : "is-empty"}`}
+                data-heart-state={heartIsFull ? "full" : "empty"}
+                src={assetUrl(heartSrc)}
+                alt={heartIsFull ? "vida" : "vida perdida"}
+                draggable={false}
+                onContextMenu={(event) => event.preventDefault()}
+                onError={(event) => {
+                  const img = event.currentTarget;
+
+                  if (img.dataset.fallbackApplied === "true") return;
+
+                  img.dataset.fallbackApplied = "true";
+                  img.src = assetUrl(heartFallback);
+                }}
+              />
+            );
+          })}
 
           {goldenLifeSlots.map((_, index) => (
             <img
@@ -6804,11 +6913,6 @@ export default function JogoPage() {
 
             <p className="game-menu-help">ESC/Q: voltar</p>
           </aside>
-
-          <div className="game-menu-logo">
-            <strong>SPACE NEWS</strong>
-            <span>agora com 90% menos fake news!</span>
-          </div>
         </section>
       )}
 
