@@ -27,6 +27,7 @@ type SpriteKey =
   | "powerShield"
   | "powerPowerShot"
   | "powerHomingShot"
+  | "powerFlames"
   | "powerGoldenHeart"
   | "powerRandomBox"
   | "powerBadFlashbang"
@@ -143,6 +144,7 @@ type PowerUpKind =
   | "shield"
   | "powerShot"
   | "homingShot"
+  | "flames"
   | "goldenHeart"
   | "randomBox";
 
@@ -348,6 +350,7 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
   powerShield: { src: "/game/powerups/shield.png" },
   powerPowerShot: { src: "/game/powerups/power-shot.png" },
   powerHomingShot: { src: "/game/powerups/homing-shot.png" },
+  powerFlames: { src: "/game/ui/flames.png" },
   powerGoldenHeart: { src: "/game/powerups/golden-heart.png" },
   powerRandomBox: { src: "/game/powerups/random-box.png" },
   powerBadFlashbang: { src: "/game/powerups/bad-flashbang.png" },
@@ -662,11 +665,20 @@ const CONFIG = {
       randomBadChance: 0.38,
       randomComboChance: 0.16,
       flashbangVoiceDelayMs: 1000,
-      flashbangWhiteMs: 2000,
-      flashbangBlurMs: 5600,
+      flashbangWhiteMs: 4200,
+      flashbangBlurMs: 7600,
       invertScreenMs: 5500,
       randomBadSlowMs: 6500,
       randomBadSlowMultiplier: 0.48,
+
+      flamesChanceOnKill: 0.025,
+      flamesChanceOnBossDamage: 0.011,
+      flamesDurationMs: 15000,
+      flamesRange: 350,
+      flamesHomingRange: 420,
+      flamesConeWidth: 72,
+      flamesDamagePerSecond: 9,
+      flamesParticleAmount: 34,
 
       fireRateDurationMs: 10000,
       powerShotDurationMs: 10000,
@@ -684,10 +696,10 @@ const CONFIG = {
       enabled: true,
       firstWaveDelayMs: 900,
       nextWaveDelayMs: 1800,
-      spawnIntervalMs: 820,
+      spawnIntervalMs: 1080,
       baseGroups: 2,
-      groupsPerWave: 0.31,
-      maxGroups: 16,
+      groupsPerWave: 0.18,
+      maxGroups: 10,
       purpleFromWave: 1,
       blackFromWave: 4,
       asteroidFromWave: 3,
@@ -828,6 +840,9 @@ const CONFIG = {
     powerUpPickup: "/sounds/powerup-pickup.mp3",
     powerUpSpawn: "/sounds/powerup-spawn.mp3",
     powerUpTrail: "/sounds/powerup-trail.mp3",
+    flamesStart: "/sounds/flames-start.mp3",
+    flamesLoop: "/sounds/flames-loop.mp3",
+    flamesHit: "/sounds/flames-hit.mp3",
     goldenHeart: "/sounds/golden-heart.mp3",
     randomPowerUp: "/sounds/random-powerup.mp3",
     badPowerUp: "/sounds/bad-powerup.mp3",
@@ -886,6 +901,7 @@ const CONFIG = {
     powerShield: "/game/powerups/shield.png",
     powerPowerShot: "/game/powerups/power-shot.png",
     powerHomingShot: "/game/powerups/homing-shot.png",
+    powerFlames: "/game/ui/flames.png",
     powerGoldenHeart: "/game/powerups/golden-heart.png",
     powerRandomBox: "/game/powerups/random-box.png",
     powerBadFlashbang: "/game/powerups/bad-flashbang.png",
@@ -935,19 +951,27 @@ const CONFIG = {
 const STORY_FRAMES = [
   {
     title: "Quadro 1",
-    text: "Cleber era estudante da Escola I. Ele gostava de aprender, pesquisar e descobrir a verdade.",
+    text: "Cleber era estudante da Escola I. Ele vivia pesquisando, comparando fontes e tentando descobrir a verdade por trás das notícias.",
   },
   {
     title: "Quadro 2",
-    text: "Em uma noite estranha, Cleber percebeu que sua terra estava sendo invadida pelo exército de Chocado.",
+    text: "Ao lado dele estava João, seu melhor amigo e gênio da tecnologia. João sempre ajudava Cleber com mapas, alertas e análises.",
   },
   {
     title: "Quadro 3",
-    text: "Robôs da desinformação saíram dos portais, espalhando mentiras por todos os lados.",
+    text: "Em uma noite estranha, os sinais da cidade começaram a falhar. Portais surgiram no céu e a Terra entrou em alerta.",
   },
   {
     title: "Quadro 4",
-    text: "Cleber entrou em sua nave Space News e partiu em direção à missão: salvar a Terra.",
+    text: "O exército de Chocado começou a invadir tudo com robôs da desinformação, espalhando mentiras em velocidade absurda.",
+  },
+  {
+    title: "Quadro 5",
+    text: "João assumiu a comunicação da missão: 'Cleber, eu vou te guiar daqui. Fica vivo e confia nos meus alertas!'",
+  },
+  {
+    title: "Quadro 6",
+    text: "Cleber entrou na nave Space News. João abriu o canal de suporte, e a missão para salvar a Terra finalmente começou.",
   },
 ];
 
@@ -1687,6 +1711,9 @@ export default function JogoPage() {
   const fireRateUntilRef = useRef(0);
   const powerShotUntilRef = useRef(0);
   const homingShotUntilRef = useRef(0);
+  const flamesUntilRef = useRef(0);
+  const flamesLoopAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastFlamesHitSoundAtRef = useRef(0);
   const lastBossPowerUpAtRef = useRef(0);
   const [activePowerUpsUi, setActivePowerUpsUi] = useState<ActivePowerUpUi[]>([]);
   const shieldActiveRef = useRef(false);
@@ -2006,6 +2033,7 @@ export default function JogoPage() {
     fireRateUntilRef.current = shiftIfFuture(fireRateUntilRef.current);
     powerShotUntilRef.current = shiftIfFuture(powerShotUntilRef.current);
     homingShotUntilRef.current = shiftIfFuture(homingShotUntilRef.current);
+    flamesUntilRef.current = shiftIfFuture(flamesUntilRef.current);
     lastBossPowerUpAtRef.current = shiftIfFuture(lastBossPowerUpAtRef.current);
     powerGlowRef.current.endAt = shiftIfFuture(powerGlowRef.current.endAt);
     shakeRef.current.endAt = shiftIfFuture(shakeRef.current.endAt);
@@ -2050,6 +2078,11 @@ export default function JogoPage() {
     fireRateUntilRef.current = 0;
     powerShotUntilRef.current = 0;
     homingShotUntilRef.current = 0;
+    flamesUntilRef.current = 0;
+    if (flamesLoopAudioRef.current) {
+      flamesLoopAudioRef.current.pause();
+      flamesLoopAudioRef.current.currentTime = 0;
+    }
     setActivePowerUpsUi([]);
     shieldActiveRef.current = false;
     setShieldActive(false);
@@ -3126,17 +3159,14 @@ export default function JogoPage() {
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
     if (bossWave) return [];
     const groupCount = bossWave
-      ? Math.min(
-          cfg.maxGroups,
-          cfg.baseGroups + 10 + Math.floor(waveNumber / 10),
-        )
+      ? 0
       : Math.min(
           cfg.maxGroups,
           cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave),
         );
 
-    // Lanes fixas dão organização; a ordem embaralhada dá variedade.
-    const lanes = [72, 145, 220, 300, 380, 465, 550, 625];
+    // Lanes mais espaçadas: evita que os inimigos nasçam grudados e lotem a tela.
+    const lanes = [86, 190, 300, 410, 520, 620];
     const shuffled = [...lanes].sort(() => Math.random() - 0.5);
     const mirrorLane = (lane: number) =>
       clamp(CONFIG.canvasHeight - lane - 70, 62, CONFIG.canvasHeight - 132);
@@ -3153,40 +3183,40 @@ export default function JogoPage() {
       // No começo, o jogo favorece roxos, mas ainda varia.
       // Depois, mistura formações simétricas e threats especiais.
       if (earlyWave) {
-        if (roll < 0.62) {
+        if (roll < 0.68) {
           events.push({ at: time, kind: "purple", y: lane });
-          if (Math.random() < 0.55) {
-            events.push({ at: time + 160, kind: "purple", y: mirror });
+          if (Math.random() < 0.28) {
+            events.push({ at: time + 430, kind: "purple", y: mirror });
           }
-        } else if (roll < 0.82) {
+        } else if (roll < 0.86) {
           events.push({ at: time, kind: "red" });
         } else {
           events.push({ at: time, kind: "purple", y: lane });
-          events.push({ at: time + 260, kind: "red" });
+          events.push({ at: time + 540, kind: "red" });
         }
-      } else if (roll < 0.28) {
-        // Par espelhado de roxos: preenche mais a tela sem virar bagunça.
+      } else if (roll < 0.24) {
+        // Par espelhado espaçado: ameaça dupla, mas sem empilhar inimigos.
         events.push({ at: time, kind: "purple", y: lane });
-        events.push({ at: time + 160, kind: "purple", y: mirror });
-      } else if (roll < 0.48) {
+        events.push({ at: time + 520, kind: "purple", y: mirror });
+      } else if (roll < 0.44) {
         // Vermelho ocupa a tela verticalmente.
         events.push({ at: time, kind: "red" });
-      } else if (roll < 0.64 && waveNumber >= cfg.blackFromWave) {
-        // Preto aparece em lane aleatória.
+      } else if (roll < 0.58 && waveNumber >= cfg.blackFromWave) {
+        // Preto aparece isolado para não virar parede de inimigos.
         events.push({ at: time, kind: "black", y: lane });
-      } else if (roll < 0.78 && waveNumber >= cfg.alienFromWave) {
-        // Alien isolado, com apoio leve se a wave já estiver avançada.
+      } else if (roll < 0.72 && waveNumber >= cfg.alienFromWave) {
+        // Alien quase sempre sozinho; apoio só quando houver espaço.
         events.push({ at: time, kind: "alien", y: lane });
-        if (Math.random() < 0.45) {
-          events.push({ at: time + 360, kind: "purple", y: mirror });
+        if (Math.random() < 0.24) {
+          events.push({ at: time + 680, kind: "purple", y: mirror });
         }
       } else {
-        // Formação mista simples.
+        // Formação mista com atraso maior entre inimigos.
         events.push({ at: time, kind: "purple", y: lane });
-        if (waveNumber >= cfg.blackFromWave && Math.random() < 0.42) {
-          events.push({ at: time + 260, kind: "black", y: mirror });
+        if (waveNumber >= cfg.blackFromWave && Math.random() < 0.22) {
+          events.push({ at: time + 700, kind: "black", y: mirror });
         } else {
-          events.push({ at: time + 220, kind: "purple", y: mirror });
+          events.push({ at: time + 620, kind: "purple", y: mirror });
         }
       }
 
@@ -3194,15 +3224,15 @@ export default function JogoPage() {
       // mas não contam para finalizar e continuam após a wave acabar.
       if (
         waveNumber >= cfg.asteroidFromWave &&
-        i % 3 === 1 &&
-        Math.random() < 0.62
+        i % 4 === 2 &&
+        Math.random() < 0.42
       ) {
-        events.push({ at: time + 280, kind: "asteroid", y: mirror });
+        events.push({ at: time + 720, kind: "asteroid", y: mirror });
       }
 
       time += Math.max(
-        560,
-        cfg.spawnIntervalMs - Math.min(160, waveNumber * 4),
+        880,
+        cfg.spawnIntervalMs - Math.min(120, waveNumber * 3),
       );
     }
 
@@ -3211,8 +3241,8 @@ export default function JogoPage() {
 
   function aplicarDificuldadeWave(inicio: number, difficulty: number) {
     const waveNumber = waveStateRef.current.wave;
-    const hpBonus = Math.floor(waveNumber / 24);
-    const speedScale = Math.min(1.95, 1 + Math.max(0, difficulty - 1) * 0.26);
+    const hpBonus = Math.floor(waveNumber / 32);
+    const speedScale = Math.min(1.55, 1 + Math.max(0, difficulty - 1) * 0.18);
 
     for (const enemy of enemiesRef.current.slice(inicio)) {
       if (enemy.kind !== "fragment") {
@@ -3380,6 +3410,7 @@ export default function JogoPage() {
     if (kind === "shield") return CONFIG.uiImages.powerShield;
     if (kind === "powerShot") return CONFIG.uiImages.powerPowerShot;
     if (kind === "homingShot") return CONFIG.uiImages.powerHomingShot;
+    if (kind === "flames") return CONFIG.uiImages.powerFlames;
     if (kind === "goldenHeart") return CONFIG.uiImages.powerGoldenHeart;
     if (kind === "randomBox") return CONFIG.uiImages.powerRandomBox;
     return CONFIG.uiImages.powerFireRate;
@@ -3391,6 +3422,7 @@ export default function JogoPage() {
     if (kind === "shield") return "SHIELD";
     if (kind === "powerShot") return "POWER";
     if (kind === "homingShot") return "HOMING";
+    if (kind === "flames") return "FLAMES";
     if (kind === "goldenHeart") return "+2 GOLD";
     if (kind === "randomBox") return "???";
     return "TIRO+";
@@ -3400,6 +3432,7 @@ export default function JogoPage() {
     if (kind === "fireRate") return "#38bdf8";
     if (kind === "powerShot") return "#f59e0b";
     if (kind === "homingShot") return "#22d3ee";
+    if (kind === "flames") return "#fb923c";
     if (kind === "shield") return "#a7f3d0";
     if (kind === "tripleRegen") return "#ff4d6d";
     if (kind === "goldenHeart") return "#ffd166";
@@ -3452,6 +3485,7 @@ export default function JogoPage() {
         { kind: "fireRate", chance: boss ? cfg.fireRateChanceOnBossDamage : cfg.fireRateChanceOnKill },
         { kind: "powerShot", chance: boss ? cfg.powerShotChanceOnBossDamage : cfg.powerShotChanceOnKill },
         { kind: "homingShot", chance: boss ? cfg.homingShotChanceOnBossDamage : cfg.homingShotChanceOnKill },
+        { kind: "flames", chance: boss ? cfg.flamesChanceOnBossDamage : cfg.flamesChanceOnKill },
       ];
 
       for (const option of options.sort(() => Math.random() - 0.5)) {
@@ -3579,7 +3613,7 @@ export default function JogoPage() {
 
     if (roll < cfg.randomComboChance) {
       aplicarPowerUp("fireRate");
-      aplicarPowerUp(Math.random() < 0.5 ? "powerShot" : "homingShot");
+      aplicarPowerUp(Math.random() < 0.34 ? "powerShot" : Math.random() < 0.5 ? "homingShot" : "flames");
       if (Math.random() < 0.25) aplicarPowerUp("shield");
       return;
     }
@@ -3613,6 +3647,7 @@ export default function JogoPage() {
       "fireRate",
       "powerShot",
       "homingShot",
+      "flames",
     ];
 
     if (!shieldActiveRef.current) {
@@ -3700,6 +3735,13 @@ export default function JogoPage() {
       return;
     }
 
+    if (kind === "flames") {
+      flamesUntilRef.current = Math.max(flamesUntilRef.current, now) +
+        CONFIG.gameplay.powerups.flamesDurationMs;
+      tocarSom(CONFIG.sounds.flamesStart || CONFIG.sounds.powerUpPickup, 0.58, "ability");
+      return;
+    }
+
     fireRateUntilRef.current = Math.max(fireRateUntilRef.current, now) +
       CONFIG.gameplay.powerups.fireRateDurationMs;
   }
@@ -3743,6 +3785,15 @@ export default function JogoPage() {
       });
     }
 
+    if (flamesUntilRef.current > now) {
+      active.push({
+        kind: "flames",
+        label: "FLAMES",
+        icon: CONFIG.uiImages.powerFlames,
+        remainingMs: flamesUntilRef.current - now,
+      });
+    }
+
     if (flashBlurUntilRef.current > now) {
       active.push({
         kind: "badFlashbang",
@@ -3775,6 +3826,8 @@ export default function JogoPage() {
 
   function cooldownTiroNormalAtual() {
     const now = performance.now();
+    const flamesActive = flamesUntilRef.current > now;
+    if (flamesActive) return 2;
     const fireRateActive = fireRateUntilRef.current > now;
     const powerShotActive = powerShotUntilRef.current > now;
     const multiplier =
@@ -3789,6 +3842,43 @@ export default function JogoPage() {
 
   useEffect(() => {
     assetsRef.current.loadAll();
+  }, []);
+
+  useEffect(() => {
+    // Evita que o VLibras do site principal apareça dentro do jogo.
+    // Ele continua funcionando normalmente em /, mas fica oculto em /jogo.
+    document.body.classList.add("game-page-active");
+
+    const hideVlibras = () => {
+      const selectors = [
+        "[vw]",
+        "[vw-access-button]",
+        ".vlibras-container",
+        "div[vw-plugin-wrapper]",
+      ];
+
+      for (const selector of selectors) {
+        document.querySelectorAll<HTMLElement>(selector).forEach((element) => {
+          element.dataset.spaceNewsHidden = "true";
+          element.style.setProperty("display", "none", "important");
+          element.style.setProperty("pointer-events", "none", "important");
+        });
+      }
+    };
+
+    hideVlibras();
+    const timer = window.setInterval(hideVlibras, 700);
+
+    return () => {
+      document.body.classList.remove("game-page-active");
+      window.clearInterval(timer);
+
+      document.querySelectorAll<HTMLElement>("[data-space-news-hidden='true']").forEach((element) => {
+        element.style.removeProperty("display");
+        element.style.removeProperty("pointer-events");
+        delete element.dataset.spaceNewsHidden;
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -3925,6 +4015,115 @@ export default function JogoPage() {
       return best;
     }
 
+    function usarFlames() {
+      const player = playerRef.current;
+      const now = performance.now();
+      const cfg = CONFIG.gameplay.powerups;
+      const powerActive = powerShotUntilRef.current > now;
+      const homingActive = homingShotUntilRef.current > now;
+      const baseX = player.x + player.w - 8;
+      const baseY = player.y + player.h / 2;
+      let dir = { x: 1, y: 0 };
+      const target = homingActive ? encontrarAlvoMaisProximo(baseX, baseY) : null;
+
+      if (target) {
+        const dx = target.x - baseX;
+        const dy = target.y - baseY;
+        const len = Math.max(0.001, Math.hypot(dx, dy));
+        if (len <= cfg.flamesHomingRange) {
+          dir = { x: dx / len, y: dy / len };
+        }
+      }
+
+      const range = cfg.flamesRange * (powerActive ? 1.18 : 1);
+      const cone = cfg.flamesConeWidth * (powerActive ? 1.45 : 1);
+      const damage = (cfg.flamesDamagePerSecond / 30) * (powerActive ? 3 : 1);
+      const killed = new Set<number>();
+
+      const damageEnemy = (enemy: Enemy) => {
+        if (enemy.hp <= 0 || killed.has(enemy.id)) return;
+        const cx = enemy.x + enemy.w / 2;
+        const cy = enemy.y + enemy.h / 2;
+        const dx = cx - baseX;
+        const dy = cy - baseY;
+        const forward = dx * dir.x + dy * dir.y;
+        if (forward < 0 || forward > range) return;
+        const side = Math.abs(dx * -dir.y + dy * dir.x);
+        const allowedSide = cone * (0.38 + 0.62 * (forward / range));
+        if (side > allowedSide) return;
+
+        const applied = Math.min(damage, Math.max(0, enemy.hp));
+        enemy.hp -= damage;
+        carregarBoostPorDano(applied);
+        if (enemy.kind === "asteroid" && enemy.hp <= enemy.maxHp / 2) enemy.cracked = true;
+        criarParticulasHit(cx, cy, powerActive ? "#ffedd5" : "#fb923c", 2);
+        if (enemy.hp <= 0) {
+          killed.add(enemy.id);
+          registrarAbate(enemy.kind);
+          tentarSpawnPowerUp(cx, cy);
+          if (enemy.kind === "asteroid") {
+            spawnAsteroidFragments(enemy);
+          } else {
+            criarExplosao(cx, cy, "#fb923c", 12);
+            tocarSom(CONFIG.sounds.enemyDeath, 0.34, "hit");
+          }
+        }
+      };
+
+      enemiesRef.current.forEach(damageEnemy);
+      if (killed.size > 0) {
+        enemiesRef.current = enemiesRef.current.filter((enemy) => !killed.has(enemy.id));
+      }
+
+      const boss = bossRef.current;
+      if (boss.active && !boss.intro && boss.hp > 0) {
+        const box = getBossHitbox();
+        const cx = box.x + box.w / 2;
+        const cy = box.y + box.h / 2;
+        const dx = cx - baseX;
+        const dy = cy - baseY;
+        const forward = dx * dir.x + dy * dir.y;
+        const side = Math.abs(dx * -dir.y + dy * dir.x);
+        if (forward >= 0 && forward <= range && side <= cone * 1.2) {
+          const applied = Math.min(damage, Math.max(0, boss.hp));
+          boss.hp -= damage;
+          carregarBoostPorDano(applied);
+          criarParticulasHit(baseX + dir.x * Math.min(range, forward), baseY + dir.y * Math.min(range, forward), "#ffe18c", 2);
+          if (boss.hp <= 0) boss.hp = 0;
+        }
+      }
+
+      // Chama densa de verdade: várias partículas juntas, com núcleo claro e bordas laranja.
+      const particleAmount = Math.round(cfg.flamesParticleAmount * (powerActive ? 1.35 : 1));
+      for (let i = 0; i < particleAmount; i += 1) {
+        const progress = Math.pow(Math.random(), 0.72);
+        const dist = 26 + progress * range;
+        const widthAtPoint = cone * (0.18 + 0.82 * progress);
+        const spread = rand(-widthAtPoint, widthAtPoint);
+        const jitter = rand(-8, 8);
+        const px = baseX + dir.x * dist + -dir.y * spread + dir.x * jitter;
+        const py = baseY + dir.y * dist + dir.x * spread + dir.y * jitter;
+        const hotCore = Math.random() < 0.28;
+        const ember = Math.random() < 0.18;
+        particlesRef.current.push({
+          id: enemyIdRef.current++,
+          x: px,
+          y: py,
+          vx: dir.x * rand(1.6, 5.8) + -dir.y * rand(-1.4, 1.4),
+          vy: dir.y * rand(1.6, 5.8) + dir.x * rand(-1.4, 1.4) + rand(-1.2, 0.6),
+          size: hotCore ? rand(8, powerActive ? 19 : 15) : ember ? rand(3, 7) : rand(6, powerActive ? 16 : 12),
+          life: hotCore ? rand(110, 230) : rand(180, 380),
+          maxLife: 380,
+          color: hotCore ? "#fff7ed" : ember ? "#fb923c" : Math.random() < 0.55 ? "#f97316" : "#facc15",
+        });
+      }
+
+      if (now - lastFlamesHitSoundAtRef.current > 180) {
+        lastFlamesHitSoundAtRef.current = now;
+        tocarSom(CONFIG.sounds.flamesLoop || CONFIG.sounds.normalShot, 0.22, "sfx");
+      }
+    }
+
     function shootNormal() {
       const player = playerRef.current;
 
@@ -3933,6 +4132,11 @@ export default function JogoPage() {
       }
 
       const now = performance.now();
+      if (flamesUntilRef.current > now) {
+        usarFlames();
+        player.normalCooldown = cooldownTiroNormalAtual();
+        return;
+      }
       const powerActive = powerShotUntilRef.current > now;
       const homingActive = homingShotUntilRef.current > now;
       const shotSpeed = CONFIG.gameplay.shots.normal.speed;
@@ -5108,7 +5312,7 @@ export default function JogoPage() {
       const now = performance.now();
 
       for (const power of powerUpsRef.current) {
-        const key: SpriteKey =
+        const key: SpriteKey | null =
           power.kind === "regen"
             ? "powerRegen"
             : power.kind === "tripleRegen"
@@ -5123,9 +5327,11 @@ export default function JogoPage() {
                       ? "powerGoldenHeart"
                       : power.kind === "randomBox"
                         ? "powerRandomBox"
-                        : "powerFireRate";
+                        : power.kind === "flames"
+                          ? null
+                          : "powerFireRate";
 
-        const img = assetsRef.current.get(key);
+        const img = key ? assetsRef.current.get(key) : null;
         const color = powerUpColor(power.kind);
         const pulse = 1 + Math.sin(power.age * 0.012) * 0.1;
         const spawnProgress = clamp((now - power.bornAt) / 920, 0, 1);
@@ -5182,6 +5388,26 @@ export default function JogoPage() {
 
         if (img) {
           ctx.drawImage(img, -power.w / 2, -power.h / 2, power.w, power.h);
+        } else if (power.kind === "flames") {
+          // Flames não precisa de sprite no mapa: é um power-up feito de fogo vivo.
+          const flameTime = power.age * 0.02;
+          for (let i = 0; i < 18; i += 1) {
+            const angle = flameTime + (i / 18) * Math.PI * 2;
+            const radius = 12 + Math.sin(flameTime * 1.7 + i) * 7;
+            const fx = Math.cos(angle) * radius + rand(-2, 2);
+            const fy = Math.sin(angle) * radius * 0.7 + rand(-3, 3);
+            const size = rand(7, 15);
+            ctx.globalAlpha = rand(0.55, 0.95);
+            ctx.fillStyle = i % 3 === 0 ? "#fff7ed" : i % 3 === 1 ? "#facc15" : "#f97316";
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.shadowBlur = 18;
+            ctx.fillRect(fx - size / 2, fy - size / 2, size, size);
+          }
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = "#ffedd5";
+          ctx.font = `24px ${CONFIG.fonts.ui}`;
+          ctx.textAlign = "center";
+          ctx.fillText("🔥", 0, 9);
         } else {
           ctx.fillStyle = color;
           ctx.fillRect(-power.w / 2, -power.h / 2, power.w, power.h);
@@ -6668,9 +6894,7 @@ export default function JogoPage() {
 
       {(gameState === "mainMenu" ||
         gameState === "settings" ||
-        gameState === "tutorialChoice" ||
-        gameState === "tutorial" ||
-        gameState === "storyCutscene") && (
+        gameState === "tutorialChoice") && (
         <img
           className="game-bg-image game-bg-image-menu"
           src={assetUrl(ASSETS.menuBackground.src)}
@@ -6913,6 +7137,11 @@ export default function JogoPage() {
 
             <p className="game-menu-help">ESC/Q: voltar</p>
           </aside>
+
+          <div className="game-menu-logo">
+            <strong>SPACE NEWS</strong>
+            <span>DICA: João vai te avisar quando o perigo estiver perto.</span>
+          </div>
         </section>
       )}
 

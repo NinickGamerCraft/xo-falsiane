@@ -5267,3 +5267,179 @@ body.reduce-motion *::after {
 .game-menu-logo {
   display: none !important;
 }
+
+/* ===== PATCH: menu logo/tip + mobile xadrez + cutscene limpa ===== */
+.game-menu-logo {
+  display: block !important;
+  position: fixed !important;
+  top: 34px !important;
+  right: 44px !important;
+  z-index: 72 !important;
+  width: min(520px, 42vw) !important;
+  text-align: right !important;
+  pointer-events: none !important;
+  animation: gameLogoBounce 1.85s ease-in-out infinite;
+}
+
+.game-menu-logo strong {
+  display: block !important;
+  font-family: var(--game-title-font), Impact, sans-serif !important;
+  font-size: clamp(38px, 4vw, 84px) !important;
+  font-style: italic !important;
+  color: #fff7e6 !important;
+  line-height: 0.9 !important;
+  text-shadow:
+    5px 5px 0 #08030a,
+    0 0 24px rgba(255, 225, 140, 0.55) !important;
+}
+
+.game-menu-logo span {
+  display: block !important;
+  margin-top: 12px !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  color: #ffe18c !important;
+  font-size: clamp(13px, 1.35vw, 22px) !important;
+  font-weight: 1000 !important;
+  line-height: 1.15 !important;
+  transform: rotate(-4deg) !important;
+  text-shadow:
+    2px 2px 0 #08030a,
+    0 0 12px rgba(255, 225, 140, 0.45) !important;
+}
+
+/* A cutscene não deve mostrar o menu-bg gigante por trás. */
+.game-state-storyCutscene .game-screen,
+.game-state-tutorial .game-screen {
+  background:
+    radial-gradient(circle at top, rgba(255, 225, 140, 0.08), transparent 34%),
+    linear-gradient(rgba(8, 3, 10, 0.92), rgba(8, 3, 10, 0.98)) !important;
+}
+
+/* Readiciona o xadrez dourado nas sobras do stage 16:9 no mobile. */
+@media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
+  .game-fullscreen-page {
+    --stage-w: min(100vw, calc(100dvh * 16 / 9));
+    --stage-h: min(100dvh, calc(100vw * 9 / 16));
+    --stage-left: calc((100vw - var(--stage-w)) / 2);
+    --stage-top: calc((100dvh - var(--stage-h)) / 2);
+    background-color: #22130d !important;
+    background-image:
+      linear-gradient(45deg, rgba(248, 231, 176, 0.16) 25%, transparent 25%),
+      linear-gradient(-45deg, rgba(248, 231, 176, 0.16) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgba(248, 231, 176, 0.16) 75%),
+      linear-gradient(-45deg, transparent 75%, rgba(248, 231, 176, 0.16) 75%) !important;
+    background-size: 48px 48px !important;
+    background-position:
+      0 0,
+      0 24px,
+      24px -24px,
+      -24px 0 !important;
+  }
+
+  .game-fullscreen-canvas,
+  .game-screen,
+  .game-screen-fade,
+  .game-low-hp-vignette,
+  .game-bg-image,
+  .game-title-bg-transition {
+    position: fixed !important;
+    inset: auto !important;
+    left: var(--stage-left) !important;
+    top: var(--stage-top) !important;
+    width: var(--stage-w) !important;
+    height: var(--stage-h) !important;
+    overflow: hidden !important;
+  }
+
+  .game-fullscreen-canvas.is-gameplay-visible {
+    box-shadow:
+      0 0 0 4px rgba(248, 231, 176, 0.75),
+      0 0 28px rgba(0, 0, 0, 0.78) !important;
+  }
+
+  .game-life-hud,
+  .game-ability-hud,
+  .game-wave-hud,
+  .game-score-hud,
+  .game-powerup-hud {
+    transform: translate(var(--stage-left), var(--stage-top)) !important;
+  }
+
+  .game-menu-logo {
+    top: calc(var(--stage-top) + 18px) !important;
+    right: calc(var(--stage-left) + 18px) !important;
+    width: min(360px, 44vw) !important;
+  }
+
+  .game-menu-logo strong {
+    font-size: clamp(26px, 6vh, 48px) !important;
+  }
+
+  .game-menu-logo span {
+    font-size: clamp(10px, 2.3vh, 15px) !important;
+  }
+}
+
+/* Visual extra para status do lança-chamas. */
+.game-powerup-card[data-kind="flames"],
+.game-powerup-card.flames {
+  border-color: rgba(251, 146, 60, 0.95) !important;
+  box-shadow:
+    0 0 18px rgba(249, 115, 22, 0.42),
+    4px 4px 0 #08030a !important;
+}
+
+
+/* ===== PATCH FINAL: Space News /jogo ===== */
+/* No /jogo, VLibras nao deve aparecer por cima do canvas. */
+body.game-page-active [vw],
+body.game-page-active [vw-access-button],
+body.game-page-active .vlibras-container,
+body.game-page-active div[vw-plugin-wrapper] {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+/* Mobile: restaura o xadrez dourado nas sobras fora do palco 16:9. */
+@media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
+  .game-fullscreen-page {
+    --stage-w: min(100vw, calc(100dvh * 16 / 9));
+    --stage-h: min(100dvh, calc(100vw * 9 / 16));
+    --stage-left: calc((100vw - var(--stage-w)) / 2);
+    --stage-top: calc((100dvh - var(--stage-h)) / 2);
+    background-color: #21130c !important;
+    background-image:
+      linear-gradient(45deg, rgba(248, 231, 176, 0.18) 25%, transparent 25%),
+      linear-gradient(-45deg, rgba(248, 231, 176, 0.18) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgba(248, 231, 176, 0.18) 75%),
+      linear-gradient(-45deg, transparent 75%, rgba(248, 231, 176, 0.18) 75%) !important;
+    background-size: 48px 48px !important;
+    background-position: 0 0, 0 24px, 24px -24px, -24px 0 !important;
+  }
+}
+
+/* Coração vazio já tem imagem própria: não deixar transparente/cinza. */
+.game-life-hud .game-normal-heart.is-empty {
+  opacity: 1 !important;
+  filter: none !important;
+  transform: scale(1) !important;
+}
+
+@media (pointer: coarse) and (max-width: 1200px) {
+  .game-life-hud .game-normal-heart.is-empty {
+    opacity: 1 !important;
+    filter: none !important;
+    transform: scale(1) !important;
+  }
+}
+
+/* Flashbang: clarão mais longo e blur mais agressivo. */
+.game-flashbang-white {
+  transition: opacity 0.32s ease-out !important;
+}
+
+.game-flashbang-afterimage {
+  filter: blur(10px) contrast(1.28) saturate(1.2) !important;
+  mix-blend-mode: screen !important;
+}
