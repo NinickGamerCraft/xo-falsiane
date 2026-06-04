@@ -5794,3 +5794,94 @@ html.game-custom-cursor-enabled * {
     display: none !important;
   }
 }
+
+/* ===== PATCH FINAL — CURSOR PIXEL ART NÍTIDO =====
+   Evita borrão removendo scale/transições e forçando renderização pixelada. */
+html.game-custom-cursor-enabled,
+html.game-custom-cursor-enabled * {
+  cursor: none !important;
+}
+
+.game-custom-cursor {
+  width: 64px !important;
+  height: 64px !important;
+  background-image: url("/cursors/cursor.png?v=cursor-sharp-64-20260604") !important;
+  background-size: 64px 64px !important;
+  background-position: 0 0 !important;
+  background-repeat: no-repeat !important;
+  image-rendering: pixelated !important;
+  image-rendering: crisp-edges !important;
+  transform: translate3d(-8px, -8px, 0) !important;
+  transition: opacity 0.04s linear !important;
+  will-change: left, top !important;
+  filter: none !important;
+  backface-visibility: hidden !important;
+}
+
+.game-custom-cursor.is-pointer {
+  width: 72px !important;
+  height: 72px !important;
+  background-image: url("/cursors/pointer.png?v=pointer-sharp-72-20260604") !important;
+  background-size: 72px 72px !important;
+  background-position: 0 0 !important;
+  background-repeat: no-repeat !important;
+  image-rendering: pixelated !important;
+  image-rendering: crisp-edges !important;
+  transform: translate3d(-10px, -8px, 0) !important;
+  filter: none !important;
+}
+
+/* ===== PATCH FINAL: CURSOR CUSTOM SOMENTE NA ROTA /jogo =====
+   O cursor pixel fica ativo apenas quando .game-fullscreen-page existe.
+   No site principal, o cursor volta ao normal do navegador. */
+body:not(:has(.game-fullscreen-page)),
+body:not(:has(.game-fullscreen-page)) * {
+  cursor: auto !important;
+}
+
+body:not(:has(.game-fullscreen-page)) button,
+body:not(:has(.game-fullscreen-page)) a,
+body:not(:has(.game-fullscreen-page)) [role="button"],
+body:not(:has(.game-fullscreen-page)) summary,
+body:not(:has(.game-fullscreen-page)) label,
+body:not(:has(.game-fullscreen-page)) input[type="button"],
+body:not(:has(.game-fullscreen-page)) input[type="submit"],
+body:not(:has(.game-fullscreen-page)) .floating-menu-btn,
+body:not(:has(.game-fullscreen-page)) .floating-game-btn,
+body:not(:has(.game-fullscreen-page)) .mode-btn,
+body:not(:has(.game-fullscreen-page)) .primary-btn,
+body:not(:has(.game-fullscreen-page)) .secondary-btn,
+body:not(:has(.game-fullscreen-page)) .copy-btn,
+body:not(:has(.game-fullscreen-page)) .credit-row,
+body:not(:has(.game-fullscreen-page)) .settings-row,
+body:not(:has(.game-fullscreen-page)) .game-row {
+  cursor: pointer !important;
+}
+
+body:not(:has(.game-fullscreen-page)) .game-custom-cursor {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+body:has(.game-fullscreen-page) .game-fullscreen-page,
+body:has(.game-fullscreen-page) .game-fullscreen-page * {
+  cursor: none !important;
+}
+
+body:has(.game-fullscreen-page) .game-custom-cursor {
+  display: block !important;
+}
+
+@media (pointer: coarse) {
+  body,
+  body *,
+  .game-fullscreen-page,
+  .game-fullscreen-page * {
+    cursor: auto !important;
+  }
+
+  .game-custom-cursor {
+    display: none !important;
+  }
+}
