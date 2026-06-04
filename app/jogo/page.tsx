@@ -20,7 +20,7 @@ type GameMode = "story" | "infinite";
 
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
 
-type JoaoExpression = "normal" | "alert" | "happy";
+type DanielExpression = "normal" | "alert" | "happy" | "fear" | "serious";
 
 type SpriteKey =
   | "player"
@@ -116,6 +116,11 @@ type Enemy = {
   tilt?: number;
   knockedBack?: boolean;
   knockedAt?: number;
+
+  // Flags usadas apenas no tutorial roteirizado.
+  // Elas impedem que dano/knockback contem como sucesso errado.
+  tutorialStep?: TutorialStep;
+  removedByStrong?: boolean;
 };
 
 type EnemyProjectile = {
@@ -545,7 +550,7 @@ const CONFIG = {
 
     dodge: {
       enabled: true,
-      durationMs: 500,
+      durationMs: 850,
       cooldownMs: 10000,
       speedImpulse: 4.5,
     },
@@ -900,6 +905,7 @@ const CONFIG = {
     pause: "/sounds/game-pause.mp3",
     cutsceneNext: "/sounds/cutscene-next.mp3",
     transition: "/sounds/game-transition.mp3",
+    tutorialWarning: "/sounds/tutorial/tutorial-warning.mp3",
 
     abilityReady: "/sounds/ability-ready.mp3",
     powerUpPickup: "/sounds/powerup-pickup.mp3",
@@ -967,12 +973,16 @@ const CONFIG = {
     powerPowerShot: "/game/powerups/power-shot.png",
     powerHomingShot: "/game/powerups/homing-shot.png",
     powerFlames: "/game/ui/flames.png",
-    joaoNormalClosed: "/game/ui/joao-normal-closed.png",
-    joaoNormalTalk: "/game/ui/joao-normal-talk.png",
-    joaoAlertClosed: "/game/ui/joao-alert-closed.png",
-    joaoAlertTalk: "/game/ui/joao-alert-talk.png",
-    joaoHappyClosed: "/game/ui/joao-happy-closed.png",
-    joaoHappyTalk: "/game/ui/joao-happy-talk.png",
+    danielNormalClosed: "/game/ui/daniel/normal-closed.png",
+    danielNormalTalk: "/game/ui/daniel/normal-talk.png",
+    danielAlertClosed: "/game/ui/daniel/alert-closed.png",
+    danielAlertTalk: "/game/ui/daniel/alert-talk.png",
+    danielHappyClosed: "/game/ui/daniel/happy-closed.png",
+    danielHappyTalk: "/game/ui/daniel/happy-talk.png",
+    danielFearClosed: "/game/ui/daniel/fear-closed.png",
+    danielFearTalk: "/game/ui/daniel/fear-talk.png",
+    danielSeriousClosed: "/game/ui/daniel/serious-closed.png",
+    danielSeriousTalk: "/game/ui/daniel/serious-talk.png",
     powerGoldenHeart: "/game/powerups/golden-heart.png",
     powerRandomBox: "/game/powerups/random-box.png",
     powerBadFlashbang: "/game/powerups/bad-flashbang.png",
@@ -1026,7 +1036,7 @@ const STORY_FRAMES = [
   },
   {
     title: "Quadro 2",
-    text: "Ao lado dele estava João, seu melhor amigo e gênio da tecnologia. João sempre ajudava Cleber com mapas, alertas e análises.",
+    text: "Ao lado dele estava Daniel, seu melhor amigo e gênio da tecnologia. Daniel criou o sistema de comunicação da Space News para guiar Cleber em tempo real.",
   },
   {
     title: "Quadro 3",
@@ -1038,11 +1048,11 @@ const STORY_FRAMES = [
   },
   {
     title: "Quadro 5",
-    text: "João assumiu a comunicação da missão: 'Cleber, eu vou te guiar daqui. Fica vivo e confia nos meus alertas!'",
+    text: "Daniel assumiu a comunicação da missão: 'Cleber, eu vou te guiar daqui. Fica vivo e confia nos meus alertas!'",
   },
   {
     title: "Quadro 6",
-    text: "Cleber entrou na nave Space News. João abriu o canal de suporte, e a missão para salvar a Terra finalmente começou.",
+    text: "Cleber entrou na nave Space News. Daniel abriu o canal de suporte, e a missão para salvar a Terra finalmente começou.",
   },
 ];
 
@@ -1074,43 +1084,43 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
 
 const TUTORIAL_ORDER: TutorialStep[] = ["move", "shot", "strong", "boost", "dodge", "done"];
 
-const TUTORIAL_JOAO_TEXT: Record<TutorialStep, { expression: JoaoExpression; pc: string; mobile: string }> = {
+const TUTORIAL_DANIEL_TEXT: Record<TutorialStep, { expression: DanielExpression; pc: string; mobile: string }> = {
   move: {
     expression: "normal",
-    pc: "João na escuta! Primeiro, mova a nave com WASD ou as setas. Fique vivo antes de bancar o herói.",
-    mobile: "João na escuta! Primeiro, mova a nave usando o joystick da tela. Suave, Cleber.",
+    pc: "Daniel na escuta. Estou alinhando a rota da Space News. Leve a nave para cima, para baixo e para os lados com WASD ou setas. Sem pressa: quero ver controle estável.",
+    mobile: "Daniel na escuta. Estou alinhando a rota da Space News. Arraste o joystick e sinta a nave responder. Sem pressa: quero ver controle estável.",
   },
   shot: {
-    expression: "normal",
-    pc: "Boa! Agora aperte Z para disparar o tiro normal. Só essa ação está liberada por enquanto.",
-    mobile: "Boa! Agora toque no botão de tiro para disparar. Só essa ação está liberada por enquanto.",
+    expression: "serious",
+    pc: "Contato de treino chegando pela direita. É um drone roxo. Agora só o tiro normal está liberado: aperte Z e derrube ele no movimento.",
+    mobile: "Contato de treino chegando pela direita. É um drone roxo. Agora só o tiro normal está liberado: toque no botão de tiro e derrube ele no movimento.",
   },
   strong: {
     expression: "alert",
-    pc: "Agora o tiro forte: aperte X. Ele demora para recarregar, então não desperdice.",
-    mobile: "Agora o tiro forte: toque no botão forte. Ele demora para recarregar, então escolha bem o momento.",
+    pc: "Formação tripla detectada. Esses três drones vão cruzar sua linha. Use X e limpa o grupo com o tiro forte. Tiro normal não vai contar aqui.",
+    mobile: "Formação tripla detectada. Esses três drones vão cruzar sua linha. Use o tiro forte e limpa o grupo. Tiro normal não vai contar aqui.",
   },
   boost: {
-    expression: "alert",
-    pc: "Hora do boost! Segure SHIFT para mirar, ou toque rápido para avançar. No tutorial, a carga já está cheia.",
-    mobile: "Hora do boost! Use o botão de boost. No tutorial, a carga já está cheia para você testar.",
+    expression: "serious",
+    pc: "Robô preto em rota de colisão. Segura firme e use SHIFT para atravessar com boost. Se errar, eu puxo a nave de volta para a posição segura.",
+    mobile: "Robô preto em rota de colisão. Use o botão de boost para atravessar. Se errar, eu puxo a nave de volta para a posição segura.",
   },
   dodge: {
-    expression: "normal",
-    pc: "Último passo: use CTRL para esquivar. Isso salva a nave quando a tela virar bagunça.",
-    mobile: "Último passo: use o botão de esquiva. Isso salva a nave quando a tela virar bagunça.",
+    expression: "fear",
+    pc: "Mais um vindo rápido! Agora não é para bater: use CTRL no timing e sinta os i-frames da esquiva. Eu aumentei a janela para você pegar o ritmo.",
+    mobile: "Mais um vindo rápido! Agora não é para bater: use a esquiva no timing e sinta os i-frames. Eu aumentei a janela para você pegar o ritmo.",
   },
   done: {
     expression: "happy",
-    pc: "Perfeito, Cleber! Tutorial concluído. Agora vamos parar o exército de Chocado.",
-    mobile: "Perfeito, Cleber! Tutorial concluído. Agora vamos parar o exército de Chocado.",
+    pc: "Perfeito, Cleber. Controles calibrados. Vou aproximar a câmera da nave e liberar a rota de combate. A primeira wave entra sem corte seco.",
+    mobile: "Perfeito, Cleber. Controles calibrados. Vou aproximar a câmera da nave e liberar a rota de combate. A primeira wave entra sem corte seco.",
   },
 };
 
-function getJoaoIcon(expression: JoaoExpression, talking: boolean) {
+function getDanielIcon(expression: DanielExpression, talking: boolean) {
   const suffix = talking ? "Talk" : "Closed";
-  const key = `joao${expression[0].toUpperCase()}${expression.slice(1)}${suffix}` as keyof typeof CONFIG.uiImages;
-  return CONFIG.uiImages[key] || CONFIG.uiImages.joaoNormalClosed;
+  const key = `daniel${expression[0].toUpperCase()}${expression.slice(1)}${suffix}` as keyof typeof CONFIG.uiImages;
+  return CONFIG.uiImages[key] || CONFIG.uiImages.danielNormalClosed;
 }
 
 type GameSettingKey = keyof typeof CONFIG.settings;
@@ -1741,7 +1751,20 @@ export default function JogoPage() {
   const tutorialStepRef = useRef<TutorialStep>("move");
   const [tutorialStep, setTutorialStep] = useState<TutorialStep>("move");
   const tutorialMoveStartedAtRef = useRef(0);
-  const [joaoMouthOpen, setJoaoMouthOpen] = useState(false);
+  const tutorialStepStartedAtRef = useRef(0);
+  const tutorialTargetSpawnedRef = useRef(false);
+  const tutorialResetRef = useRef({
+    active: false,
+    startAt: 0,
+    durationMs: 720,
+    fromX: 0,
+    fromY: 0,
+    toX: 120,
+    toY: CONFIG.canvasHeight / 2 - CONFIG.gameplay.player.height / 2,
+  });
+  const tutorialAutoStartRef = useRef<number | null>(null);
+  const [tutorialLaunchZoom, setTutorialLaunchZoom] = useState(false);
+  const [danielMouthOpen, setDanielMouthOpen] = useState(false);
 
   const strongCooldownRef = useRef(0);
   const [strongCooldown, setStrongCooldown] = useState(0);
@@ -1991,10 +2014,145 @@ export default function JogoPage() {
   }
 
 
-  function setPassoTutorial(step: TutorialStep) {
-    tutorialStepRef.current = step;
+  function criarAlvoTutorial(step: TutorialStep) {
+    const baseX = CONFIG.canvasWidth - 300;
+    const centerY = CONFIG.canvasHeight / 2;
+
+    enemiesRef.current = [];
+
+    if (step === "shot") {
+      const id = enemyIdRef.current++;
+      enemiesRef.current = [
+        {
+          id,
+          stretchUntil: performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
+          kind: "purple",
+          x: CONFIG.canvasWidth + 110,
+          y: centerY - 50,
+          w: CONFIG.gameplay.enemies.purple.width,
+          h: CONFIG.gameplay.enemies.purple.height,
+          vx: -1.65,
+          vy: 0,
+          hp: 1,
+          maxHp: 1,
+          age: 0,
+          waveBaseY: centerY,
+          shotCooldown: 999999,
+          windUpMs: 0,
+          isDashing: false,
+          phase: 0,
+          tutorialStep: "shot",
+          removedByStrong: false,
+        },
+      ];
+      tutorialTargetSpawnedRef.current = true;
+      return;
+    }
+
+    if (step === "strong") {
+      enemiesRef.current = [-1, 0, 1].map((row) => {
+        const id = enemyIdRef.current++;
+        return {
+          id,
+          stretchUntil: performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
+          kind: "purple" as EnemyKind,
+          x: CONFIG.canvasWidth + 100 + Math.abs(row) * 42,
+          y: centerY - 50 + row * 118,
+          w: CONFIG.gameplay.enemies.purple.width,
+          h: CONFIG.gameplay.enemies.purple.height,
+          vx: -1.25,
+          vy: 0,
+          hp: 3,
+          maxHp: 3,
+          age: 0,
+          waveBaseY: centerY + row * 118,
+          shotCooldown: 999999,
+          windUpMs: 0,
+          isDashing: false,
+          phase: row,
+          tutorialStep: "strong",
+          removedByStrong: false,
+        };
+      });
+      tutorialTargetSpawnedRef.current = true;
+      return;
+    }
+
+    if (step === "boost" || step === "dodge") {
+      const id = enemyIdRef.current++;
+      enemiesRef.current = [
+        {
+          id,
+          stretchUntil: performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs,
+          kind: "black",
+          x: CONFIG.canvasWidth + 120,
+          y: centerY - CONFIG.gameplay.enemies.black.height / 2,
+          w: CONFIG.gameplay.enemies.black.width,
+          h: CONFIG.gameplay.enemies.black.height,
+          vx: step === "boost" ? -3.1 : -4.25,
+          vy: 0,
+          hp: 999,
+          maxHp: 999,
+          age: 0,
+          waveBaseY: centerY,
+          shotCooldown: 999999,
+          windUpMs: 0,
+          isDashing: true,
+          knockedBack: false,
+        },
+      ];
+      tutorialTargetSpawnedRef.current = true;
+    }
+  }
+
+  function prepararPassoTutorial(step: TutorialStep) {
+    tutorialStepStartedAtRef.current = performance.now();
     tutorialMoveStartedAtRef.current = 0;
+    tutorialTargetSpawnedRef.current = false;
+    setTutorialLaunchZoom(false);
+    shotsRef.current = [];
+    powerUpsRef.current = [];
+    enemyProjectilesRef.current = [];
+    bossProjectilesRef.current = [];
+
+    if (step === "shot" || step === "strong" || step === "boost" || step === "dodge") {
+      criarAlvoTutorial(step);
+    }
+
+    if (step === "boost") {
+      boostChargeRef.current = CONFIG.gameplay.boost.maxCharge;
+      setBoostCharge(CONFIG.gameplay.boost.maxCharge);
+    }
+
+    if (step === "dodge") {
+      lastDodgeAtRef.current = -999999;
+      setDodgeReadyRatio(1);
+    }
+
+    if (step === "done") {
+      enemiesRef.current = [];
+    }
+  }
+
+  function setPassoTutorial(step: TutorialStep) {
+    if (tutorialAutoStartRef.current !== null) {
+      window.clearTimeout(tutorialAutoStartRef.current);
+      tutorialAutoStartRef.current = null;
+    }
+
+    tutorialStepRef.current = step;
+    prepararPassoTutorial(step);
     setTutorialStep(step);
+
+    if (step === "done") {
+      setTutorialLaunchZoom(true);
+      tutorialAutoStartRef.current = window.setTimeout(() => {
+        if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "done") {
+          setTutorialLaunchZoom(false);
+          iniciarJogo(currentModeRef.current ?? "story");
+        }
+      }, 2450);
+    }
   }
 
   function avancarPassoTutorial() {
@@ -2013,9 +2171,41 @@ export default function JogoPage() {
     }
   }
 
+  function resetarTutorialSuave() {
+    if (gameStateRef.current !== "tutorial" || tutorialStepRef.current === "done") return;
+
+    const player = playerRef.current;
+    const now = performance.now();
+    tutorialResetRef.current = {
+      active: true,
+      startAt: now,
+      durationMs: 720,
+      fromX: player.x,
+      fromY: player.y,
+      toX: 120,
+      toY: CONFIG.canvasHeight / 2 - player.h / 2,
+    };
+
+    player.vx = 0;
+    player.vy = 0;
+    player.tilt = 0;
+    player.invincibleUntil = Math.max(player.invincibleUntil, now + 1200);
+    boostAimRef.current.active = false;
+    boostAimRef.current.variantActive = false;
+    mobileShootRef.current = false;
+    shotsRef.current = [];
+    enemyProjectilesRef.current = [];
+    bossProjectilesRef.current = [];
+    tocarSom(CONFIG.sounds.tutorialWarning || CONFIG.sounds.menuBack || CONFIG.sounds.playerDamage, 0.35, "menu");
+  }
+
   function acaoTutorialPermitida(action: "shot" | "strong" | "boost" | "dodge") {
     if (gameStateRef.current !== "tutorial") return true;
-    return tutorialStepRef.current === action;
+    const allowed = tutorialStepRef.current === action;
+    if (!allowed) {
+      resetarTutorialSuave();
+    }
+    return allowed;
   }
 
   function tocarSom(
@@ -2348,6 +2538,8 @@ export default function JogoPage() {
     setStrongReadyRatio(1);
     setPlayerHp(player.hp);
     setGoldenHp(player.goldenHp);
+    tutorialResetRef.current.active = false;
+    setTutorialLaunchZoom(false);
     setPassoTutorial("move");
     setIsLowHp(false);
     setEstado("tutorial");
@@ -2408,6 +2600,11 @@ export default function JogoPage() {
     const now = performance.now();
 
     if (now < player.invincibleUntil) {
+      return;
+    }
+
+    if (gameStateRef.current === "tutorial") {
+      resetarTutorialSuave();
       return;
     }
 
@@ -3234,6 +3431,15 @@ export default function JogoPage() {
 
       if (distance > radius) continue;
 
+      if (
+        gameStateRef.current === "tutorial" &&
+        tutorialStepRef.current === "strong" &&
+        enemy.kind === "purple" &&
+        enemy.tutorialStep === "strong"
+      ) {
+        enemy.removedByStrong = true;
+      }
+
       const falloff = clamp(1 - distance / radius, 0.18, 1);
       const damage = (strongCfg.shockwaveDamage ?? 0) * falloff;
       if (damage > 0 && enemy.hp > 0) {
@@ -3864,6 +4070,7 @@ export default function JogoPage() {
   }
 
   function tentarSpawnPowerUp(x: number, y: number, bossDamage = false) {
+    if (gameStateRef.current === "tutorial") return;
     const player = playerRef.current;
     const cfg = CONFIG.gameplay.powerups;
     const now = performance.now();
@@ -4299,12 +4506,12 @@ export default function JogoPage() {
     const shouldTalk = gameState === "tutorial" || gameState === "tutorialChoice";
 
     if (!shouldTalk) {
-      setJoaoMouthOpen(false);
+      setDanielMouthOpen(false);
       return;
     }
 
     const timer = window.setInterval(() => {
-      setJoaoMouthOpen((current) => !current);
+      setDanielMouthOpen((current) => !current);
     }, 135);
 
     return () => window.clearInterval(timer);
@@ -4596,9 +4803,7 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.normalShot, 0.45, "sfx");
       player.normalCooldown = cooldownTiroNormalAtual();
 
-      if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "shot") {
-        avancarPassoTutorial();
-      }
+      // No tutorial, o passo de tiro normal só avança quando o alvo de treino for destruído.
     }
 
     function shootStrong(dirXParam = 1, dirYParam = 0) {
@@ -4661,9 +4866,7 @@ export default function JogoPage() {
       );
       setStrongCooldown(strongCooldownRef.current);
 
-      if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "strong") {
-        avancarPassoTutorial();
-      }
+      // No tutorial, o passo de tiro forte só avança quando o alvo blindado for destruído.
     }
 
     const cooldownTimer = window.setInterval(() => {
@@ -4717,6 +4920,7 @@ export default function JogoPage() {
       const estadoAtual = gameStateRef.current;
       const deveDesenharGameplayBg =
         estadoAtual === "playing" ||
+        estadoAtual === "tutorial" ||
         estadoAtual === "paused" ||
         estadoAtual === "gameOverCutscene" ||
         estadoAtual === "gameOver";
@@ -4741,7 +4945,7 @@ export default function JogoPage() {
         const tileW = sourceW * scale;
         const tileH = canvas.height;
         const speed = 34; // px por segundo, em coordenada de tela.
-        if (gameStateRef.current === "playing") {
+        if (gameStateRef.current === "playing" || gameStateRef.current === "tutorial") {
           backgroundOffsetRef.current =
             (backgroundOffsetRef.current + (speed * delta) / 1000) % tileW;
         }
@@ -6439,6 +6643,11 @@ export default function JogoPage() {
           if (enemiesToRemove.has(enemy.id)) continue;
 
           if (rectsCollide(shot, enemy)) {
+            if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "strong" && shot.type !== "strong") {
+              shotsToRemove.add(shot.id);
+              criarParticulasHit(shot.x + shot.w / 2, shot.y + shot.h / 2, "#93c5fd", 4);
+              break;
+            }
             const danoAplicado = Math.min(shot.damage, Math.max(0, enemy.hp));
             enemy.hp -= shot.damage;
             carregarBoostPorDano(danoAplicado);
@@ -6453,12 +6662,24 @@ export default function JogoPage() {
 
             if (shot.type === "strong") {
               aplicarShockwaveDeTiroForte(hitX, hitY);
+
+              if (
+                gameStateRef.current === "tutorial" &&
+                tutorialStepRef.current === "strong" &&
+                enemy.kind === "purple" &&
+                enemy.tutorialStep === "strong"
+              ) {
+                enemy.removedByStrong = true;
+                enemy.hp = 0;
+              }
             }
 
-            if (enemy.hp <= 0) {
+            if (enemy.hp <= 0 || enemy.removedByStrong) {
               enemiesToRemove.add(enemy.id);
               registrarAbate(enemy.kind);
-              tentarSpawnPowerUp(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+              if (gameStateRef.current !== "tutorial") {
+                tentarSpawnPowerUp(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+              }
 
               if (enemy.kind === "asteroid") {
                 spawnAsteroidFragments(enemy);
@@ -6601,7 +6822,9 @@ export default function JogoPage() {
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
               registrarAbate(enemy.kind);
-              tentarSpawnPowerUp(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+              if (gameStateRef.current !== "tutorial") {
+                tentarSpawnPowerUp(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2);
+              }
 
               if (enemy.kind === "asteroid") {
                 spawnAsteroidFragments(enemy);
@@ -6630,6 +6853,11 @@ export default function JogoPage() {
               continue;
             }
 
+            if (gameStateRef.current === "tutorial") {
+              resetarTutorialSuave();
+              break;
+            }
+
             enemiesToRemove.add(enemy.id);
 
             if (enemy.kind === "asteroid") {
@@ -6649,6 +6877,11 @@ export default function JogoPage() {
 
         for (const bullet of enemyProjectilesRef.current) {
           if (rectsCollide(playerHitbox, bullet)) {
+            if (gameStateRef.current === "tutorial") {
+              resetarTutorialSuave();
+              break;
+            }
+
             projectilesToRemove.add(bullet.id);
             criarParticulasHit(
               bullet.x + bullet.w / 2,
@@ -6716,6 +6949,27 @@ export default function JogoPage() {
       const effectiveAcceleration = CONFIG.gameplay.player.acceleration * slowMultiplier;
       const effectiveMaxSpeedX = CONFIG.gameplay.player.maxSpeedX * slowMultiplier;
       const effectiveMaxSpeedY = CONFIG.gameplay.player.maxSpeedY * slowMultiplier;
+
+      if (isTutorialMode && tutorialResetRef.current.active) {
+        const reset = tutorialResetRef.current;
+        const progress = clamp((performance.now() - reset.startAt) / reset.durationMs, 0, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        player.x = reset.fromX + (reset.toX - reset.fromX) * eased;
+        player.y = reset.fromY + (reset.toY - reset.fromY) * eased;
+        player.vx = 0;
+        player.vy = 0;
+        player.tilt *= 0.82;
+
+        if (progress >= 1) {
+          tutorialResetRef.current.active = false;
+          prepararPassoTutorial(tutorialStepRef.current);
+        }
+
+        atualizarParticulas(delta);
+        atualizarPowerUpUi();
+        setIsLowHp(false);
+        return;
+      }
 
       // Se o alien capturou/arremessou o player, trava controles e resolve só essa cutscene.
       // Atualizamos inimigos antes para o player acompanhar o alien corretamente.
@@ -6945,7 +7199,89 @@ export default function JogoPage() {
           tutorialMoveStartedAtRef.current = 0;
         }
 
+        // Tutorial roteirizado: mantém o jogo rodando, mas só valida a ação ensinada.
+        if (tutorialStepRef.current === "boost" || tutorialStepRef.current === "dodge") {
+          resolverColisoes();
+        }
+
+        if (tutorialStepRef.current === "shot" || tutorialStepRef.current === "strong") {
+          resolverColisoes();
+
+          const currentTutorialStep = tutorialStepRef.current;
+          const targetsLeft = enemiesRef.current.filter((enemy) => {
+            if (enemy.kind !== "purple") return false;
+            if (enemy.tutorialStep !== currentTutorialStep) return false;
+
+            if (currentTutorialStep === "strong") {
+              return enemy.hp > 0 && !enemy.removedByStrong && enemy.x > -enemy.w - 80;
+            }
+
+            return enemy.hp > 0;
+          }).length;
+
+          if (tutorialTargetSpawnedRef.current && targetsLeft <= 0) {
+            tutorialTargetSpawnedRef.current = false;
+            setTimeout(() => {
+              if (
+                gameStateRef.current === "tutorial" &&
+                tutorialStepRef.current === currentTutorialStep
+              ) {
+                avancarPassoTutorial();
+              }
+            }, 420);
+          }
+        }
+
+        // Pequena animação dos alvos de treino sem ativar a IA real das waves.
+        enemiesRef.current = enemiesRef.current.map((enemy) => {
+          if (enemy.kind === "black") {
+            const playerCenterY = player.y + player.h / 2;
+            const targetY = clamp(
+              playerCenterY - enemy.h / 2,
+              80,
+              canvas.height - enemy.h - 80,
+            );
+            const nextX = enemy.x + enemy.vx * speedFactor;
+            const nextY = enemy.y + (targetY - enemy.y) * 0.018 * speedFactor;
+
+            if (nextX < -enemy.w - 40) {
+              setTimeout(() => {
+                if (gameStateRef.current === "tutorial") prepararPassoTutorial(tutorialStepRef.current);
+              }, 120);
+            }
+
+            return {
+              ...enemy,
+              age: enemy.age + delta,
+              x: nextX,
+              y: nextY,
+              stretchUntil: performance.now() + 80,
+            };
+          }
+
+          const nextX = enemy.x + enemy.vx * speedFactor;
+          if (nextX < -enemy.w - 60) {
+            if (tutorialStepRef.current === "strong" && enemy.tutorialStep === "strong") {
+              enemy.removedByStrong = true;
+              enemy.hp = 0;
+            } else {
+              setTimeout(() => {
+                if (gameStateRef.current === "tutorial") resetarTutorialSuave();
+              }, 80);
+            }
+          }
+
+          return {
+            ...enemy,
+            age: enemy.age + delta,
+            x: nextX,
+            y: enemy.waveBaseY - enemy.h / 2 + Math.sin((performance.now() + enemy.id * 97) * 0.003) * 12,
+            rotation: (enemy.rotation ?? 0) + (enemy.rotationSpeed ?? 0) * delta,
+          };
+        });
+
         atualizarParticulas(delta);
+        atualizarPowerUpUi();
         return;
       }
 
@@ -7457,7 +7793,7 @@ export default function JogoPage() {
 
   return (
     <main
-      className={`game-fullscreen-page game-state-${gameState} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
+      className={`game-fullscreen-page game-state-${gameState} ${tutorialLaunchZoom ? "game-tutorial-launch-zoom" : ""} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
       style={gameStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -7734,7 +8070,7 @@ export default function JogoPage() {
 
           <div className="game-menu-logo">
             <strong>SPACE NEWS</strong>
-            <span>DICA: João vai te avisar quando o perigo estiver perto.</span>
+            <span>DICA: Daniel vai te avisar quando o perigo estiver perto.</span>
           </div>
         </section>
       )}
@@ -7857,17 +8193,17 @@ export default function JogoPage() {
             <div className="game-launch-trail" />
           </div>
 
-          <div className="game-joao-choice-panel">
-            <div className="game-joao-dialog is-choice">
+          <div className="game-daniel-choice-panel">
+            <div className="game-daniel-dialog is-choice">
               <img
-                className="game-joao-icon"
-                src={assetUrl(getJoaoIcon("normal", joaoMouthOpen))}
-                alt="João"
+                className="game-daniel-icon"
+                src={assetUrl(getDanielIcon("normal", danielMouthOpen))}
+                alt="Daniel"
                 draggable={false}
               />
-              <div className="game-joao-text">
-                <strong>JOÃO</strong>
-                <p>Cleber, João na escuta! Antes de encarar os robôs da desinformação, quer fazer um tutorial rápido?</p>
+              <div className="game-daniel-text">
+                <strong>DANIEL</strong>
+                <p>Cleber, Daniel na escuta! Antes de encarar os robôs da desinformação, quer fazer um tutorial rápido?</p>
               </div>
             </div>
 
@@ -7900,24 +8236,22 @@ export default function JogoPage() {
             </strong>
           </div>
 
-          <div className="game-joao-dialog game-joao-tutorial-dialog">
+          <div className="game-daniel-dialog game-daniel-tutorial-dialog">
             <img
-              className="game-joao-icon"
-              src={assetUrl(getJoaoIcon(TUTORIAL_JOAO_TEXT[tutorialStep].expression, joaoMouthOpen))}
-              alt="João"
+              className="game-daniel-icon"
+              src={assetUrl(getDanielIcon(TUTORIAL_DANIEL_TEXT[tutorialStep].expression, danielMouthOpen))}
+              alt="Daniel"
               draggable={false}
             />
-            <div className="game-joao-text">
-              <strong>JOÃO</strong>
+            <div className="game-daniel-text">
+              <strong>DANIEL</strong>
               <p>
                 {typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches
-                  ? TUTORIAL_JOAO_TEXT[tutorialStep].mobile
-                  : TUTORIAL_JOAO_TEXT[tutorialStep].pc}
+                  ? TUTORIAL_DANIEL_TEXT[tutorialStep].mobile
+                  : TUTORIAL_DANIEL_TEXT[tutorialStep].pc}
               </p>
               {tutorialStep === "done" && (
-                <button type="button" onClick={() => iniciarJogo(currentModeRef.current ?? "story")}>
-                  COMEÇAR MISSÃO
-                </button>
+                <span className="game-tutorial-auto-start">Rota de combate liberada.</span>
               )}
             </div>
           </div>

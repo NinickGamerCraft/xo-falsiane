@@ -6209,7 +6209,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   50% { opacity: 1; transform: scaleX(1.08); }
 }
 
-.game-joao-choice-panel {
+.game-daniel-choice-panel {
   position: relative;
   z-index: 62;
   width: min(940px, 92vw);
@@ -6218,7 +6218,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   gap: 20px;
 }
 
-.game-joao-dialog {
+.game-daniel-dialog {
   display: grid;
   grid-template-columns: 112px 1fr;
   gap: 18px;
@@ -6233,11 +6233,11 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   pointer-events: auto;
 }
 
-.game-joao-dialog.is-choice {
+.game-daniel-dialog.is-choice {
   backdrop-filter: blur(4px);
 }
 
-.game-joao-icon {
+.game-daniel-icon {
   width: 112px;
   height: 112px;
   object-fit: contain;
@@ -6247,7 +6247,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   box-shadow: 4px 4px 0 #08030a;
 }
 
-.game-joao-text strong {
+.game-daniel-text strong {
   display: block;
   margin-bottom: 8px;
   color: #ffe18c;
@@ -6257,7 +6257,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   text-transform: uppercase;
 }
 
-.game-joao-text p {
+.game-daniel-text p {
   margin: 0;
   color: #fff7e6;
   font-family: Arial, Helvetica, sans-serif;
@@ -6266,7 +6266,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   line-height: 1.35;
 }
 
-.game-joao-text button,
+.game-daniel-text button,
 .game-tutorial-choice-buttons button {
   margin-top: 18px;
   padding: 16px 20px;
@@ -6278,7 +6278,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   box-shadow: 5px 5px 0 #08030a;
 }
 
-.game-joao-text button:hover,
+.game-daniel-text button:hover,
 .game-tutorial-choice-buttons button:hover {
   color: #ffe18c;
   transform: translate(-2px, -2px);
@@ -6339,7 +6339,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   text-shadow: 4px 4px 0 #08030a;
 }
 
-.game-joao-tutorial-dialog {
+.game-daniel-tutorial-dialog {
   position: fixed;
   left: 50%;
   bottom: 26px;
@@ -6365,7 +6365,7 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
     font-size: clamp(18px, 5.4vh, 34px);
   }
 
-  .game-joao-tutorial-dialog {
+  .game-daniel-tutorial-dialog {
     left: calc(var(--stage-left, 0px) + var(--stage-w, 100vw) / 2);
     bottom: calc(max(10px, env(safe-area-inset-bottom)) + var(--stage-top, 0px));
     width: min(760px, 74vw);
@@ -6374,28 +6374,28 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
     padding: 10px;
   }
 
-  .game-joao-dialog {
+  .game-daniel-dialog {
     grid-template-columns: 72px 1fr;
     gap: 10px;
     padding: 10px;
   }
 
-  .game-joao-icon {
+  .game-daniel-icon {
     width: 72px;
     height: 72px;
   }
 
-  .game-joao-text strong {
+  .game-daniel-text strong {
     font-size: 11px;
     margin-bottom: 4px;
   }
 
-  .game-joao-text p {
+  .game-daniel-text p {
     font-size: clamp(12px, 3.1vh, 17px);
     line-height: 1.25;
   }
 
-  .game-joao-text button,
+  .game-daniel-text button,
   .game-tutorial-choice-buttons button {
     padding: 10px 12px;
     font-size: clamp(16px, 4.6vh, 26px);
@@ -6403,5 +6403,316 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
 
   .game-tutorial-choice-buttons {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* ===== DANIEL / TUTORIAL ROTEIRIZADO ===== */
+.game-daniel-dialog {
+  animation: danielDialogEnter 0.28s ease both;
+}
+
+@keyframes danielDialogEnter {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.game-daniel-icon {
+  image-rendering: pixelated;
+  filter: drop-shadow(4px 4px 0 rgba(0, 0, 0, 0.75));
+}
+
+.game-tutorial-overlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 82% 50%, rgba(255, 225, 140, 0.12), transparent 18%),
+    linear-gradient(90deg, rgba(8, 3, 10, 0.12), transparent 50%, rgba(255, 225, 140, 0.08));
+  animation: tutorialScanPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tutorialScanPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+.game-tutorial-task {
+  animation: tutorialTaskPop 0.35s ease both;
+}
+
+@keyframes tutorialTaskPop {
+  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.game-tutorial-task strong::after {
+  content: "";
+  display: block;
+  margin-top: 8px;
+  height: 4px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent, #ffe18c, transparent);
+  animation: tutorialLineSweep 1.2s linear infinite;
+}
+
+@keyframes tutorialLineSweep {
+  from { transform: translateX(-35%); opacity: 0.35; }
+  50% { opacity: 1; }
+  to { transform: translateX(35%); opacity: 0.35; }
+}
+
+.game-launch-preview {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 75%, rgba(96, 165, 250, 0.16), transparent 22%),
+    linear-gradient(#0b102e, #050616 65%, #16230d);
+}
+
+.game-launch-ship {
+  animation: tutorialShipLaunch 2.4s ease-in-out infinite;
+}
+
+@keyframes tutorialShipLaunch {
+  0% { transform: translate(0, 22px) rotate(-10deg) scale(0.92); }
+  45% { transform: translate(44px, -18px) rotate(-18deg) scale(1.05); }
+  100% { transform: translate(84px, -62px) rotate(-22deg) scale(1.16); }
+}
+
+.game-launch-trail {
+  animation: tutorialTrailFlicker 0.12s steps(2) infinite;
+}
+
+@keyframes tutorialTrailFlicker {
+  from { opacity: 0.35; transform: scaleX(0.82); }
+  to { opacity: 1; transform: scaleX(1.12); }
+}
+
+/* ===== PATCH FINAL — tutorial mais suave + mobile touch maior ===== */
+.game-tutorial-auto-start {
+  display: inline-block;
+  margin-top: 10px;
+  color: #ffe18c;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+  font-size: clamp(13px, 1.8vw, 18px);
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: tutorialAutoStartPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes tutorialAutoStartPulse {
+  0%, 100% { opacity: 0.55; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+.game-state-tutorial .game-daniel-tutorial-dialog {
+  transition:
+    transform 0.36s ease,
+    opacity 0.36s ease,
+    filter 0.36s ease;
+}
+
+.game-state-tutorial .game-tutorial-task {
+  transition:
+    transform 0.32s ease,
+    opacity 0.32s ease;
+}
+
+/* Mobile: controles maiores e mais fáceis de tocar durante gameplay/tutorial. */
+@media (pointer: coarse) and (orientation: landscape) {
+  .game-mobile-joystick {
+    width: clamp(172px, 34vh, 236px) !important;
+    height: clamp(172px, 34vh, 236px) !important;
+    left: clamp(18px, 3.2vw, 42px) !important;
+    bottom: clamp(16px, 4vh, 34px) !important;
+  }
+
+  .game-mobile-joystick-knob {
+    width: 48% !important;
+    height: 48% !important;
+  }
+
+  .game-mobile-actions {
+    width: clamp(252px, 48vh, 344px) !important;
+    height: clamp(176px, 32vh, 232px) !important;
+    right: clamp(18px, 3.2vw, 42px) !important;
+    bottom: clamp(16px, 4vh, 34px) !important;
+  }
+
+  .game-mobile-actions button {
+    border-width: 4px !important;
+    box-shadow: 5px 5px 0 #08030a !important;
+  }
+
+  .game-mobile-actions button:nth-child(1) {
+    right: clamp(92px, 18vh, 132px) !important;
+    bottom: 0 !important;
+    width: clamp(78px, 15.5vh, 104px) !important;
+    height: clamp(78px, 15.5vh, 104px) !important;
+  }
+
+  .game-mobile-actions button:nth-child(2) {
+    right: 0 !important;
+    bottom: clamp(56px, 10vh, 78px) !important;
+    width: clamp(78px, 15.5vh, 104px) !important;
+    height: clamp(78px, 15.5vh, 104px) !important;
+  }
+
+  .game-mobile-actions button:nth-child(3) {
+    right: clamp(184px, 35vh, 252px) !important;
+    bottom: clamp(64px, 11vh, 88px) !important;
+    width: clamp(66px, 12.5vh, 86px) !important;
+    height: clamp(66px, 12.5vh, 86px) !important;
+  }
+
+  .game-mobile-actions button:nth-child(4) {
+    right: clamp(92px, 18vh, 132px) !important;
+    bottom: clamp(104px, 19vh, 138px) !important;
+    width: clamp(66px, 12.5vh, 86px) !important;
+    height: clamp(66px, 12.5vh, 86px) !important;
+  }
+
+  .game-daniel-tutorial-dialog {
+    bottom: calc(var(--stage-top, 0px) + max(8px, env(safe-area-inset-bottom))) !important;
+    width: min(760px, 70vw) !important;
+  }
+}
+
+@media (pointer: coarse) and (orientation: portrait) {
+  .game-mobile-controls,
+  .game-mobile-top-actions {
+    display: none !important;
+  }
+}
+
+
+/* ===== PATCH FINAL: tutorial com panorama ativo ===== */
+.game-state-tutorial .game-fullscreen-canvas,
+.game-state-tutorial .game-fullscreen-canvas.is-gameplay-visible {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
+.game-state-tutorial .game-screen,
+.game-state-tutorial .game-tutorial-overlay {
+  background: transparent !important;
+}
+
+.game-state-tutorial .game-tutorial-overlay::before {
+  background:
+    radial-gradient(circle at 82% 50%, rgba(255, 225, 140, 0.08), transparent 18%),
+    linear-gradient(90deg, rgba(8, 3, 10, 0.06), transparent 50%, rgba(255, 225, 140, 0.045)) !important;
+}
+
+@media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
+  .game-state-tutorial .game-fullscreen-canvas,
+  .game-state-tutorial .game-fullscreen-canvas.is-gameplay-visible {
+    opacity: 1 !important;
+    visibility: visible !important;
+  }
+}
+
+/* ===== PATCH FINAL — Tutorial mais fluido e balão centralizado ===== */
+.game-state-tutorial .game-daniel-tutorial-dialog {
+  left: 50% !important;
+  right: auto !important;
+  bottom: clamp(18px, 3vh, 34px) !important;
+  transform: translateX(-50%) !important;
+  width: min(980px, 82vw) !important;
+  max-width: calc(100vw - 56px) !important;
+  animation: danielTutorialDialogEnterCentered 0.34s ease both !important;
+}
+
+@keyframes danielTutorialDialogEnterCentered {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+.game-tutorial-launch-zoom .game-fullscreen-canvas {
+  transform: scale(1.16) !important;
+  transform-origin: 26% 56% !important;
+  transition: transform 1.15s cubic-bezier(0.16, 0.88, 0.2, 1) !important;
+}
+
+.game-tutorial-launch-zoom .game-tutorial-task {
+  opacity: 0 !important;
+  transform: translateX(-50%) translateY(-18px) scale(0.96) !important;
+  transition: opacity 0.28s ease, transform 0.28s ease !important;
+}
+
+.game-tutorial-launch-zoom .game-daniel-tutorial-dialog {
+  filter: drop-shadow(0 0 18px rgba(255, 225, 140, 0.32));
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .game-state-tutorial .game-daniel-tutorial-dialog {
+    left: calc(var(--stage-left, 0px) + var(--stage-w, 100vw) / 2) !important;
+    bottom: calc(var(--stage-top, 0px) + 10px) !important;
+    width: min(760px, 78vw) !important;
+    max-width: calc(var(--stage-w, 100vw) - 36px) !important;
+    transform: translateX(-50%) !important;
+  }
+
+  .game-tutorial-launch-zoom .game-fullscreen-canvas {
+    transform: scale(1.12) !important;
+    transform-origin: 28% 56% !important;
+  }
+}
+
+
+/* =========================================================
+   PATCH FINAL GERADO PELO CHATGPT — DANIEL CENTRALIZADO
+   Mantém o balão dentro do palco 16:9 e corrige deslocamento.
+========================================================= */
+.game-state-tutorial .game-daniel-tutorial-dialog {
+  position: fixed !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: clamp(18px, 3vh, 34px) !important;
+  width: min(980px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  transform: translateX(-50%) !important;
+  box-sizing: border-box !important;
+  z-index: 80 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.game-state-tutorial .game-daniel-tutorial-dialog * {
+  box-sizing: border-box;
+}
+
+.game-tutorial-launch-zoom .game-daniel-tutorial-dialog {
+  transform: translateX(-50%) translateY(10px) scale(0.98) !important;
+  opacity: 0.92 !important;
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .game-state-tutorial .game-daniel-tutorial-dialog {
+    left: calc(var(--stage-left, 0px) + var(--stage-w, 100vw) / 2) !important;
+    width: min(760px, calc(var(--stage-w, 100vw) - 28px)) !important;
+    max-width: calc(var(--stage-w, 100vw) - 28px) !important;
+    bottom: calc(var(--stage-top, 0px) + max(8px, env(safe-area-inset-bottom))) !important;
+    transform: translateX(-50%) !important;
+  }
+}
+
+@media (max-width: 768px) and (orientation: portrait) {
+  .game-state-tutorial .game-daniel-tutorial-dialog {
+    left: 50% !important;
+    width: min(94vw, 760px) !important;
+    max-width: 94vw !important;
+    bottom: max(14px, env(safe-area-inset-bottom)) !important;
+    transform: translateX(-50%) !important;
   }
 }
