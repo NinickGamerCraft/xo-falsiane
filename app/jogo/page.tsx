@@ -665,8 +665,8 @@ const CONFIG = {
       randomBadChance: 0.38,
       randomComboChance: 0.16,
       flashbangVoiceDelayMs: 1000,
-      flashbangWhiteMs: 4200,
-      flashbangBlurMs: 7600,
+      flashbangWhiteMs: 3800,
+      flashbangBlurMs: 8200,
       invertScreenMs: 5500,
       randomBadSlowMs: 6500,
       randomBadSlowMultiplier: 0.48,
@@ -676,9 +676,9 @@ const CONFIG = {
       flamesDurationMs: 15000,
       flamesRange: 350,
       flamesHomingRange: 420,
-      flamesConeWidth: 72,
+      flamesConeWidth: 74,
       flamesDamagePerSecond: 9,
-      flamesParticleAmount: 34,
+      flamesParticleAmount: 28,
 
       fireRateDurationMs: 10000,
       powerShotDurationMs: 10000,
@@ -748,6 +748,45 @@ const CONFIG = {
         aimLaserLength: 1800,
         aimLaserFollow: 0.115,
         aimLaserShake: 6.5,
+
+        // Ajuste fino dos pontos de origem dos ataques do Chocado.
+        // Use estes offsets quando trocar/ajustar os sprites dele.
+        // Valores positivos: direita/baixo. Valores negativos: esquerda/cima.
+        attackOffsets: {
+          servoPair: {
+            x: 52,
+            topY: 70,
+            bottomY: -110,
+            spacing: 42,
+          },
+          laserX: {
+            x: 0,
+            y: 0,
+          },
+          tripleLaser: {
+            x: 0,
+            y: 0,
+            lanesY: [126, 360, 594],
+          },
+          cannon: {
+            x: 30,
+            topY: 115,
+            middleY: 0,
+            bottomY: -135,
+          },
+          servoWave: {
+            x: 38,
+            topY: 66,
+            bottomY: -96,
+            topTargetY: -28,
+            bottomTargetY: 28,
+          },
+          aimLaser: {
+            x: 28,
+            y: 0,
+          },
+        },
+
         cannonOrbSpeed: 5.2,
         cannonOrbDamage: 1,
         enragedHp: 200,
@@ -1136,7 +1175,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260602-fix3";
+const ASSET_VERSION = "space-news-20260603-glow-hitbox-cursor";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -1594,6 +1633,7 @@ function drawShotFallbackSprite(
 
 export default function JogoPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const customCursorRef = useRef<HTMLDivElement | null>(null);
 
   const keysRef = useRef<Record<string, boolean>>({});
   const mobileShootRef = useRef(false);
@@ -4047,16 +4087,20 @@ export default function JogoPage() {
         const dx = cx - baseX;
         const dy = cy - baseY;
         const forward = dx * dir.x + dy * dir.y;
-        if (forward < 0 || forward > range) return;
+        if (forward < -12 || forward > range) return;
+
+        // Hitbox do Flames: cápsula/cone controlado, não um retângulo gigante.
+        // Isso evita acertar inimigo muito acima/abaixo só porque a partícula apareceu perto.
         const side = Math.abs(dx * -dir.y + dy * dir.x);
-        const allowedSide = cone * (0.38 + 0.62 * (forward / range));
+        const enemyRadius = Math.max(10, Math.min(enemy.w, enemy.h) * 0.34);
+        const allowedSide = 18 + cone * (0.16 + 0.42 * (forward / range)) + enemyRadius;
         if (side > allowedSide) return;
 
         const applied = Math.min(damage, Math.max(0, enemy.hp));
         enemy.hp -= damage;
         carregarBoostPorDano(applied);
         if (enemy.kind === "asteroid" && enemy.hp <= enemy.maxHp / 2) enemy.cracked = true;
-        criarParticulasHit(cx, cy, powerActive ? "#ffedd5" : "#fb923c", 2);
+        criarParticulasHit(cx, cy, powerActive ? "#ff7a18" : "#fb923c", 3);
         if (enemy.hp <= 0) {
           killed.add(enemy.id);
           registrarAbate(enemy.kind);
@@ -4084,38 +4128,54 @@ export default function JogoPage() {
         const dy = cy - baseY;
         const forward = dx * dir.x + dy * dir.y;
         const side = Math.abs(dx * -dir.y + dy * dir.x);
-        if (forward >= 0 && forward <= range && side <= cone * 1.2) {
+        if (forward >= -18 && forward <= range && side <= cone * 0.72) {
           const applied = Math.min(damage, Math.max(0, boss.hp));
           boss.hp -= damage;
           carregarBoostPorDano(applied);
-          criarParticulasHit(baseX + dir.x * Math.min(range, forward), baseY + dir.y * Math.min(range, forward), "#ffe18c", 2);
+          criarParticulasHit(baseX + dir.x * Math.min(range, forward), baseY + dir.y * Math.min(range, forward), "#ff7a18", 3);
           if (boss.hp <= 0) boss.hp = 0;
         }
       }
 
-      // Chama densa de verdade: várias partículas juntas, com núcleo claro e bordas laranja.
-      const particleAmount = Math.round(cfg.flamesParticleAmount * (powerActive ? 1.35 : 1));
+      // Chama densa: muitas partículas coladas, sem branco, com glow quente.
+      const particleQuality = CONFIG.settings.enableParticles ? CONFIG.settings.particleQuality : 0;
+      const isMobileLike = window.matchMedia("(pointer: coarse)").matches;
+      const particleAmount = Math.round(
+        Math.min(
+          isMobileLike ? 12 : 24,
+          cfg.flamesParticleAmount * (powerActive ? 1.12 : 1) * particleQuality,
+        ),
+      );
+      const flameColors = ["#ff2f00", "#ff5a00", "#ff7a18", "#fb923c", "#f97316", "#facc15"];
       for (let i = 0; i < particleAmount; i += 1) {
-        const progress = Math.pow(Math.random(), 0.72);
-        const dist = 26 + progress * range;
-        const widthAtPoint = cone * (0.18 + 0.82 * progress);
+        const progress = Math.pow(Math.random(), 0.62);
+        const dist = 18 + progress * range;
+        const widthAtPoint = cone * (0.12 + 0.78 * progress);
         const spread = rand(-widthAtPoint, widthAtPoint);
-        const jitter = rand(-8, 8);
+        const jitter = rand(-5, 5);
         const px = baseX + dir.x * dist + -dir.y * spread + dir.x * jitter;
         const py = baseY + dir.y * dist + dir.x * spread + dir.y * jitter;
-        const hotCore = Math.random() < 0.28;
+        const core = Math.random() < 0.36;
         const ember = Math.random() < 0.18;
+        const color = flameColors[Math.floor(Math.random() * flameColors.length)];
+
         particlesRef.current.push({
           id: enemyIdRef.current++,
           x: px,
           y: py,
-          vx: dir.x * rand(1.6, 5.8) + -dir.y * rand(-1.4, 1.4),
-          vy: dir.y * rand(1.6, 5.8) + dir.x * rand(-1.4, 1.4) + rand(-1.2, 0.6),
-          size: hotCore ? rand(8, powerActive ? 19 : 15) : ember ? rand(3, 7) : rand(6, powerActive ? 16 : 12),
-          life: hotCore ? rand(110, 230) : rand(180, 380),
-          maxLife: 380,
-          color: hotCore ? "#fff7ed" : ember ? "#fb923c" : Math.random() < 0.55 ? "#f97316" : "#facc15",
+          vx: dir.x * rand(0.7, 4.4) + -dir.y * rand(-2.2, 2.2),
+          vy: dir.y * rand(0.7, 4.4) + dir.x * rand(-2.2, 2.2) + rand(-1.9, 0.35),
+          size: core ? rand(8, powerActive ? 18 : 14) : ember ? rand(3, 6) : rand(5, powerActive ? 14 : 11),
+          life: core ? rand(150, 290) : rand(220, 520),
+          maxLife: 520,
+          color,
         });
+
+      }
+
+      const maxLiveParticles = isMobileLike ? 90 : 170;
+      if (particlesRef.current.length > maxLiveParticles) {
+        particlesRef.current = particlesRef.current.slice(-maxLiveParticles);
       }
 
       if (now - lastFlamesHitSoundAtRef.current > 180) {
@@ -4682,10 +4742,11 @@ export default function JogoPage() {
       const pairs = safeCount / 2;
 
       for (let i = 0; i < pairs; i++) {
-        const spacing = 42;
-        const topY = boss.y + 70 + i * spacing;
-        const bottomY = boss.y + boss.h - 110 - i * spacing;
-        const spawnX = boss.x + 52;
+        const offsets = cfg.attackOffsets.servoPair;
+        const spacing = offsets.spacing;
+        const topY = boss.y + offsets.topY + i * spacing;
+        const bottomY = boss.y + boss.h + offsets.bottomY - i * spacing;
+        const spawnX = boss.x + offsets.x;
         const waveDelay = Math.floor(i / 2) * 260;
 
         for (const y of [topY, bottomY]) {
@@ -4721,8 +4782,9 @@ export default function JogoPage() {
       const life = cfg.laserTelegraphMs + cfg.laserActiveMs;
 
       if (pattern === "x") {
-        const centerX = CONFIG.canvasWidth / 2;
-        const centerY = CONFIG.canvasHeight / 2;
+        const offsets = cfg.attackOffsets.laserX;
+        const centerX = CONFIG.canvasWidth / 2 + offsets.x;
+        const centerY = CONFIG.canvasHeight / 2 + offsets.y;
         for (const angle of [0.43, -0.43]) {
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
@@ -4741,12 +4803,13 @@ export default function JogoPage() {
           });
         }
       } else {
-        const lanes = [126, 360, 594];
+        const offsets = cfg.attackOffsets.tripleLaser;
+        const lanes = offsets.lanesY.map((laneY) => laneY + offsets.y);
         for (const y of lanes) {
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "laser",
-            x: CONFIG.canvasWidth / 2,
+            x: CONFIG.canvasWidth / 2 + offsets.x,
             y,
             w: 1740,
             h: cfg.laserThicknessTriple,
@@ -4767,10 +4830,11 @@ export default function JogoPage() {
     function spawnBossCannonBurst() {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
+      const offsets = cfg.attackOffsets.cannon;
       const cannons = [
-        boss.y + 115,
-        boss.y + boss.h / 2,
-        boss.y + boss.h - 135,
+        boss.y + offsets.topY,
+        boss.y + boss.h / 2 + offsets.middleY,
+        boss.y + boss.h + offsets.bottomY,
       ];
       const now = performance.now();
       let delay = 0;
@@ -4782,7 +4846,7 @@ export default function JogoPage() {
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "orb",
-            x: boss.x + 30,
+            x: boss.x + offsets.x,
             y,
             w: volley === 1 ? 34 : 26,
             h: volley === 1 ? 34 : 26,
@@ -4809,11 +4873,12 @@ export default function JogoPage() {
         Math.floor(rand(cfg.servoWaveCountMin, cfg.servoWaveCountMax + 1) / 2) * 2,
       );
       const pairs = count / 2;
-      const topStart = boss.y + 66;
-      const bottomStart = boss.y + boss.h - 96;
-      const topTarget = CONFIG.canvasHeight - cfg.servoWaveSize - 28;
-      const bottomTarget = 28;
-      const spawnX = boss.x + 38;
+      const offsets = cfg.attackOffsets.servoWave;
+      const topStart = boss.y + offsets.topY;
+      const bottomStart = boss.y + boss.h + offsets.bottomY;
+      const topTarget = CONFIG.canvasHeight - cfg.servoWaveSize + offsets.topTargetY;
+      const bottomTarget = offsets.bottomTargetY;
+      const spawnX = boss.x + offsets.x;
 
       for (let i = 0; i < pairs; i++) {
         const delay = i * 110;
@@ -4848,8 +4913,9 @@ export default function JogoPage() {
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
       const player = playerRef.current;
-      const originX = boss.x + 28;
-      const originY = boss.y + boss.h / 2;
+      const offsets = cfg.attackOffsets.aimLaser;
+      const originX = boss.x + offsets.x;
+      const originY = boss.y + boss.h / 2 + offsets.y;
       const dx = player.x + player.w / 2 - originX;
       const dy = player.y + player.h / 2 - originY;
 
@@ -5398,16 +5464,17 @@ export default function JogoPage() {
             const fy = Math.sin(angle) * radius * 0.7 + rand(-3, 3);
             const size = rand(7, 15);
             ctx.globalAlpha = rand(0.55, 0.95);
-            ctx.fillStyle = i % 3 === 0 ? "#fff7ed" : i % 3 === 1 ? "#facc15" : "#f97316";
+            ctx.fillStyle = i % 3 === 0 ? "#ff2f00" : i % 3 === 1 ? "#facc15" : "#f97316";
             ctx.shadowColor = ctx.fillStyle;
             ctx.shadowBlur = 18;
             ctx.fillRect(fx - size / 2, fy - size / 2, size, size);
           }
           ctx.globalAlpha = 1;
-          ctx.fillStyle = "#ffedd5";
-          ctx.font = `24px ${CONFIG.fonts.ui}`;
-          ctx.textAlign = "center";
-          ctx.fillText("🔥", 0, 9);
+          ctx.fillStyle = "#ff7a18";
+          ctx.shadowColor = "#ff5a00";
+          ctx.shadowBlur = 24;
+          ctx.fillRect(-8, -18, 16, 32);
+          ctx.shadowBlur = 0;
         } else {
           ctx.fillStyle = color;
           ctx.fillRect(-power.w / 2, -power.h / 2, power.w, power.h);
@@ -5477,19 +5544,53 @@ export default function JogoPage() {
     function desenharParticulas(ctx: CanvasRenderingContext2D) {
       ctx.save();
 
+      // Glow otimizado: nada de shadowBlur por partícula.
+      // shadowBlur em dezenas de partículas derruba FPS; aqui o brilho é simulado
+      // com quadrados maiores e transparentes, bem mais barato no Canvas 2D.
       for (const particle of particlesRef.current) {
         const alpha = clamp(particle.life / particle.maxLife, 0, 1);
+        const isFire =
+          particle.color === "#ff2f00" ||
+          particle.color === "#ff5a00" ||
+          particle.color === "#ff7a18" ||
+          particle.color === "#fb923c" ||
+          particle.color === "#f97316" ||
+          particle.color === "#facc15";
+
+        if (isFire) {
+          ctx.globalCompositeOperation = "lighter";
+
+          ctx.globalAlpha = alpha * 0.13;
+          ctx.fillStyle = particle.color;
+          const glowSize = particle.size * 2.6;
+          ctx.fillRect(
+            particle.x - glowSize / 2,
+            particle.y - glowSize / 2,
+            glowSize,
+            glowSize,
+          );
+
+          ctx.globalAlpha = alpha * 0.62;
+          const coreSize = particle.size * 1.18;
+          ctx.fillRect(
+            particle.x - coreSize / 2,
+            particle.y - coreSize / 2,
+            coreSize,
+            coreSize,
+          );
+
+          ctx.globalCompositeOperation = "source-over";
+          continue;
+        }
+
         ctx.globalAlpha = alpha;
         ctx.fillStyle = particle.color;
-        ctx.shadowColor = particle.color;
-        ctx.shadowBlur = 3;
         ctx.fillRect(
           particle.x - particle.size / 2,
           particle.y - particle.size / 2,
           particle.size,
           particle.size,
         );
-        ctx.shadowBlur = 0;
       }
 
       ctx.restore();
@@ -6836,11 +6937,9 @@ export default function JogoPage() {
     : 0;
   const flashWhiteOpacity = flashWhiteProgress <= 0
     ? 0
-    : flashWhiteProgress < 0.12
-      ? flashWhiteProgress / 0.12
-      : flashWhiteProgress < 0.34
-        ? 1
-        : Math.pow(1 - ((flashWhiteProgress - 0.34) / 0.66), 1.75);
+    : flashWhiteProgress < 0.78
+      ? 1
+      : Math.pow(1 - ((flashWhiteProgress - 0.78) / 0.22), 1.35);
 
   const flashBlurDuration = Math.max(1, flashBlurUntilRef.current - flashBlurStartRef.current);
   const flashBlurProgress = flashBlurStartRef.current > 0
@@ -6864,12 +6963,65 @@ export default function JogoPage() {
     WebkitBackdropFilter: `blur(${flashBlurAmount}px) brightness(${flashBrightness}) contrast(1.35) saturate(0.72)`,
   };
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("game-custom-cursor-enabled");
+
+    const pointerSelector = [
+      "button",
+      "a",
+      "[role='button']",
+      "summary",
+      "label",
+      "input[type='button']",
+      "input[type='submit']",
+      ".game-menu-option",
+      ".game-dialog-box button",
+      ".game-tutorial-card button",
+      ".game-pause-card button",
+      ".game-mobile-controls button",
+      ".game-mobile-top-actions button",
+    ].join(",");
+
+    function moveCursor(event: MouseEvent) {
+      const cursor = customCursorRef.current;
+      if (!cursor) return;
+
+      cursor.style.left = `${event.clientX}px`;
+      cursor.style.top = `${event.clientY}px`;
+      cursor.classList.add("is-visible");
+
+      const target = event.target instanceof Element ? event.target : null;
+      cursor.classList.toggle(
+        "is-pointer",
+        Boolean(target?.closest(pointerSelector)),
+      );
+    }
+
+    function hideCursor() {
+      customCursorRef.current?.classList.remove("is-visible");
+    }
+
+    window.addEventListener("mousemove", moveCursor, { passive: true });
+    window.addEventListener("mouseleave", hideCursor);
+    window.addEventListener("blur", hideCursor);
+
+    return () => {
+      root.classList.remove("game-custom-cursor-enabled");
+      window.removeEventListener("mousemove", moveCursor);
+      window.removeEventListener("mouseleave", hideCursor);
+      window.removeEventListener("blur", hideCursor);
+    };
+  }, []);
+
   return (
     <main
       className={`game-fullscreen-page game-state-${gameState} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
       style={gameStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
+      <div ref={customCursorRef} className="game-custom-cursor" aria-hidden="true" />
+
       <canvas
         ref={canvasRef}
         className={`game-fullscreen-canvas ${
