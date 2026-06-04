@@ -13,9 +13,14 @@ type GameState =
   | "playing"
   | "paused"
   | "gameOverCutscene"
-  | "gameOver";
+  | "gameOver"
+  | "victory";
 
 type GameMode = "story" | "infinite";
+
+type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
+
+type JoaoExpression = "normal" | "alert" | "happy";
 
 type SpriteKey =
   | "player"
@@ -711,6 +716,27 @@ const CONFIG = {
       messageMs: 1500,
     },
 
+    storyWaves: {
+      enabled: true,
+      normalWaves: 15,
+      bossWave: 16,
+      firstWaveDelayMs: 1000,
+      nextWaveDelayMs: 2100,
+      // História deve ser mais longa que o infinito, mas sem lotar a tela.
+      // Mais grupos + intervalo maior = wave dura mais sem virar bagunça.
+      spawnIntervalMs: 1260,
+      baseGroups: 4,
+      groupsPerWave: 0.48,
+      maxGroups: 14,
+      blackFromWave: 4,
+      asteroidFromWave: 5,
+      alienFromWave: 8,
+      difficultyPerWave: 0.024,
+      maxDifficulty: 1.58,
+      messageMs: 1800,
+      finalVictoryDelayMs: 2100,
+    },
+
     boss: {
       chocado: {
         width: 360,
@@ -941,6 +967,12 @@ const CONFIG = {
     powerPowerShot: "/game/powerups/power-shot.png",
     powerHomingShot: "/game/powerups/homing-shot.png",
     powerFlames: "/game/ui/flames.png",
+    joaoNormalClosed: "/game/ui/joao-normal-closed.png",
+    joaoNormalTalk: "/game/ui/joao-normal-talk.png",
+    joaoAlertClosed: "/game/ui/joao-alert-closed.png",
+    joaoAlertTalk: "/game/ui/joao-alert-talk.png",
+    joaoHappyClosed: "/game/ui/joao-happy-closed.png",
+    joaoHappyTalk: "/game/ui/joao-happy-talk.png",
     powerGoldenHeart: "/game/powerups/golden-heart.png",
     powerRandomBox: "/game/powerups/random-box.png",
     powerBadFlashbang: "/game/powerups/bad-flashbang.png",
@@ -1039,6 +1071,47 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
   { label: "CONFIGURAÇÕES", action: "settings" },
   { label: "CRÉDITOS", disabled: true },
 ];
+
+const TUTORIAL_ORDER: TutorialStep[] = ["move", "shot", "strong", "boost", "dodge", "done"];
+
+const TUTORIAL_JOAO_TEXT: Record<TutorialStep, { expression: JoaoExpression; pc: string; mobile: string }> = {
+  move: {
+    expression: "normal",
+    pc: "João na escuta! Primeiro, mova a nave com WASD ou as setas. Fique vivo antes de bancar o herói.",
+    mobile: "João na escuta! Primeiro, mova a nave usando o joystick da tela. Suave, Cleber.",
+  },
+  shot: {
+    expression: "normal",
+    pc: "Boa! Agora aperte Z para disparar o tiro normal. Só essa ação está liberada por enquanto.",
+    mobile: "Boa! Agora toque no botão de tiro para disparar. Só essa ação está liberada por enquanto.",
+  },
+  strong: {
+    expression: "alert",
+    pc: "Agora o tiro forte: aperte X. Ele demora para recarregar, então não desperdice.",
+    mobile: "Agora o tiro forte: toque no botão forte. Ele demora para recarregar, então escolha bem o momento.",
+  },
+  boost: {
+    expression: "alert",
+    pc: "Hora do boost! Segure SHIFT para mirar, ou toque rápido para avançar. No tutorial, a carga já está cheia.",
+    mobile: "Hora do boost! Use o botão de boost. No tutorial, a carga já está cheia para você testar.",
+  },
+  dodge: {
+    expression: "normal",
+    pc: "Último passo: use CTRL para esquivar. Isso salva a nave quando a tela virar bagunça.",
+    mobile: "Último passo: use o botão de esquiva. Isso salva a nave quando a tela virar bagunça.",
+  },
+  done: {
+    expression: "happy",
+    pc: "Perfeito, Cleber! Tutorial concluído. Agora vamos parar o exército de Chocado.",
+    mobile: "Perfeito, Cleber! Tutorial concluído. Agora vamos parar o exército de Chocado.",
+  },
+};
+
+function getJoaoIcon(expression: JoaoExpression, talking: boolean) {
+  const suffix = talking ? "Talk" : "Closed";
+  const key = `joao${expression[0].toUpperCase()}${expression.slice(1)}${suffix}` as keyof typeof CONFIG.uiImages;
+  return CONFIG.uiImages[key] || CONFIG.uiImages.joaoNormalClosed;
+}
 
 type GameSettingKey = keyof typeof CONFIG.settings;
 
@@ -1665,6 +1738,11 @@ export default function JogoPage() {
   const storyIndexRef = useRef(0);
   const [storyIndex, setStoryIndex] = useState(0);
 
+  const tutorialStepRef = useRef<TutorialStep>("move");
+  const [tutorialStep, setTutorialStep] = useState<TutorialStep>("move");
+  const tutorialMoveStartedAtRef = useRef(0);
+  const [joaoMouthOpen, setJoaoMouthOpen] = useState(false);
+
   const strongCooldownRef = useRef(0);
   const [strongCooldown, setStrongCooldown] = useState(0);
 
@@ -1912,6 +1990,34 @@ export default function JogoPage() {
     setStoryIndex(index);
   }
 
+
+  function setPassoTutorial(step: TutorialStep) {
+    tutorialStepRef.current = step;
+    tutorialMoveStartedAtRef.current = 0;
+    setTutorialStep(step);
+  }
+
+  function avancarPassoTutorial() {
+    const currentIndex = TUTORIAL_ORDER.indexOf(tutorialStepRef.current);
+    const nextStep = TUTORIAL_ORDER[Math.min(currentIndex + 1, TUTORIAL_ORDER.length - 1)];
+    setPassoTutorial(nextStep);
+
+    if (nextStep === "boost") {
+      boostChargeRef.current = CONFIG.gameplay.boost.maxCharge;
+      setBoostCharge(CONFIG.gameplay.boost.maxCharge);
+    }
+
+    if (nextStep === "dodge") {
+      lastDodgeAtRef.current = -999999;
+      setDodgeReadyRatio(1);
+    }
+  }
+
+  function acaoTutorialPermitida(action: "shot" | "strong" | "boost" | "dodge") {
+    if (gameStateRef.current !== "tutorial") return true;
+    return tutorialStepRef.current === action;
+  }
+
   function tocarSom(
     src: string,
     volume = 0.45,
@@ -2144,6 +2250,23 @@ export default function JogoPage() {
 
   function resetarWaves(mode: GameMode | null) {
     const now = performance.now();
+    const isInfinite = mode === "infinite";
+    const isStory = mode === "story";
+    const firstDelay = isInfinite
+      ? CONFIG.gameplay.infiniteWaves.firstWaveDelayMs
+      : isStory
+        ? CONFIG.gameplay.storyWaves.firstWaveDelayMs
+        : 0;
+    const messageMs = isInfinite
+      ? CONFIG.gameplay.infiniteWaves.messageMs
+      : isStory
+        ? CONFIG.gameplay.storyWaves.messageMs
+        : 0;
+    const initialMessage = isInfinite
+      ? "PREPARE-SE"
+      : isStory
+        ? "MISSÃO HISTÓRIA"
+        : "";
 
     waveStateRef.current = {
       mode,
@@ -2151,15 +2274,11 @@ export default function JogoPage() {
       wave: 0,
       waveStartedAt: 0,
       queue: [],
-      nextWaveAt:
-        mode === "infinite"
-          ? now + CONFIG.gameplay.infiniteWaves.firstWaveDelayMs
-          : 0,
+      nextWaveAt: mode ? now + firstDelay : 0,
       difficulty: 1,
       bossWave: false,
-      messageUntil:
-        mode === "infinite" ? now + CONFIG.gameplay.infiniteWaves.messageMs : 0,
-      message: mode === "infinite" ? "PREPARE-SE" : "",
+      messageUntil: mode ? now + messageMs : 0,
+      message: initialMessage,
     };
 
     setWaveUi({
@@ -2167,7 +2286,7 @@ export default function JogoPage() {
       wave: 0,
       active: false,
       bossWave: false,
-      message: mode === "infinite" ? "PREPARE-SE" : "",
+      message: initialMessage,
     });
   }
 
@@ -2204,6 +2323,34 @@ export default function JogoPage() {
     setGameOverWave(0);
 
     setEstado("playing");
+  }
+
+  function iniciarTutorialInterativo() {
+    solicitarFullscreen();
+    currentModeRef.current = currentModeRef.current ?? "story";
+
+    const player = createInitialPlayer();
+    player.x = 120;
+    player.y = CONFIG.canvasHeight / 2 - player.h / 2;
+    playerRef.current = player;
+
+    limparCombate();
+    resetarWaves(null);
+    scoreRef.current = 0;
+    setScore(0);
+    strongCooldownRef.current = 0;
+    setStrongCooldown(0);
+    player.strongReadyAt = 0;
+    boostChargeRef.current = CONFIG.gameplay.boost.maxCharge;
+    setBoostCharge(CONFIG.gameplay.boost.maxCharge);
+    lastDodgeAtRef.current = -999999;
+    setDodgeReadyRatio(1);
+    setStrongReadyRatio(1);
+    setPlayerHp(player.hp);
+    setGoldenHp(player.goldenHp);
+    setPassoTutorial("move");
+    setIsLowHp(false);
+    setEstado("tutorial");
   }
 
   function iniciarGameOverCutscene() {
@@ -2428,7 +2575,8 @@ export default function JogoPage() {
 
   function iniciarMiraBoost() {
     if (!CONFIG.gameplay.boost.enabled) return;
-    if (gameStateRef.current !== "playing") return;
+    if (gameStateRef.current !== "playing" && gameStateRef.current !== "tutorial") return;
+    if (!acaoTutorialPermitida("boost")) return;
     if (boostAimRef.current.active) return;
     if (boostChargeRef.current < CONFIG.gameplay.boost.maxCharge) return;
 
@@ -2479,7 +2627,8 @@ export default function JogoPage() {
     ignoreFullChargeCheck = false,
   ) {
     if (!CONFIG.gameplay.boost.enabled) return;
-    if (gameStateRef.current !== "playing") return;
+    if (gameStateRef.current !== "playing" && gameStateRef.current !== "tutorial") return;
+    if (!acaoTutorialPermitida("boost")) return;
 
     if (!ignoreFullChargeCheck && boostChargeRef.current < CONFIG.gameplay.boost.maxCharge) {
       return;
@@ -2521,11 +2670,16 @@ export default function JogoPage() {
         endAt: now + CONFIG.gameplay.boost.shakeMs,
       };
     }
+
+    if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "boost") {
+      avancarPassoTutorial();
+    }
   }
 
   function executarEsquiva() {
     if (!CONFIG.gameplay.dodge.enabled) return;
-    if (gameStateRef.current !== "playing") return;
+    if (gameStateRef.current !== "playing" && gameStateRef.current !== "tutorial") return;
+    if (!acaoTutorialPermitida("dodge")) return;
 
     const now = performance.now();
     if (now - lastDodgeAtRef.current < CONFIG.gameplay.dodge.cooldownMs) return;
@@ -2546,6 +2700,10 @@ export default function JogoPage() {
     abilityReadyRef.current.dodge = false;
     setDodgeReadyRatio(0);
     tocarSom(CONFIG.sounds.dodge, 0.5, "ability");
+
+    if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "dodge") {
+      avancarPassoTutorial();
+    }
   }
 
   function atualizarJoystick(event: ReactPointerEvent<HTMLDivElement>) {
@@ -3178,7 +3336,10 @@ export default function JogoPage() {
 
   function mostrarMensagemWave(message: string, bossWave = false) {
     const wave = waveStateRef.current;
-    const until = performance.now() + CONFIG.gameplay.infiniteWaves.messageMs;
+    const messageMs = wave.mode === "story"
+      ? CONFIG.gameplay.storyWaves.messageMs
+      : CONFIG.gameplay.infiniteWaves.messageMs;
+    const until = performance.now() + messageMs;
 
     wave.message = message;
     wave.messageUntil = until;
@@ -3279,6 +3440,154 @@ export default function JogoPage() {
     return events.sort((a, b) => a.at - b.at);
   }
 
+  function criarPlanoWaveHistoria(waveNumber: number): WaveSpawnEvent[] {
+    const cfg = CONFIG.gameplay.storyWaves;
+    const events: WaveSpawnEvent[] = [];
+
+    if (waveNumber >= cfg.bossWave) return events;
+
+    const groupCount = Math.min(
+      cfg.maxGroups,
+      cfg.baseGroups + Math.floor(waveNumber * cfg.groupsPerWave),
+    );
+
+    const lanes = [92, 178, 264, 352, 440, 532, 616];
+    const shuffled = [...lanes].sort(() => Math.random() - 0.5);
+    const mirrorLane = (lane: number) =>
+      clamp(CONFIG.canvasHeight - lane - 78, 70, CONFIG.canvasHeight - 138);
+    const pickLane = (i: number) => shuffled[i % shuffled.length];
+
+    let time = 0;
+
+    for (let i = 0; i < groupCount; i++) {
+      const lane = pickLane(i);
+      const mirror = mirrorLane(lane);
+      const roll = Math.random();
+
+      if (waveNumber <= 2) {
+        events.push({ at: time, kind: "purple", y: lane });
+        if (i % 2 === 1) {
+          events.push({ at: time + 720, kind: "purple", y: mirror });
+        }
+      } else if (waveNumber <= 5) {
+        if (roll < 0.55) {
+          events.push({ at: time, kind: "purple", y: lane });
+          events.push({ at: time + 700, kind: "purple", y: mirror });
+        } else if (roll < 0.78) {
+          events.push({ at: time, kind: "red" });
+        } else {
+          events.push({ at: time, kind: "black", y: lane });
+        }
+      } else if (waveNumber <= 10) {
+        if (roll < 0.25) {
+          events.push({ at: time, kind: "red" });
+        } else if (roll < 0.48) {
+          events.push({ at: time, kind: "black", y: lane });
+        } else if (roll < 0.66 && waveNumber >= cfg.alienFromWave) {
+          events.push({ at: time, kind: "alien", y: lane });
+        } else {
+          events.push({ at: time, kind: "purple", y: lane });
+          events.push({ at: time + 780, kind: "purple", y: mirror });
+        }
+      } else {
+        if (roll < 0.22) {
+          events.push({ at: time, kind: "red" });
+        } else if (roll < 0.42) {
+          events.push({ at: time, kind: "black", y: lane });
+        } else if (roll < 0.60) {
+          events.push({ at: time, kind: "alien", y: lane });
+        } else {
+          events.push({ at: time, kind: "purple", y: lane });
+          events.push({ at: time + 820, kind: "black", y: mirror });
+        }
+      }
+
+      if (
+        waveNumber >= cfg.asteroidFromWave &&
+        i % 4 === 2 &&
+        Math.random() < 0.3
+      ) {
+        events.push({ at: time + 880, kind: "asteroid", y: mirror });
+      }
+
+      // No modo história o spawn é mais espaçado para a wave ser longa,
+      // mas sem colocar inimigos em cima uns dos outros.
+      time += Math.max(1120, cfg.spawnIntervalMs - Math.min(80, waveNumber * 3));
+    }
+
+    return events.sort((a, b) => a.at - b.at);
+  }
+
+  function iniciarWaveHistoria(waveNumber: number) {
+    const now = performance.now();
+    const cfg = CONFIG.gameplay.storyWaves;
+    const bossWave = waveNumber >= cfg.bossWave;
+    const difficulty = Math.min(
+      cfg.maxDifficulty,
+      1 + Math.max(0, waveNumber - 1) * cfg.difficultyPerWave,
+    );
+    const message = bossWave
+      ? "BOSS FINAL: CHOCADO"
+      : `WAVE ${waveNumber}/${cfg.normalWaves}`;
+
+    waveStateRef.current = {
+      mode: "story",
+      active: true,
+      wave: waveNumber,
+      waveStartedAt: now,
+      queue: criarPlanoWaveHistoria(waveNumber),
+      nextWaveAt: 0,
+      difficulty,
+      bossWave,
+      messageUntil: now + cfg.messageMs,
+      message,
+    };
+
+    setWaveUi({
+      mode: "story",
+      wave: waveNumber,
+      active: true,
+      bossWave,
+      message,
+    });
+
+    tocarSom(
+      bossWave ? CONFIG.sounds.bossIntro : CONFIG.sounds.waveStart,
+      bossWave ? 0.64 : 0.48,
+    );
+
+    if (bossWave) {
+      spawnBossChocado();
+    }
+  }
+
+  function concluirModoHistoria() {
+    const now = performance.now();
+    limparCombate();
+    waveStateRef.current = {
+      ...waveStateRef.current,
+      active: false,
+      queue: [],
+      nextWaveAt: 0,
+      bossWave: false,
+      message: "TERRA SALVA",
+      messageUntil: now + CONFIG.gameplay.storyWaves.messageMs,
+    };
+    setWaveUi({
+      mode: "story",
+      wave: CONFIG.gameplay.storyWaves.bossWave,
+      active: false,
+      bossWave: false,
+      message: "TERRA SALVA",
+    });
+    tocarSom(CONFIG.sounds.chocadoDefeat || CONFIG.sounds.menuConfirm, 0.75, "sfx");
+    window.setTimeout(() => {
+      if (gameStateRef.current === "playing") {
+        setEstado("victory");
+      }
+    }, CONFIG.gameplay.storyWaves.finalVictoryDelayMs);
+  }
+
   function aplicarDificuldadeWave(inicio: number, difficulty: number) {
     const waveNumber = waveStateRef.current.wave;
     const hpBonus = Math.floor(waveNumber / 32);
@@ -3358,14 +3667,27 @@ export default function JogoPage() {
     if (gameStateRef.current !== "playing") return;
 
     const wave = waveStateRef.current;
-    if (wave.mode !== "infinite" || !CONFIG.gameplay.infiniteWaves.enabled)
-      return;
+    const mode = wave.mode;
+    if (!mode) return;
+
+    const isInfinite = mode === "infinite";
+    const isStory = mode === "story";
+
+    if (isInfinite && !CONFIG.gameplay.infiniteWaves.enabled) return;
+    if (isStory && !CONFIG.gameplay.storyWaves.enabled) return;
 
     const now = performance.now();
+    const cfg = isInfinite
+      ? CONFIG.gameplay.infiniteWaves
+      : CONFIG.gameplay.storyWaves;
 
     if (!wave.active) {
       if (wave.nextWaveAt > 0 && now >= wave.nextWaveAt) {
-        iniciarWaveInfinita(wave.wave + 1);
+        if (isStory) {
+          iniciarWaveHistoria(wave.wave + 1);
+        } else {
+          iniciarWaveInfinita(wave.wave + 1);
+        }
       } else if (wave.message && now > wave.messageUntil) {
         wave.message = "";
         setWaveUi((current) => ({ ...current, message: "" }));
@@ -3385,9 +3707,6 @@ export default function JogoPage() {
       setWaveUi((current) => ({ ...current, message: "" }));
     }
 
-    // Limpeza anti-softlock: depois que todos os spawns da wave já entraram,
-    // inimigos de wave jogados muito para fora da tela são removidos.
-    // Asteroides/fragmentos continuam independentes e não contam para terminar wave.
     if (wave.queue.length === 0) {
       enemiesRef.current = enemiesRef.current.filter((enemy) => {
         if (enemy.kind === "asteroid" || enemy.kind === "fragment") return true;
@@ -3405,11 +3724,10 @@ export default function JogoPage() {
     const waveEnemiesAlive =
       bossAliveForWave ||
       enemiesRef.current.some((enemy) => {
-        if (enemy.kind === "asteroid" || enemy.kind === "fragment")
+        if (enemy.kind === "asteroid" || enemy.kind === "fragment") {
           return false;
+        }
 
-        // Se um inimigo foi lançado para fora da área útil por knockback,
-        // ele não deve segurar a wave invisivelmente.
         const margin = 80;
         const visibleEnough =
           enemy.x > -enemy.w - margin &&
@@ -3421,20 +3739,50 @@ export default function JogoPage() {
       });
 
     if (wave.queue.length === 0 && !waveEnemiesAlive) {
+      const completedWave = wave.wave;
+      const completedBossWave = wave.bossWave;
+
       wave.active = false;
-      wave.nextWaveAt = now + CONFIG.gameplay.infiniteWaves.nextWaveDelayMs;
-      wave.message = `WAVE ${wave.wave} CONCLUÍDA`;
-      wave.messageUntil = now + CONFIG.gameplay.infiniteWaves.messageMs;
+      wave.queue = [];
+      wave.bossWave = false;
+      wave.nextWaveAt = now + cfg.nextWaveDelayMs;
+
+      if (isStory && completedBossWave) {
+        adicionarPontuacao(CONFIG.gameplay.score.bossWaveClear);
+        wave.nextWaveAt = 0;
+        wave.message = "CHOCADO DERROTADO";
+        wave.messageUntil = now + CONFIG.gameplay.storyWaves.messageMs;
+        setWaveUi({
+          mode: "story",
+          wave: completedWave,
+          active: false,
+          bossWave: false,
+          message: wave.message,
+        });
+        concluirModoHistoria();
+        return;
+      }
+
+      if (isStory && completedWave >= CONFIG.gameplay.storyWaves.normalWaves) {
+        wave.nextWaveAt = now + CONFIG.gameplay.storyWaves.nextWaveDelayMs;
+        wave.message = "CHEFE FINAL SE APROXIMA";
+      } else {
+        wave.message = isStory
+          ? `WAVE ${completedWave}/${CONFIG.gameplay.storyWaves.normalWaves} CONCLUIDA`
+          : `WAVE ${completedWave} CONCLUÍDA`;
+      }
+
+      wave.messageUntil = now + cfg.messageMs;
 
       adicionarPontuacao(
-        wave.bossWave
+        completedBossWave
           ? CONFIG.gameplay.score.bossWaveClear
           : CONFIG.gameplay.score.waveClear,
       );
 
       setWaveUi({
-        mode: "infinite",
-        wave: wave.wave,
+        mode,
+        wave: completedWave,
         active: false,
         bossWave: false,
         message: wave.message,
@@ -3946,6 +4294,22 @@ export default function JogoPage() {
     randomVisualEffect.inverted,
   ]);
 
+
+  useEffect(() => {
+    const shouldTalk = gameState === "tutorial" || gameState === "tutorialChoice";
+
+    if (!shouldTalk) {
+      setJoaoMouthOpen(false);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setJoaoMouthOpen((current) => !current);
+    }, 135);
+
+    return () => window.clearInterval(timer);
+  }, [gameState, tutorialStep]);
+
   useEffect(() => {
     const shouldPlayAlarm =
       CONFIG.settings.enableLowHpAlarm &&
@@ -4187,6 +4551,10 @@ export default function JogoPage() {
     function shootNormal() {
       const player = playerRef.current;
 
+      if (!acaoTutorialPermitida("shot")) {
+        return;
+      }
+
       if (player.normalCooldown > 0) {
         return;
       }
@@ -4227,12 +4595,20 @@ export default function JogoPage() {
 
       tocarSom(CONFIG.sounds.normalShot, 0.45, "sfx");
       player.normalCooldown = cooldownTiroNormalAtual();
+
+      if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "shot") {
+        avancarPassoTutorial();
+      }
     }
 
     function shootStrong(dirXParam = 1, dirYParam = 0) {
       const player = playerRef.current;
       const now = performance.now();
       const dir = normalizarDirecao(dirXParam, dirYParam);
+
+      if (!acaoTutorialPermitida("strong")) {
+        return;
+      }
 
       if (now < player.strongReadyAt) {
         return;
@@ -4284,6 +4660,10 @@ export default function JogoPage() {
         CONFIG.gameplay.shots.strong.cooldownMs / 1000,
       );
       setStrongCooldown(strongCooldownRef.current);
+
+      if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "strong") {
+        avancarPassoTutorial();
+      }
     }
 
     const cooldownTimer = window.setInterval(() => {
@@ -6323,7 +6703,8 @@ export default function JogoPage() {
     }
 
     function atualizar(delta: number, canvas: HTMLCanvasElement) {
-      if (gameStateRef.current !== "playing") {
+      const isTutorialMode = gameStateRef.current === "tutorial";
+      if (gameStateRef.current !== "playing" && !isTutorialMode) {
         return;
       }
 
@@ -6366,7 +6747,7 @@ export default function JogoPage() {
 
       const nowForHold = performance.now();
 
-      if (keysRef.current["shift"]) {
+      if (keysRef.current["shift"] && (!isTutorialMode || tutorialStepRef.current === "boost")) {
         iniciarMiraBoost();
       } else if (boostAimRef.current.active) {
         soltarMiraBoost(false);
@@ -6392,11 +6773,11 @@ export default function JogoPage() {
         }
       }
 
-      if (keysRef.current["x"]) {
+      if (keysRef.current["x"] && (!isTutorialMode || tutorialStepRef.current === "strong")) {
         shootStrong(1, 0);
       }
 
-      if (keysRef.current["control"] || keysRef.current["ctrl"]) {
+      if ((keysRef.current["control"] || keysRef.current["ctrl"]) && (!isTutorialMode || tutorialStepRef.current === "dodge")) {
         keysRef.current["control"] = false;
         keysRef.current["ctrl"] = false;
         executarEsquiva();
@@ -6472,7 +6853,7 @@ export default function JogoPage() {
       player.x += player.vx * speedFactor;
       player.y += player.vy * speedFactor;
 
-      if (keysRef.current["z"] || mobileShootRef.current) {
+      if ((keysRef.current["z"] || mobileShootRef.current) && (!isTutorialMode || tutorialStepRef.current === "shot")) {
         shootNormal();
       }
 
@@ -6548,6 +6929,25 @@ export default function JogoPage() {
             shot.y + shot.h > 0 &&
             shot.y < canvas.height,
         );
+
+      if (isTutorialMode) {
+        const nowTutorial = performance.now();
+
+        if (tutorialStepRef.current === "move" && movingNow && Math.hypot(player.vx, player.vy) > 0.22) {
+          if (tutorialMoveStartedAtRef.current <= 0) {
+            tutorialMoveStartedAtRef.current = nowTutorial;
+          }
+
+          if (nowTutorial - tutorialMoveStartedAtRef.current > 650) {
+            avancarPassoTutorial();
+          }
+        } else if (tutorialStepRef.current === "move") {
+          tutorialMoveStartedAtRef.current = 0;
+        }
+
+        atualizarParticulas(delta);
+        return;
+      }
 
       atualizarWavesInfinitas();
       atualizarInimigos(delta, canvas);
@@ -6711,6 +7111,7 @@ export default function JogoPage() {
 
       if (
         gameStateRef.current === "playing" ||
+        gameStateRef.current === "tutorial" ||
         gameStateRef.current === "paused" ||
         gameStateRef.current === "gameOverCutscene"
       ) {
@@ -6825,11 +7226,31 @@ export default function JogoPage() {
         }
 
         if (key === "7") {
+          const wave = waveStateRef.current;
           enemiesRef.current = [];
           enemyProjectilesRef.current = [];
+          bossProjectilesRef.current = [];
           shotsRef.current = [];
-          waveStateRef.current.queue = [];
-          iniciarWaveInfinita((waveStateRef.current.wave || 0) + 1);
+          wave.queue = [];
+
+          if (wave.mode === "story") {
+            const storyCfg = CONFIG.gameplay.storyWaves;
+            const nextStoryWave = Math.min(
+              storyCfg.bossWave,
+              Math.max(1, (wave.wave || 0) + 1),
+            );
+
+            // No modo história o skip nunca passa da wave do boss.
+            if (wave.wave >= storyCfg.bossWave) {
+              mostrarMensagemWave("DERROTE O CHOCADO", true);
+              return;
+            }
+
+            iniciarWaveHistoria(nextStoryWave);
+            return;
+          }
+
+          iniciarWaveInfinita((wave.wave || 0) + 1);
           return;
         }
 
@@ -6885,6 +7306,13 @@ export default function JogoPage() {
         }
 
         if (key === "escape" || key === "q") {
+          voltarAoMenuPrincipal();
+          return;
+        }
+      }
+
+      if (gameStateRef.current === "victory") {
+        if (key === "enter" || key === " ") {
           voltarAoMenuPrincipal();
           return;
         }
@@ -6965,6 +7393,19 @@ export default function JogoPage() {
 
   useEffect(() => {
     const root = document.documentElement;
+
+    const isTouchDevice =
+      window.matchMedia("(pointer: coarse)").matches ||
+      window.matchMedia("(hover: none)").matches ||
+      navigator.maxTouchPoints > 0;
+
+    // Cursor pixel só no desktop. No mobile/touch ele atrapalha a tela e os controles.
+    if (isTouchDevice) {
+      root.classList.remove("game-custom-cursor-enabled");
+      customCursorRef.current?.classList.remove("is-visible");
+      return;
+    }
+
     root.classList.add("game-custom-cursor-enabled");
 
     const pointerSelector = [
@@ -7026,6 +7467,7 @@ export default function JogoPage() {
         ref={canvasRef}
         className={`game-fullscreen-canvas ${
           gameState === "playing" ||
+          gameState === "tutorial" ||
           gameState === "paused" ||
           gameState === "gameOverCutscene" ||
           gameState === "gameOver"
@@ -7408,46 +7850,76 @@ export default function JogoPage() {
       )}
 
       {gameState === "tutorialChoice" && (
-        <section className="game-screen game-main-menu-screen">
-          <aside className="game-retro-panel is-open">
-            <p className="game-panel-label">TUTORIAL</p>
+        <section className="game-screen game-tutorial-choice-screen">
+          <div className="game-launch-preview" aria-hidden="true">
+            <div className="game-launch-earth" />
+            <div className="game-launch-ship" />
+            <div className="game-launch-trail" />
+          </div>
 
-            <div className="game-retro-menu-list">
-              <button
-                type="button"
-                className="game-menu-option is-selected"
-                onClick={() => setEstado("tutorial")}
-              >
+          <div className="game-joao-choice-panel">
+            <div className="game-joao-dialog is-choice">
+              <img
+                className="game-joao-icon"
+                src={assetUrl(getJoaoIcon("normal", joaoMouthOpen))}
+                alt="João"
+                draggable={false}
+              />
+              <div className="game-joao-text">
+                <strong>JOÃO</strong>
+                <p>Cleber, João na escuta! Antes de encarar os robôs da desinformação, quer fazer um tutorial rápido?</p>
+              </div>
+            </div>
+
+            <div className="game-tutorial-choice-buttons">
+              <button type="button" onClick={iniciarTutorialInterativo}>
                 FAZER TUTORIAL
               </button>
-
               <button
                 type="button"
-                className="game-menu-option"
                 onClick={() => iniciarJogo(currentModeRef.current ?? "story")}
               >
                 PULAR E COMEÇAR
               </button>
             </div>
-          </aside>
+          </div>
         </section>
       )}
 
       {gameState === "tutorial" && (
-        <section className="game-screen game-tutorial-screen">
-          <div className="game-tutorial-card">
-            <h2>CONTROLES</h2>
-            <p>WASD ou Setas: mover</p>
-            <p>Z: tiro normal</p>
-            <p>X: tiro forte</p>
-            <p>P ou ESC: pausar</p>
-            <p>Teste: 8 vermelho • 9 preto • 0 roxo • - asteroide</p>
+        <section className="game-tutorial-overlay">
+          <div className="game-tutorial-task">
+            <span>PASSO {Math.min(TUTORIAL_ORDER.indexOf(tutorialStep) + 1, TUTORIAL_ORDER.length - 1)}/{TUTORIAL_ORDER.length - 1}</span>
+            <strong>
+              {tutorialStep === "move" && "MOVIMENTE A NAVE"}
+              {tutorialStep === "shot" && "DISPARE O TIRO NORMAL"}
+              {tutorialStep === "strong" && "USE O TIRO FORTE"}
+              {tutorialStep === "boost" && "TESTE O BOOST"}
+              {tutorialStep === "dodge" && "FAÇA UMA ESQUIVA"}
+              {tutorialStep === "done" && "TUTORIAL CONCLUÍDO"}
+            </strong>
+          </div>
 
-            <button
-              onClick={() => iniciarJogo(currentModeRef.current ?? "story")}
-            >
-              COMEÇAR MISSÃO
-            </button>
+          <div className="game-joao-dialog game-joao-tutorial-dialog">
+            <img
+              className="game-joao-icon"
+              src={assetUrl(getJoaoIcon(TUTORIAL_JOAO_TEXT[tutorialStep].expression, joaoMouthOpen))}
+              alt="João"
+              draggable={false}
+            />
+            <div className="game-joao-text">
+              <strong>JOÃO</strong>
+              <p>
+                {typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches
+                  ? TUTORIAL_JOAO_TEXT[tutorialStep].mobile
+                  : TUTORIAL_JOAO_TEXT[tutorialStep].pc}
+              </p>
+              {tutorialStep === "done" && (
+                <button type="button" onClick={() => iniciarJogo(currentModeRef.current ?? "story")}>
+                  COMEÇAR MISSÃO
+                </button>
+              )}
+            </div>
           </div>
         </section>
       )}
@@ -7492,7 +7964,19 @@ export default function JogoPage() {
         </section>
       )}
 
-      {gameState === "playing" && (
+      {gameState === "victory" && (
+        <section className="game-screen game-victory-screen">
+          <div className="game-victory-card">
+            <p>MISSÃO CONCLUÍDA</p>
+            <span>A TERRA FOI SALVA DA DESINFORMAÇÃO</span>
+            <h1>VITÓRIA!</h1>
+            <button onClick={() => iniciarJogo("story")}>JOGAR HISTÓRIA DE NOVO</button>
+            <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+          </div>
+        </section>
+      )}
+
+      {(gameState === "playing" || gameState === "tutorial") && (
         <div
           className="game-mobile-top-actions"
           onContextMenu={(event) => event.preventDefault()}
@@ -7530,7 +8014,7 @@ export default function JogoPage() {
         </div>
       )}
 
-      {gameState === "playing" && (
+      {(gameState === "playing" || gameState === "tutorial") && (
         <div
           className="game-mobile-controls"
           onContextMenu={(event) => event.preventDefault()}
@@ -7572,6 +8056,7 @@ export default function JogoPage() {
                 event.stopPropagation();
                 executarEsquiva();
               }}
+              disabled={gameState === "tutorial" && tutorialStep !== "dodge"}
               aria-label="esquiva"
             >
               <img
@@ -7598,7 +8083,7 @@ export default function JogoPage() {
               onPointerCancel={() => {
                 keysRef.current["shift"] = false;
               }}
-              disabled={boostCharge < CONFIG.gameplay.boost.maxCharge}
+              disabled={boostCharge < CONFIG.gameplay.boost.maxCharge || (gameState === "tutorial" && tutorialStep !== "boost")}
               aria-label="boost"
             >
               <img
@@ -7620,6 +8105,7 @@ export default function JogoPage() {
               }}
               onPointerLeave={() => (mobileShootRef.current = false)}
               onPointerCancel={() => (mobileShootRef.current = false)}
+              disabled={gameState === "tutorial" && tutorialStep !== "shot"}
             >
               <img
                 draggable={false}
@@ -7644,7 +8130,7 @@ export default function JogoPage() {
               onPointerCancel={() => {
                 keysRef.current["x"] = false;
               }}
-              disabled={strongCooldown > 0}
+              disabled={strongCooldown > 0 || (gameState === "tutorial" && tutorialStep !== "strong")}
             >
               {strongCooldown > 0 ? (
                 <span>{strongCooldown}s</span>
