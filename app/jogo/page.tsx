@@ -1,7 +1,7 @@
 "use client";
 
 /*
-  SPACE NEWS V7 POLISH NOTES / SUPORTE NOVO
+  SPACE NEWS V10 — RELEASE POLIDA / SUPORTE NOVO
 
   Assets novos suportados/recomendados:
   - /game/ui/mobile-pause.png também usado como pause do PC.
@@ -54,6 +54,36 @@ type GameMode = "story" | "infinite";
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
 
 type DanielExpression = "normal" | "alert" | "happy" | "fear" | "serious";
+
+type MobileControlId =
+  | "joystick"
+  | "shot"
+  | "strong"
+  | "boost"
+  | "dodge"
+  | "pause"
+  | "fullscreen";
+
+type MobileControlPlacement = {
+  x: number;
+  y: number;
+  scale: number;
+};
+
+type MobileControlLayoutMap = Record<MobileControlId, MobileControlPlacement>;
+
+type BossIntroStage =
+  | "idle"
+  | "falseClear"
+  | "sensor"
+  | "approach"
+  | "grab"
+  | "drag"
+  | "throw"
+  | "impact"
+  | "battle";
+
+type BossDefeatStage = "idle" | "overload" | "collapse" | "final" | "done";
 
 type SpriteKey =
   | "player"
@@ -274,6 +304,27 @@ type BossState = {
   attackIndex: number;
   roarDone: boolean;
   phaseTwoAnnounced?: boolean;
+};
+
+
+type BossIntroSequence = {
+  active: boolean;
+  startAt: number;
+  stage: BossIntroStage;
+  lastStage: BossIntroStage;
+  playerStartX: number;
+  playerStartY: number;
+  bossTargetX: number;
+  baseBackgroundOffset: number;
+  impactTriggered: boolean;
+};
+
+type BossDefeatSequence = {
+  active: boolean;
+  startAt: number;
+  stage: BossDefeatStage;
+  lastBurstAt: number;
+  finalTriggered: boolean;
 };
 
 type SpriteConfig = {
@@ -1007,6 +1058,12 @@ const CONFIG = {
     danielBossIntroVoice: "/sounds/daniel/boss-intro-01.mp3",
     danielBossPhaseVoice: "/sounds/daniel/boss-phase2-01.mp3",
     danielVictoryVoice: "/sounds/daniel/victory-01.mp3",
+    danielTutorialMoveVoice: "/sounds/daniel/tutorial-move.mp3",
+    danielTutorialShotVoice: "/sounds/daniel/tutorial-shot.mp3",
+    danielTutorialStrongVoice: "/sounds/daniel/tutorial-strong.mp3",
+    danielTutorialBoostVoice: "/sounds/daniel/tutorial-boost.mp3",
+    danielTutorialDodgeVoice: "/sounds/daniel/tutorial-dodge.mp3",
+    danielTutorialDoneVoice: "/sounds/daniel/tutorial-done.mp3",
     chocadoGrab: "/sounds/chocado-grab.mp3",
     chocadoDash: "/sounds/chocado-dash.mp3",
     chocadoRelease: "/sounds/chocado-release.mp3",
@@ -1063,6 +1120,11 @@ const CONFIG = {
     showGameplayHints: false,
     showMobileStartHint: true,
     mobileControls: "joystick",
+    mobileLayout: "compact",
+    mobileScale: 0.78,
+    mobileOpacity: 0.82,
+    mobileButtonGap: 10,
+    mobileMirror: false,
     pcMoveLayout: "both",
     pcShootKey: "z",
     pcStrongKey: "x",
@@ -1193,18 +1255,22 @@ const BOSS_DANIEL_LINES = {
   falseClear: {
     expression: "happy" as DanielExpression,
     text: "Boa, Cleber. A última formação caiu. Estou fechando o relatório da missão...",
+    voice: "/sounds/daniel/boss-false-clear-01.mp3",
   },
   sensor: {
     expression: "serious" as DanielExpression,
     text: "Espera. Tem uma assinatura estranha no sensor. Isso não parece destroço...",
+    voice: "/sounds/daniel/boss-sensor-01.mp3",
   },
   warning: {
     expression: "fear" as DanielExpression,
     text: "CLEBER, CUIDADO! O Chocado entrou pela lateral. Reajustando rota agora!",
+    voice: "/sounds/daniel/boss-warning-01.mp3",
   },
   bossIntro: {
     expression: "alert" as DanielExpression,
     text: "Chocado está no campo. Observe o padrão antes de atacar e guarde boost para emergências.",
+    voice: CONFIG.sounds.danielBossIntroVoice,
   },
   laser: {
     expression: "alert" as DanielExpression,
@@ -1221,6 +1287,7 @@ const BOSS_DANIEL_LINES = {
   phaseTwo: {
     expression: "alert" as DanielExpression,
     text: "Ele entrou na segunda fase. Padrões combinados, mas com aviso visual. Espere a abertura antes de gastar boost.",
+    voice: CONFIG.sounds.danielBossPhaseVoice,
   },
   critical: {
     expression: "fear" as DanielExpression,
@@ -1240,12 +1307,32 @@ type GameSettingOption = {
   key: GameSettingKey;
   label: string;
   category: "ÁUDIO" | "VISUAL" | "ACESSIBILIDADE" | "MOBILE" | "CONTROLES";
-  kind: "toggle" | "range" | "select";
+  kind: "toggle" | "range" | "select" | "keybind";
   min?: number;
   max?: number;
   step?: number;
   values?: string[];
   formatter?: (value: unknown) => string;
+};
+
+const DEFAULT_MOBILE_CONTROL_LAYOUT: MobileControlLayoutMap = {
+  joystick: { x: 13, y: 74, scale: 0.78 },
+  strong: { x: 78, y: 68, scale: 0.64 },
+  shot: { x: 89, y: 66, scale: 0.72 },
+  dodge: { x: 78, y: 84, scale: 0.60 },
+  boost: { x: 89, y: 83, scale: 0.64 },
+  fullscreen: { x: 91, y: 9, scale: 0.52 },
+  pause: { x: 96, y: 9, scale: 0.52 },
+};
+
+const MOBILE_CONTROL_LABELS: Record<MobileControlId, string> = {
+  joystick: "JOYSTICK",
+  shot: "TIRO NORMAL",
+  strong: "TIRO FORTE",
+  boost: "BOOST",
+  dodge: "DODGE",
+  pause: "PAUSE",
+  fullscreen: "TELA CHEIA",
 };
 
 const SETTINGS_SECTIONS = [
@@ -1369,6 +1456,50 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
     kind: "toggle",
   },
   {
+    key: "mobileLayout" as GameSettingKey,
+    label: "Posição dos controles",
+    category: "MOBILE",
+    kind: "select",
+    values: ["compact", "balanced", "wide"],
+    formatter: (v) => String(v) === "wide" ? "ABERTO" : String(v) === "balanced" ? "EQUILIBRADO" : "COMPACTO",
+  },
+  {
+    key: "mobileScale" as GameSettingKey,
+    label: "Tamanho dos controles",
+    category: "MOBILE",
+    kind: "range",
+    min: 0.58,
+    max: 1,
+    step: 0.07,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "mobileOpacity" as GameSettingKey,
+    label: "Opacidade dos controles",
+    category: "MOBILE",
+    kind: "range",
+    min: 0.45,
+    max: 1,
+    step: 0.05,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "mobileButtonGap" as GameSettingKey,
+    label: "Espaço entre botões",
+    category: "MOBILE",
+    kind: "range",
+    min: 4,
+    max: 22,
+    step: 2,
+    formatter: (v) => `${Math.round(Number(v))} px`,
+  },
+  {
+    key: "mobileMirror" as GameSettingKey,
+    label: "Inverter lados",
+    category: "MOBILE",
+    kind: "toggle",
+  },
+  {
     key: "pcMoveLayout" as GameSettingKey,
     label: "Layout movimento PC",
     category: "CONTROLES",
@@ -1380,32 +1511,28 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
     key: "pcShootKey" as GameSettingKey,
     label: "Tiro normal PC",
     category: "CONTROLES",
-    kind: "select",
-    values: ["z", "j", "k", "space"],
+    kind: "keybind",
     formatter: (v) => String(v).toUpperCase().replace("SPACE", "ESPAÇO"),
   },
   {
     key: "pcStrongKey" as GameSettingKey,
     label: "Tiro forte PC",
     category: "CONTROLES",
-    kind: "select",
-    values: ["x", "k", "l", "shift"],
+    kind: "keybind",
     formatter: (v) => String(v).toUpperCase(),
   },
   {
     key: "pcBoostKey" as GameSettingKey,
     label: "Boost PC",
     category: "CONTROLES",
-    kind: "select",
-    values: ["shift", "space", "c"],
+    kind: "keybind",
     formatter: (v) => String(v).toUpperCase().replace("SPACE", "ESPAÇO"),
   },
   {
     key: "pcDodgeKey" as GameSettingKey,
     label: "Dodge PC",
     category: "CONTROLES",
-    kind: "select",
-    values: ["control", "space", "c", "v"],
+    kind: "keybind",
     formatter: (v) => String(v).toUpperCase().replace("CONTROL", "CTRL").replace("SPACE", "ESPAÇO"),
   },
 ];
@@ -1911,6 +2038,18 @@ export default function JogoPage() {
     ...CONFIG.settings,
   });
   const settingsReturnStateRef = useRef<GameState>("mainMenu");
+  const keyBindCaptureRef = useRef<GameSettingKey | null>(null);
+  const keyBindDialogOpenRef = useRef(false);
+  const [keyBindPrompt, setKeyBindPrompt] = useState<{
+    settingKey: GameSettingKey;
+    label: string;
+    candidate: string | null;
+  } | null>(null);
+  const [mobileEditorOpen, setMobileEditorOpen] = useState(false);
+  const [selectedMobileControl, setSelectedMobileControl] = useState<MobileControlId>("shot");
+  const [mobileControlLayout, setMobileControlLayout] = useState<MobileControlLayoutMap>(
+    DEFAULT_MOBILE_CONTROL_LAYOUT,
+  );
 
   const storyIndexRef = useRef(0);
   const [storyIndex, setStoryIndex] = useState(0);
@@ -2001,6 +2140,27 @@ export default function JogoPage() {
   }>({ text: "", expression: "normal", visible: false });
   const bossTipTimeoutRef = useRef<number | null>(null);
   const [bossTipVisible, setBossTipVisible] = useState(false);
+  const bossIntroSequenceRef = useRef<BossIntroSequence>({
+    active: false,
+    startAt: 0,
+    stage: "idle",
+    lastStage: "idle",
+    playerStartX: 0,
+    playerStartY: 0,
+    bossTargetX: CONFIG.canvasWidth - CONFIG.gameplay.boss.chocado.width - 8,
+    baseBackgroundOffset: 0,
+    impactTriggered: false,
+  });
+  const [bossCinematicStage, setBossCinematicStage] = useState<BossIntroStage>("idle");
+  const bossDefeatSequenceRef = useRef<BossDefeatSequence>({
+    active: false,
+    startAt: 0,
+    stage: "idle",
+    lastBurstAt: 0,
+    finalTriggered: false,
+  });
+  const [bossDefeatStage, setBossDefeatStage] = useState<BossDefeatStage>("idle");
+  const [victoryStep, setVictoryStep] = useState(0);
 
   const assetsRef = useRef(new AssetManager());
   const enemyIdRef = useRef(0);
@@ -2128,6 +2288,82 @@ export default function JogoPage() {
     setSettingsSnapshot({ ...CONFIG.settings });
   }
 
+  function persistirLayoutMobile(next: MobileControlLayoutMap) {
+    setMobileControlLayout(next);
+    try {
+      window.localStorage.setItem("spaceNews.mobileLayout", JSON.stringify(next));
+    } catch {}
+  }
+
+  function atualizarControleMobile(
+    id: MobileControlId,
+    patch: Partial<MobileControlPlacement>,
+  ) {
+    persistirLayoutMobile({
+      ...mobileControlLayout,
+      [id]: {
+        ...mobileControlLayout[id],
+        ...patch,
+      },
+    });
+  }
+
+  function moverControleMobile(
+    id: MobileControlId,
+    event: ReactPointerEvent<HTMLElement>,
+  ) {
+    const stage = event.currentTarget.parentElement;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    const x = clamp(((event.clientX - rect.left) / Math.max(1, rect.width)) * 100, 4, 96);
+    const y = clamp(((event.clientY - rect.top) / Math.max(1, rect.height)) * 100, 5, 95);
+    atualizarControleMobile(id, { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) });
+  }
+
+  function mobileControlStyle(id: MobileControlId): CSSProperties {
+    const placement = mobileControlLayout[id];
+    return {
+      left: `${placement.x}%`,
+      top: `${placement.y}%`,
+      transform: `translate(-50%, -50%) scale(${placement.scale * Number(settingsSnapshot.mobileScale)})`,
+      opacity: Number(settingsSnapshot.mobileOpacity),
+    };
+  }
+
+  function iniciarCapturaTecla(settingKey: GameSettingKey, label: string) {
+    keyBindDialogOpenRef.current = true;
+    keyBindCaptureRef.current = settingKey;
+    setKeyBindPrompt({ settingKey, label, candidate: null });
+    tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
+  }
+
+  function cancelarCapturaTecla() {
+    keyBindDialogOpenRef.current = false;
+    keyBindCaptureRef.current = null;
+    setKeyBindPrompt(null);
+    tocarSom(CONFIG.sounds.menuBack, 0.24, "menu");
+  }
+
+  function confirmarCapturaTecla() {
+    if (!keyBindPrompt?.candidate) return;
+    const settingKey = keyBindPrompt.settingKey;
+    const candidate = keyBindPrompt.candidate;
+    const oldKey = String(CONFIG.settings[settingKey]);
+    const bindKeys: GameSettingKey[] = ["pcShootKey", "pcStrongKey", "pcBoostKey", "pcDodgeKey"];
+    const duplicate = bindKeys.find(
+      (key) => key !== settingKey && normalizarTeclaConfig(CONFIG.settings[key]) === normalizarTeclaConfig(candidate),
+    );
+
+    if (duplicate) {
+      atualizarConfiguracao(duplicate, oldKey);
+    }
+    atualizarConfiguracao(settingKey, candidate);
+    keyBindDialogOpenRef.current = false;
+    keyBindCaptureRef.current = null;
+    setKeyBindPrompt(null);
+    tocarSom(CONFIG.sounds.menuConfirm, 0.48, "menu");
+  }
+
   function normalizarTeclaConfig(valor: unknown) {
     const key = String(valor || "").toLowerCase();
     if (key === "space" || key === "espaço") return " ";
@@ -2204,6 +2440,11 @@ export default function JogoPage() {
     if (!option) return;
 
     const currentValue = CONFIG.settings[option.key];
+
+    if (option.kind === "keybind") {
+      iniciarCapturaTecla(option.key, option.label);
+      return;
+    }
 
     if (option.kind === "toggle") {
       atualizarConfiguracao(option.key, !Boolean(currentValue));
@@ -2374,6 +2615,19 @@ export default function JogoPage() {
     }
   }
 
+  function tocarVozTutorialDaniel(step: TutorialStep) {
+    const voiceByStep: Record<TutorialStep, string> = {
+      move: CONFIG.sounds.danielTutorialMoveVoice,
+      shot: CONFIG.sounds.danielTutorialShotVoice,
+      strong: CONFIG.sounds.danielTutorialStrongVoice,
+      boost: CONFIG.sounds.danielTutorialBoostVoice,
+      dodge: CONFIG.sounds.danielTutorialDodgeVoice,
+      done: CONFIG.sounds.danielTutorialDoneVoice,
+    };
+    tocarSom(CONFIG.sounds.danielRadioOpen || CONFIG.sounds.menuMove, 0.22, "sfx");
+    window.setTimeout(() => tocarSom(voiceByStep[step], 0.62, "sfx"), 110);
+  }
+
   function setPassoTutorial(step: TutorialStep) {
     if (tutorialAutoStartRef.current !== null) {
       window.clearTimeout(tutorialAutoStartRef.current);
@@ -2383,15 +2637,15 @@ export default function JogoPage() {
     tutorialStepRef.current = step;
     prepararPassoTutorial(step);
     setTutorialStep(step);
+    tocarVozTutorialDaniel(step);
 
     if (step === "done") {
       setTutorialLaunchZoom(true);
       tutorialAutoStartRef.current = window.setTimeout(() => {
         if (gameStateRef.current === "tutorial" && tutorialStepRef.current === "done") {
-          setTutorialLaunchZoom(false);
-          iniciarJogo(currentModeRef.current ?? "story");
+          finalizarTutorialParaJogo();
         }
-      }, 1350);
+      }, 1450);
     }
   }
 
@@ -2666,6 +2920,17 @@ export default function JogoPage() {
     bossRef.current.active = false;
     bossRef.current.intro = false;
     bossRef.current.defeated = false;
+    bossIntroSequenceRef.current.active = false;
+    bossIntroSequenceRef.current.stage = "idle";
+    bossDefeatSequenceRef.current = {
+      active: false,
+      startAt: 0,
+      stage: "idle",
+      lastBurstAt: 0,
+      finalTriggered: false,
+    };
+    setBossCinematicStage("idle");
+    setBossDefeatStage("idle");
     const player = playerRef.current;
     player.capturedUntil = 0;
     player.throwUntil = 0;
@@ -2718,6 +2983,42 @@ export default function JogoPage() {
       bossWave: false,
       message: initialMessage,
     });
+  }
+
+  function finalizarTutorialParaJogo() {
+    const mode = currentModeRef.current ?? "story";
+    const now = performance.now();
+    const player = playerRef.current;
+
+    // Mantém player e panorama: o tutorial já acontece dentro do gameplay.
+    shotsRef.current = [];
+    enemiesRef.current = [];
+    enemyProjectilesRef.current = [];
+    bossProjectilesRef.current = [];
+    powerUpsRef.current = [];
+    player.vx *= 0.35;
+    player.vy *= 0.35;
+    player.normalCooldown = 0;
+    player.invincibleUntil = now + 1100;
+
+    resetarWaves(mode);
+    waveStateRef.current.nextWaveAt = now + 900;
+    waveStateRef.current.message = "";
+    waveStateRef.current.messageUntil = 0;
+    setWaveUi({
+      mode,
+      wave: 0,
+      active: false,
+      bossWave: false,
+      message: "",
+    });
+
+    strongCooldownRef.current = 0;
+    setStrongCooldown(0);
+    boostChargeRef.current = CONFIG.gameplay.boost.startCharge;
+    setBoostCharge(CONFIG.gameplay.boost.startCharge);
+    setTutorialLaunchZoom(false);
+    setEstado("playing");
   }
 
   function iniciarJogo(mode: GameMode = currentModeRef.current ?? "infinite") {
@@ -3760,14 +4061,21 @@ export default function JogoPage() {
       bossTipTimeoutRef.current = null;
     }
     setBossTipVisible(false);
+    bossIntroSequenceRef.current.active = false;
+    bossIntroSequenceRef.current.stage = "idle";
+    setBossCinematicStage("idle");
   }
 
-  function mostrarDanielBoss(line: { text: string; expression: DanielExpression }, durationMs = 3600) {
+  function mostrarDanielBoss(line: { text: string; expression: DanielExpression; voice?: string }, durationMs = 3600) {
     if (bossDanielTimeoutRef.current !== null) {
       window.clearTimeout(bossDanielTimeoutRef.current);
     }
 
     tocarSom(CONFIG.sounds.danielRadioOpen || CONFIG.sounds.menuMove, 0.26, "sfx");
+    const voice = line.voice;
+    if (voice) {
+      window.setTimeout(() => tocarSom(voice, 0.72, "sfx"), 120);
+    }
 
     setBossDanielLine({
       text: line.text,
@@ -3806,6 +4114,7 @@ export default function JogoPage() {
   function iniciarRevelacaoChocadoHistoria() {
     const now = performance.now();
     const wave = waveStateRef.current;
+    const player = playerRef.current;
 
     limparTimersRevelacaoBoss();
     limparCombate();
@@ -3815,7 +4124,7 @@ export default function JogoPage() {
     wave.nextWaveAt = 0;
     wave.bossWave = false;
     wave.message = "MISSÃO CONCLUÍDA";
-    wave.messageUntil = now + 2400;
+    wave.messageUntil = now + 2300;
 
     setWaveUi({
       mode: "story",
@@ -3825,103 +4134,196 @@ export default function JogoPage() {
       message: wave.message,
     });
 
-    mostrarDanielBoss(BOSS_DANIEL_LINES.falseClear, 2600);
+    player.vx = 0;
+    player.vy = 0;
+    player.invincibleUntil = now + 20000;
+    bossIntroSequenceRef.current = {
+      active: true,
+      startAt: now,
+      stage: "falseClear",
+      lastStage: "idle",
+      playerStartX: player.x,
+      playerStartY: player.y,
+      bossTargetX: CONFIG.canvasWidth - CONFIG.gameplay.boss.chocado.width - 8,
+      baseBackgroundOffset: backgroundOffsetRef.current,
+      impactTriggered: false,
+    };
+    setBossCinematicStage("falseClear");
+    mostrarDanielBoss(BOSS_DANIEL_LINES.falseClear, 2300);
+  }
 
-    const sensorTimer = window.setTimeout(() => {
-      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
-      mostrarDanielBoss(BOSS_DANIEL_LINES.sensor, 3600);
-      tocarSom(CONFIG.sounds.danielRadioStatic || CONFIG.sounds.tutorialWarning || CONFIG.sounds.menuBack, 0.42, "sfx");
-      shakeRef.current = { intensity: 3, endAt: performance.now() + 700 };
-    }, 3000);
+  function atualizarCutsceneChocado(delta: number) {
+    const sequence = bossIntroSequenceRef.current;
+    if (!sequence.active) return false;
 
-    const appearTimer = window.setTimeout(() => {
-      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
-      waveStateRef.current = {
-        ...waveStateRef.current,
-        mode: "story",
-        active: true,
-        wave: CONFIG.gameplay.storyWaves.bossWave,
-        bossWave: true,
-        queue: [],
-        message: "",
-        messageUntil: 0,
-      };
-      setWaveUi({ mode: "story", wave: CONFIG.gameplay.storyWaves.bossWave, active: true, bossWave: true, message: "" });
-      spawnBossChocado(true);
-      const boss = bossRef.current;
-      boss.intro = true;
-      boss.x = CONFIG.canvasWidth + 70;
-      boss.introStartedAt = performance.now();
-      boss.nextAttackAt = performance.now() + 999999;
-      mostrarDanielBoss(BOSS_DANIEL_LINES.warning, 3600);
-      tocarSom(CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoRoar || CONFIG.sounds.bossIntro, 0.55, "sfx");
-      shakeRef.current = { intensity: 6, endAt: performance.now() + 1100 };
-    }, 6200);
+    const now = performance.now();
+    const elapsed = now - sequence.startAt;
+    const player = playerRef.current;
+    const boss = bossRef.current;
+    const targetX = sequence.bossTargetX;
 
-    const grabTimer = window.setTimeout(() => {
-      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
-      const player = playerRef.current;
-      const boss = bossRef.current;
-      tocarMusicaChocado();
-      tocarSom(CONFIG.sounds.chocadoGrab || CONFIG.sounds.chocadoRoar || CONFIG.sounds.bossIntro, 0.82, "sfx");
-      boss.x = CONFIG.canvasWidth - boss.w - 8;
-      player.x = boss.x - player.w * 0.42;
-      player.y = boss.y + boss.h * 0.5 - player.h * 0.5;
+    let stage: BossIntroStage = "falseClear";
+    if (elapsed >= 2500) stage = "sensor";
+    if (elapsed >= 5000) stage = "approach";
+    if (elapsed >= 6800) stage = "grab";
+    if (elapsed >= 8200) stage = "drag";
+    if (elapsed >= 10400) stage = "throw";
+    if (elapsed >= 11600) stage = "impact";
+    if (elapsed >= 13200) stage = "battle";
+
+    if (stage !== sequence.stage) {
+      sequence.lastStage = sequence.stage;
+      sequence.stage = stage;
+      setBossCinematicStage(stage);
+
+      if (stage === "sensor") {
+        mostrarDanielBoss(BOSS_DANIEL_LINES.sensor, 2500);
+        tocarSom(CONFIG.sounds.danielRadioStatic || CONFIG.sounds.tutorialWarning, 0.42, "sfx");
+        shakeRef.current = { intensity: 2.5, endAt: now + 650 };
+      }
+
+      if (stage === "approach") {
+        waveStateRef.current = {
+          ...waveStateRef.current,
+          mode: "story",
+          active: true,
+          wave: CONFIG.gameplay.storyWaves.bossWave,
+          bossWave: true,
+          queue: [],
+          message: "",
+          messageUntil: 0,
+        };
+        setWaveUi({ mode: "story", wave: CONFIG.gameplay.storyWaves.bossWave, active: true, bossWave: true, message: "" });
+        spawnBossChocado(true);
+        bossRef.current.x = CONFIG.canvasWidth + 180;
+        bossRef.current.intro = true;
+        bossRef.current.nextAttackAt = now + 999999;
+        mostrarDanielBoss(BOSS_DANIEL_LINES.warning, 3000);
+        tocarSom(CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoRoar, 0.62, "sfx");
+      }
+
+      if (stage === "grab") {
+        tocarMusicaChocado();
+        tocarSom(CONFIG.sounds.chocadoGrab || CONFIG.sounds.chocadoRoar, 0.86, "sfx");
+        player.stretchUntil = now + 1200;
+        player.stretchVx = -13;
+        player.stretchVy = 0;
+        shakeRef.current = { intensity: 10, endAt: now + 950 };
+      }
+
+      if (stage === "drag") {
+        tocarSom(CONFIG.sounds.chocadoDash || CONFIG.sounds.chocadoGrab, 0.78, "sfx");
+        shakeRef.current = { intensity: 16, endAt: now + 2100 };
+      }
+
+      if (stage === "throw") {
+        tocarSom(CONFIG.sounds.chocadoRelease || CONFIG.sounds.chocadoDash, 0.78, "sfx");
+        criarExplosao(player.x + player.w * 0.5, player.y + player.h * 0.5, "#fff1a8", 52);
+        shockwavesRef.current.push({
+          id: enemyIdRef.current++,
+          x: player.x + player.w * 0.5,
+          y: player.y + player.h * 0.5,
+          radius: 520,
+          life: 900,
+          maxLife: 900,
+        });
+      }
+
+      if (stage === "impact" && !sequence.impactTriggered) {
+        sequence.impactTriggered = true;
+        tocarSom(CONFIG.sounds.explosion, 0.82, "sfx");
+        criarExplosao(76, player.y + player.h * 0.5, "#60eaff", 72);
+        criarExplosao(90, player.y + player.h * 0.5, "#fff1a8", 54);
+        shockwavesRef.current.push({
+          id: enemyIdRef.current++,
+          x: 72,
+          y: player.y + player.h * 0.5,
+          radius: 860,
+          life: 1200,
+          maxLife: 1200,
+        });
+        shakeRef.current = { intensity: 22, endAt: now + 1200 };
+      }
+    }
+
+    boss.age += delta;
+
+    if (stage === "approach") {
+      const p = clamp((elapsed - 5000) / 1800, 0, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      boss.x = CONFIG.canvasWidth + 180 + (targetX - (CONFIG.canvasWidth + 180)) * eased;
+      boss.y = (CONFIG.canvasHeight - boss.h) / 2 + Math.sin(now * 0.008) * 10;
+      backgroundOffsetRef.current -= delta * (0.20 + p * 0.35);
+    } else if (stage === "grab") {
+      const p = clamp((elapsed - 6800) / 1400, 0, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      boss.x = targetX;
+      const gripX = boss.x + boss.w * 0.08 - player.w * 0.55;
+      const gripY = boss.y + boss.h * 0.50 - player.h * 0.5;
+      player.x = sequence.playerStartX + (gripX - sequence.playerStartX) * eased;
+      player.y = sequence.playerStartY + (gripY - sequence.playerStartY) * eased;
+      backgroundOffsetRef.current -= delta * 0.65;
+    } else if (stage === "drag") {
+      const p = clamp((elapsed - 8200) / 2200, 0, 1);
+      boss.x = targetX - Math.sin(p * Math.PI) * 160;
+      boss.y = (CONFIG.canvasHeight - boss.h) / 2 + Math.sin(p * Math.PI * 2) * 18;
+      player.x = boss.x + boss.w * 0.08 - player.w * 0.55;
+      player.y = boss.y + boss.h * 0.50 - player.h * 0.5;
+      player.tilt = -0.22;
+      backgroundOffsetRef.current -= delta * (1.85 + Math.sin(p * Math.PI) * 1.1);
+      if (CONFIG.settings.enableParticles && Math.random() < 0.48) {
+        particlesRef.current.push({
+          id: enemyIdRef.current++,
+          x: player.x + player.w * 0.35,
+          y: player.y + player.h * rand(0.2, 0.8),
+          vx: rand(5, 10),
+          vy: rand(-1.8, 1.8),
+          size: rand(3, 8),
+          life: 420,
+          maxLife: 420,
+          color: Math.random() < 0.5 ? "#ff4fd8" : "#60eaff",
+        });
+      }
+    } else if (stage === "throw") {
+      const p = clamp((elapsed - 10400) / 1200, 0, 1);
+      const startX = targetX - 60;
+      const endX = 48;
+      const arc = Math.sin(p * Math.PI) * 95;
+      player.x = startX + (endX - startX) * p;
+      player.y = clamp(sequence.playerStartY - arc, 48, CONFIG.canvasHeight - player.h - 48);
+      player.tilt = -0.45 + p * 0.18;
+      boss.x = targetX + p * 72;
+      backgroundOffsetRef.current -= delta * 0.9;
+    } else if (stage === "impact") {
+      player.x = 48 + Math.sin(now * 0.05) * 3;
       player.vx = 0;
       player.vy = 0;
-      player.invincibleUntil = performance.now() + 3600;
-      player.stretchUntil = performance.now() + 900;
-      player.stretchVx = -9;
-      player.stretchVy = 0;
-      backgroundOffsetRef.current -= 520;
-      criarExplosao(player.x + player.w * 0.5, player.y + player.h * 0.5, "#ff4fd8", 48);
-      criarExplosao(boss.x + boss.w * 0.22, boss.y + boss.h * 0.5, "#facc15", 32);
-      shakeRef.current = { intensity: 16, endAt: performance.now() + 1600 };
-    }, 8500);
-
-    const dashTimer = window.setTimeout(() => {
-      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
-      const player = playerRef.current;
-      tocarSom(CONFIG.sounds.chocadoDash || CONFIG.sounds.chocadoGrab || CONFIG.sounds.chocadoRoar, 0.76, "sfx");
-      backgroundOffsetRef.current -= 1700;
-      player.x = Math.max(80, player.x - 360);
-      player.y = clamp(player.y + rand(-70, 70), 70, CONFIG.canvasHeight - player.h - 70);
-      player.vx = -18;
-      player.vy = rand(-4.5, 4.5);
-      player.stretchUntil = performance.now() + 1100;
-      player.stretchVx = -26;
-      player.stretchVy = 0;
-      criarExplosao(player.x + player.w * 0.75, player.y + player.h * 0.5, "#fff1a8", 54);
-      shockwavesRef.current.push({
-        id: enemyIdRef.current++,
-        x: player.x + player.w * 0.5,
-        y: player.y + player.h * 0.5,
-        radius: 760,
-        life: 1050,
-        maxLife: 1050,
-      });
-      shakeRef.current = { intensity: 24, endAt: performance.now() + 1600 };
-    }, 10100);
-
-    const releaseTimer = window.setTimeout(() => {
-      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
-      const player = playerRef.current;
-      const boss = bossRef.current;
-      tocarSom(CONFIG.sounds.chocadoRelease || CONFIG.sounds.chocadoDash || CONFIG.sounds.explosion, 0.72, "sfx");
-      player.x = 84;
-      player.y = clamp(CONFIG.canvasHeight * 0.5 - player.h * 0.5, 80, CONFIG.canvasHeight - player.h - 80);
-      player.vx = 11.5;
+      player.tilt *= 0.82;
+      boss.x += (targetX - boss.x) * 0.08;
+    } else if (stage === "battle") {
+      sequence.active = false;
+      setBossCinematicStage("idle");
+      player.x = 118;
+      player.y = CONFIG.canvasHeight / 2 - player.h / 2;
+      player.vx = 5.5;
       player.vy = 0;
-      player.invincibleUntil = performance.now() + 1800;
-      boss.introStartedAt = performance.now();
-      boss.nextAttackAt = performance.now() + CONFIG.gameplay.boss.chocado.introBarMs + CONFIG.gameplay.boss.chocado.introRoarMs + CONFIG.gameplay.boss.chocado.attackDelayMs;
+      player.tilt = 0;
+      player.invincibleUntil = now + 1900;
+      boss.x = targetX;
+      boss.intro = true;
+      boss.introStartedAt = now;
+      boss.roarDone = false;
+      boss.nextAttackAt = now + CONFIG.gameplay.boss.chocado.introBarMs + CONFIG.gameplay.boss.chocado.introRoarMs + CONFIG.gameplay.boss.chocado.attackDelayMs;
       mostrarBossTipInicial();
-      mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 4800);
-      criarExplosao(player.x, player.y + player.h * 0.5, "#60eaff", 42);
-      shakeRef.current = { intensity: 12, endAt: performance.now() + 900 };
-    }, 11900);
+      mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 4400);
+      tocarSom(CONFIG.sounds.bossIntro, 0.66, "sfx");
+      return false;
+    }
 
-    storyBossRevealTimeoutsRef.current = [sensorTimer, appearTimer, grabTimer, dashTimer, releaseTimer];
+    player.vx = 0;
+    player.vy = 0;
+    player.invincibleUntil = now + 2000;
+    return true;
   }
 
   function spawnBossChocado(fromStoryReveal = false) {
@@ -3955,15 +4357,17 @@ export default function JogoPage() {
     waveStateRef.current.message = "";
     waveStateRef.current.messageUntil = 0;
     setWaveUi((current) => ({ ...current, bossWave: true, message: "" }));
-    mostrarBossTipInicial();
-    mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 4600);
-    shakeRef.current = { intensity: fromStoryReveal ? 10 : 6, endAt: performance.now() + 520 };
-    tocarSom(CONFIG.sounds.bossIntro, 0.62, "sfx");
-    if (!fromStoryReveal) tocarMusicaChocado();
+    if (!fromStoryReveal) {
+      mostrarBossTipInicial();
+      mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 4600);
+      tocarSom(CONFIG.sounds.bossIntro, 0.62, "sfx");
+      tocarMusicaChocado();
+    }
+    shakeRef.current = { intensity: fromStoryReveal ? 7 : 6, endAt: performance.now() + 520 };
   }
 
   function bossEstaAtivo() {
-    return bossRef.current.active && bossRef.current.hp > 0;
+    return bossRef.current.active;
   }
 
   function mostrarMensagemWave(message: string, bossWave = false) {
@@ -4195,30 +4599,36 @@ export default function JogoPage() {
 
   function concluirModoHistoria() {
     const now = performance.now();
-    limparCombate();
+    shotsRef.current = [];
+    enemyProjectilesRef.current = [];
+    bossProjectilesRef.current = [];
+    powerUpsRef.current = [];
     waveStateRef.current = {
       ...waveStateRef.current,
       active: false,
       queue: [],
       nextWaveAt: 0,
       bossWave: false,
-      message: "TERRA SALVA",
-      messageUntil: now + CONFIG.gameplay.storyWaves.messageMs,
+      message: "SINAL HOSTIL ELIMINADO",
+      messageUntil: now + 3000,
     };
     setWaveUi({
       mode: "story",
       wave: CONFIG.gameplay.storyWaves.bossWave,
       active: false,
       bossWave: false,
-      message: "TERRA SALVA",
+      message: "SINAL HOSTIL ELIMINADO",
     });
-    tocarSom(CONFIG.sounds.victoryFanfare || CONFIG.sounds.menuConfirm, 0.82, "sfx");
-    mostrarDanielBoss({ expression: "happy", text: "Conseguimos. A rede de desinformação caiu. A Terra está limpa, Cleber!" }, 5200);
+    tocarSom(CONFIG.sounds.victoryFanfare || CONFIG.sounds.menuConfirm, 0.84, "sfx");
+    mostrarDanielBoss({
+      expression: "happy",
+      text: "Conseguimos, Cleber. O sinal do Chocado caiu — segura a formação, estou confirmando a limpeza da rede.",
+    }, 4200);
     window.setTimeout(() => {
       if (gameStateRef.current === "playing") {
         setEstado("victory");
       }
-    }, CONFIG.gameplay.storyWaves.finalVictoryDelayMs);
+    }, 4400);
   }
 
   function aplicarDificuldadeWave(inicio: number, difficulty: number) {
@@ -4383,14 +4793,14 @@ export default function JogoPage() {
       if (isStory && completedBossWave) {
         adicionarPontuacao(CONFIG.gameplay.score.bossWaveClear);
         wave.nextWaveAt = 0;
-        wave.message = "CHOCADO DERROTADO";
-        wave.messageUntil = now + CONFIG.gameplay.storyWaves.messageMs;
+        wave.message = "";
+        wave.messageUntil = 0;
         setWaveUi({
           mode: "story",
           wave: completedWave,
           active: false,
           bossWave: false,
-          message: wave.message,
+          message: "",
         });
         concluirModoHistoria();
         return;
@@ -4412,7 +4822,7 @@ export default function JogoPage() {
         return;
       } else {
         wave.message = isStory
-          ? `WAVE ${completedWave}/${CONFIG.gameplay.storyWaves.normalWaves} CONCLUIDA`
+          ? `WAVE ${completedWave}/${CONFIG.gameplay.storyWaves.normalWaves} CONCLUÍDA`
           : `WAVE ${completedWave} CONCLUÍDA`;
       }
 
@@ -4874,6 +5284,54 @@ export default function JogoPage() {
   }
 
   useEffect(() => {
+    try {
+      const savedSettings = window.localStorage.getItem("spaceNews.settings");
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings) as Partial<typeof CONFIG.settings>;
+        Object.assign(CONFIG.settings, parsed);
+        setSettingsSnapshot({ ...CONFIG.settings });
+      }
+      const savedLayout = window.localStorage.getItem("spaceNews.mobileLayout");
+      if (savedLayout) {
+        const parsed = JSON.parse(savedLayout) as Partial<MobileControlLayoutMap>;
+        setMobileControlLayout({
+          ...DEFAULT_MOBILE_CONTROL_LAYOUT,
+          ...parsed,
+        });
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (gameState !== "victory") {
+      setVictoryStep(0);
+      return;
+    }
+    setVictoryStep(0);
+    tocarSom(CONFIG.sounds.danielRadioOpen || CONFIG.sounds.menuMove, 0.22, "sfx");
+    const timers = [
+      window.setTimeout(() => {
+        setVictoryStep(1);
+        tocarSom(CONFIG.sounds.danielVictoryVoice, 0.72, "sfx");
+      }, 1300),
+      window.setTimeout(() => setVictoryStep(2), 3000),
+      window.setTimeout(() => setVictoryStep(3), 5200),
+    ];
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [gameState]);
+
+  useEffect(() => {
+    document.documentElement.lang = "pt-BR";
+    if (document.fonts) {
+      void Promise.all([
+        document.fonts.load(`16px "${CONFIG.fonts.ui}"`),
+        document.fonts.load(`16px "${CONFIG.fonts.menu}"`),
+        document.fonts.load(`16px "${CONFIG.fonts.title}"`),
+      ]).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
     assetsRef.current.loadAll();
   }, []);
 
@@ -4944,6 +5402,7 @@ export default function JogoPage() {
     const shouldTalk =
       gameState === "tutorial" ||
       gameState === "tutorialChoice" ||
+      gameState === "victory" ||
       bossDanielLine.visible;
 
     if (!shouldTalk) {
@@ -5840,14 +6299,13 @@ export default function JogoPage() {
         const offsets = cfg.attackOffsets.laserX;
         const originX = boss.x + boss.w * 0.26 + offsets.x;
         const originY = boss.y + boss.h * 0.5 + offsets.y;
-        for (const angle of [0.43, -0.43]) {
-          const centerX = originX - Math.cos(angle) * 870;
-          const centerY = originY - Math.sin(angle) * 870;
+        for (const spreadAngle of [0.43, -0.43]) {
+          const angle = Math.PI + spreadAngle;
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "laser",
-            x: centerX,
-            y: centerY,
+            x: originX,
+            y: originY,
             w: 1740,
             h: cfg.laserThicknessX,
             vx: 0,
@@ -5867,7 +6325,7 @@ export default function JogoPage() {
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "laser",
-            x: originX - 870,
+            x: originX,
             y,
             w: 1740,
             h: cfg.laserThicknessTriple,
@@ -5876,7 +6334,7 @@ export default function JogoPage() {
             damage: cfg.laserDamage,
             life,
             maxLife: life,
-            angle: 0,
+            angle: Math.PI,
             activeAt: now + cfg.laserTelegraphMs,
           });
         }
@@ -6147,12 +6605,84 @@ export default function JogoPage() {
       boss.attackIndex = attack;
     }
 
+    function atualizarDerrotaChocado(delta: number) {
+      const sequence = bossDefeatSequenceRef.current;
+      const boss = bossRef.current;
+      if (!sequence.active) return;
+
+      const now = performance.now();
+      const elapsed = now - sequence.startAt;
+      let stage: BossDefeatStage = "overload";
+      if (elapsed >= 2100) stage = "collapse";
+      if (elapsed >= 3500) stage = "final";
+      if (elapsed >= 4700) stage = "done";
+
+      if (stage !== sequence.stage) {
+        sequence.stage = stage;
+        setBossDefeatStage(stage);
+      }
+
+      boss.age += delta * 2.2;
+      boss.x += Math.sin(now * 0.042) * (stage === "final" ? 1.8 : 0.55);
+
+      const burstGap = stage === "overload" ? 210 : stage === "collapse" ? 125 : 80;
+      if (elapsed < 4100 && now - sequence.lastBurstAt >= burstGap) {
+        sequence.lastBurstAt = now;
+        const colors = ["#ffcf5c", "#ff4f72", "#d946ef", "#6ee7ff", "#fff7d6"];
+        criarExplosao(
+          boss.x + rand(boss.w * 0.12, boss.w * 0.84),
+          boss.y + rand(boss.h * 0.08, boss.h * 0.92),
+          colors[Math.floor(Math.random() * colors.length)],
+          stage === "collapse" ? 62 : 42,
+        );
+        if (CONFIG.settings.enableScreenShake) {
+          shakeRef.current = {
+            intensity: stage === "collapse" ? 11 : 6,
+            endAt: now + 220,
+          };
+        }
+      }
+
+      if (stage === "collapse") {
+        backgroundOffsetRef.current += delta * 0.22;
+      }
+
+      if (stage === "final" && !sequence.finalTriggered) {
+        sequence.finalTriggered = true;
+        tocarSom(CONFIG.sounds.chocadoFinalExplosion || CONFIG.sounds.gameOverFinalExplosion, 0.95, "sfx");
+        tocarSom(CONFIG.sounds.chocadoDefeatBurst || CONFIG.sounds.chocadoDefeat, 0.82, "hit");
+        const centerX = boss.x + boss.w * 0.42;
+        const centerY = boss.y + boss.h * 0.5;
+        criarExplosao(centerX, centerY, "#fff7d6", 160);
+        criarExplosao(centerX, centerY, "#ff4fd8", 132);
+        criarExplosao(centerX, centerY, "#60eaff", 104);
+        shockwavesRef.current.push(
+          { id: enemyIdRef.current++, x: centerX, y: centerY, radius: 1180, life: 1600, maxLife: 1600 },
+          { id: enemyIdRef.current++, x: centerX, y: centerY, radius: 760, life: 1100, maxLife: 1100 },
+        );
+        shakeRef.current = { intensity: 28, endAt: now + 1500 };
+      }
+
+      if (stage === "done") {
+        sequence.active = false;
+        boss.active = false;
+        bossProjectilesRef.current = [];
+        setBossDefeatStage("done");
+      }
+    }
+
     function atualizarBoss(delta: number) {
       const boss = bossRef.current;
       if (!boss.active) return;
 
       const now = performance.now();
       const cfg = CONFIG.gameplay.boss.chocado;
+
+      if (boss.defeated) {
+        atualizarDerrotaChocado(delta);
+        return;
+      }
+
       boss.age += delta;
       boss.y =
         (CONFIG.canvasHeight - boss.h) / 2 +
@@ -6204,38 +6734,26 @@ export default function JogoPage() {
       }
 
       if (boss.hp <= 0 && !boss.defeated) {
+        boss.hp = 0;
         boss.defeated = true;
-        boss.active = false;
+        boss.intro = false;
+        boss.nextAttackAt = Number.POSITIVE_INFINITY;
         bossProjectilesRef.current = [];
+        enemyProjectilesRef.current = [];
         pararMusicaChocado(true);
-        tocarSom(
-          CONFIG.sounds.chocadoDefeatBurst || CONFIG.sounds.chocadoDefeat || CONFIG.sounds.enemyDeath,
-          0.82,
-          "hit",
-        );
-        tocarSom(CONFIG.sounds.chocadoFinalExplosion || CONFIG.sounds.gameOverFinalExplosion || CONFIG.sounds.explosion, 0.58, "sfx");
-        for (let i = 0; i < 9; i += 1) {
-          window.setTimeout(() => {
-            criarExplosao(
-              boss.x + rand(50, boss.w - 50),
-              boss.y + rand(60, boss.h - 60),
-              i % 2 === 0 ? "#ffe18c" : "#ff4fd8",
-              44 + i * 3,
-            );
-            shakeRef.current = { intensity: Math.max(5, 16 - i), endAt: performance.now() + 360 };
-          }, i * 160);
-        }
-        shockwavesRef.current.push({
-          id: enemyIdRef.current++,
-          x: boss.x + boss.w * 0.42,
-          y: boss.y + boss.h * 0.5,
-          radius: 940,
-          life: 1500,
-          maxLife: 1500,
-        });
-        adicionarPontuacao(CONFIG.gameplay.score.bossWaveClear);
-        mostrarDanielBoss({ expression: "happy", text: "Alvo principal colapsando! Cleber, afaste a nave. A assinatura do Chocado está se desfazendo!" }, 4200);
-        mostrarMensagemWave("CHOCADO DERROTADO", true);
+        bossDefeatSequenceRef.current = {
+          active: true,
+          startAt: now,
+          stage: "overload",
+          lastBurstAt: 0,
+          finalTriggered: false,
+        };
+        setBossDefeatStage("overload");
+        tocarSom(CONFIG.sounds.chocadoDefeatBurst || CONFIG.sounds.chocadoDefeat, 0.78, "hit");
+        mostrarDanielBoss({
+          expression: "alert",
+          text: "O núcleo entrou em colapso! Afaste-se, Cleber — a reação ainda não terminou!",
+        }, 4300);
       }
     }
 
@@ -6383,9 +6901,20 @@ export default function JogoPage() {
           )
         : clamp(boss.hp / boss.maxHp, 0, 1);
 
+      const defeatSequence = bossDefeatSequenceRef.current;
+      const defeatElapsed = defeatSequence.active ? performance.now() - defeatSequence.startAt : 0;
+      const defeatPulse = defeatSequence.active
+        ? 1 + Math.sin(defeatElapsed * 0.035) * (defeatSequence.stage === "collapse" ? 0.045 : 0.018)
+        : 1;
+      const defeatAlpha = defeatSequence.stage === "final"
+        ? clamp(1 - (defeatElapsed - 3500) / 1250, 0, 1)
+        : 1;
+
       ctx.save();
       ctx.translate(boss.x + boss.w / 2, boss.y + boss.h / 2);
-      ctx.rotate(Math.sin(boss.age * 0.003) * 0.018);
+      ctx.rotate(Math.sin(boss.age * 0.003) * 0.018 + (defeatSequence.active ? Math.sin(defeatElapsed * 0.028) * 0.035 : 0));
+      ctx.scale(defeatPulse, defeatPulse);
+      ctx.globalAlpha = defeatAlpha;
 
       if (CONFIG.useSprites && img) {
         ctx.drawImage(img, -boss.w / 2, -boss.h / 2, boss.w, boss.h);
@@ -6397,56 +6926,70 @@ export default function JogoPage() {
         ctx.fillRect(-boss.w / 2 - 24, -14, 86, 32);
         ctx.fillRect(-boss.w / 2 - 24, boss.h * 0.32, 62, 28);
       }
+      if (defeatSequence.active) {
+        const glow = 46 + Math.sin(defeatElapsed * 0.05) * 14;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = clamp(defeatAlpha * 0.82, 0, 1);
+        const coreGradient = ctx.createRadialGradient(0, 0, 4, 0, 0, glow * 2.2);
+        coreGradient.addColorStop(0, "#fff7d6");
+        coreGradient.addColorStop(0.22, "#ff68e8");
+        coreGradient.addColorStop(0.65, "rgba(217,70,239,.38)");
+        coreGradient.addColorStop(1, "rgba(217,70,239,0)");
+        ctx.fillStyle = coreGradient;
+        ctx.beginPath();
+        ctx.arc(-boss.w * 0.08, 0, glow * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
 
-      // HUD limpa do boss no topo.
-      const barW = 760;
-      const barH = 20;
+      // HUD compacta do boss no topo.
+      const barW = 620;
+      const barH = 14;
       const barX = (CONFIG.canvasWidth - barW) / 2;
       const barY = 16;
       const phaseTwo = !boss.intro && boss.hp <= cfg.enragedHp;
       ctx.save();
       ctx.fillStyle = "rgba(6, 3, 12, 0.74)";
-      roundRect(ctx, barX - 18, barY - 6, barW + 36, 76, 8);
+      roundRect(ctx, barX - 16, barY - 5, barW + 32, 58, 8);
       ctx.fill();
       ctx.strokeStyle = phaseTwo ? "rgba(245, 93, 255, 0.95)" : "rgba(248, 231, 176, 0.95)";
       ctx.lineWidth = 3;
-      roundRect(ctx, barX - 18, barY - 6, barW + 36, 76, 8);
+      roundRect(ctx, barX - 16, barY - 5, barW + 32, 58, 8);
       ctx.stroke();
       ctx.fillStyle = "#fff7e6";
-      ctx.font = `24px ${CONFIG.fonts.menu}`;
+      ctx.font = `20px "${CONFIG.fonts.menu}"`;
       ctx.textAlign = "center";
-      ctx.fillText("CHOCADO", CONFIG.canvasWidth / 2, barY + 2);
+      ctx.fillText("CHOCADO", CONFIG.canvasWidth / 2, barY + 1);
       ctx.fillStyle = "rgba(27, 6, 18, 0.95)";
-      roundRect(ctx, barX, barY + 18, barW, barH, 5);
+      roundRect(ctx, barX, barY + 15, barW, barH, 4);
       ctx.fill();
       const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
       gradient.addColorStop(0, phaseTwo ? "#d946ef" : "#ff3355");
       gradient.addColorStop(0.52, phaseTwo ? "#fb7185" : "#ffb703");
       gradient.addColorStop(1, "#fff1a8");
       ctx.fillStyle = gradient;
-      roundRect(ctx, barX, barY + 18, barW * progress, barH, 5);
+      roundRect(ctx, barX, barY + 15, barW * progress, barH, 4);
       ctx.fill();
       ctx.strokeStyle = "rgba(255, 247, 230, 0.85)";
       ctx.lineWidth = 2;
-      roundRect(ctx, barX, barY + 18, barW, barH, 5);
+      roundRect(ctx, barX, barY + 15, barW, barH, 4);
       ctx.stroke();
       const hpText = boss.intro
         ? "SINAL HOSTIL CARREGANDO"
         : `${Math.ceil(Math.max(0, boss.hp))} / ${boss.maxHp} HP`;
-      ctx.font = `16px ${CONFIG.fonts.ui}`;
+      ctx.font = `13px "${CONFIG.fonts.ui}"`;
       ctx.fillStyle = "#f8e7b0";
-      ctx.fillText(hpText, CONFIG.canvasWidth / 2, barY + 58);
+      ctx.fillText(hpText, CONFIG.canvasWidth / 2, barY + 46);
       if (phaseTwo) {
-        const badgeX = barX + barW + 28;
+        const badgeX = barX + barW + 18;
         ctx.fillStyle = "rgba(90, 12, 95, 0.82)";
-        roundRect(ctx, badgeX, barY + 14, 122, 30, 6);
+        roundRect(ctx, badgeX, barY + 10, 96, 26, 6);
         ctx.fill();
         ctx.strokeStyle = "rgba(245, 93, 255, 0.95)";
         ctx.stroke();
         ctx.fillStyle = "#ffd6ff";
-        ctx.font = `16px ${CONFIG.fonts.ui}`;
-        ctx.fillText("FASE 2", badgeX + 61, barY + 35);
+        ctx.font = `13px "${CONFIG.fonts.ui}"`;
+        ctx.fillText("FASE 2", badgeX + 48, barY + 29);
       }
       ctx.restore();
     }
@@ -6463,67 +7006,71 @@ export default function JogoPage() {
 
       if (projectile.kind === "laser" || projectile.kind === "aimLaser") {
         const isAim = projectile.kind === "aimLaser";
-        const activeTime = Math.max(0, performance.now() - (projectile.activeAt ?? 0));
-        const pulse = active ? 1 + Math.sin(activeTime * (isAim ? 0.11 : 0.095)) * (isAim ? 0.26 : 0.18) : 1;
+        const activeTime = Math.max(0, now - (projectile.activeAt ?? now));
+        const pulse = active ? 1 + Math.sin(activeTime * 0.11) * 0.16 : 1;
         const drawHeight = projectile.h * pulse;
-
-        ctx.save();
-        ctx.translate(projectile.x, projectile.y);
-        ctx.rotate(projectile.angle ?? 0);
-        if (isAim) {
-          ctx.translate(projectile.w / 2, 0);
-        }
-        ctx.globalAlpha = active ? 0.94 : isAim ? 0 : 0.24;
-        if (active || !isAim) {
-          ctx.fillStyle = active ? "#ffd166" : "#fff1a8";
-          ctx.fillRect(
-            -projectile.w / 2,
-            -drawHeight / 2,
-            projectile.w,
-            drawHeight,
-          );
-          ctx.fillStyle = active ? "#fff7e6" : "#f8e7b0";
-          ctx.fillRect(-projectile.w / 2, -Math.max(5, drawHeight * 0.08), projectile.w, Math.max(10, drawHeight * 0.16));
-        }
+        const beamColor = isAim ? "#ff4fd8" : "#ffd166";
 
         if (!active && isAim) {
-          ctx.restore();
-          ctx.save();
-          const t = performance.now() * 0.006;
+          const t = now * 0.006;
           const aimX = projectile.aimX ?? playerRef.current.x + playerRef.current.w / 2;
           const aimY = projectile.aimY ?? playerRef.current.y + playerRef.current.h / 2;
           const lockBefore = CONFIG.gameplay.boss.chocado.aimLaserLockBeforeMs ?? 430;
-          const isLockedDanger = Boolean(projectile.activeAt && now >= projectile.activeAt - lockBefore);
-          const aimColor = isLockedDanger ? "#ff2d2d" : "#ffd166";
-          ctx.globalAlpha = isLockedDanger ? 1 : 0.92;
-          ctx.strokeStyle = aimColor;
-          ctx.shadowColor = aimColor;
-          ctx.shadowBlur = isLockedDanger ? 24 : 15;
-          ctx.lineWidth = isLockedDanger ? 7 : 5;
-          ctx.setLineDash([14, 10]);
+          const danger = Boolean(projectile.activeAt && now >= projectile.activeAt - lockBefore);
+          ctx.save();
+          ctx.globalAlpha = danger ? 1 : 0.88;
+          ctx.strokeStyle = danger ? "#ff385f" : "#ffcf5c";
+          ctx.shadowColor = ctx.strokeStyle;
+          ctx.shadowBlur = danger ? 24 : 14;
+          ctx.lineWidth = danger ? 6 : 3;
+          ctx.setLineDash([12, 9]);
           ctx.lineDashOffset = -t * 24;
           ctx.beginPath();
-          ctx.arc(aimX, aimY, (isLockedDanger ? 50 : 44) + Math.sin(t * (isLockedDanger ? 11 : 5)) * (isLockedDanger ? 8 : 5), 0, Math.PI * 2);
+          ctx.moveTo(projectile.x, projectile.y);
+          ctx.lineTo(aimX, aimY);
           ctx.stroke();
           ctx.setLineDash([]);
           ctx.beginPath();
-          ctx.moveTo(aimX - 34, aimY);
-          ctx.lineTo(aimX + 34, aimY);
-          ctx.moveTo(aimX, aimY - 34);
-          ctx.lineTo(aimX, aimY + 34);
+          ctx.arc(aimX, aimY, (danger ? 48 : 40) + Math.sin(t * 6) * 5, 0, Math.PI * 2);
           ctx.stroke();
           ctx.restore();
           return;
         }
+
+        ctx.save();
+        ctx.translate(projectile.x, projectile.y);
+        ctx.rotate(projectile.angle ?? Math.PI);
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = active ? 0.96 : 0.24;
+
+        const beamGradient = ctx.createLinearGradient(0, 0, projectile.w, 0);
+        beamGradient.addColorStop(0, "#fff7d6");
+        beamGradient.addColorStop(0.04, beamColor);
+        beamGradient.addColorStop(0.72, beamColor);
+        beamGradient.addColorStop(1, "rgba(255,79,216,0)");
+        ctx.fillStyle = beamGradient;
+        ctx.shadowColor = beamColor;
+        ctx.shadowBlur = active ? 24 : 8;
+        ctx.fillRect(0, -drawHeight / 2, projectile.w, drawHeight);
+        ctx.fillStyle = "rgba(255,255,255,.92)";
+        ctx.fillRect(0, -Math.max(3, drawHeight * 0.10), projectile.w * 0.94, Math.max(6, drawHeight * 0.20));
+
+        // Núcleo de saída preso ao Chocado: impede o laser de parecer surgir atrás dele.
+        const muzzle = ctx.createRadialGradient(0, 0, 2, 0, 0, drawHeight * 1.35);
+        muzzle.addColorStop(0, "#ffffff");
+        muzzle.addColorStop(0.3, beamColor);
+        muzzle.addColorStop(1, "rgba(255,79,216,0)");
+        ctx.fillStyle = muzzle;
+        ctx.beginPath();
+        ctx.arc(0, 0, drawHeight * 1.35, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
         return;
       }
 
-      const img =
-        projectile.kind === "servo" || projectile.kind === "servoWave"
-          ? assetsRef.current.get("bossServo")
-          : assetsRef.current.get("bossOrb") ?? assetsRef.current.get("enemyBullet");
-      const color = projectile.kind === "servo" || projectile.kind === "servoWave" ? "#ffb703" : "#d946ef";
+      const isServo = projectile.kind === "servo" || projectile.kind === "servoWave";
+      const img = isServo ? assetsRef.current.get("bossServo") : assetsRef.current.get("bossOrb");
+      const color = isServo ? "#ffb703" : "#d946ef";
       const angle = Math.atan2(projectile.vy, projectile.vx);
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
@@ -6543,6 +7090,31 @@ export default function JogoPage() {
         ctx.fill();
       }
       ctx.restore();
+
+      if (!isServo) {
+        const cx = projectile.x + projectile.w / 2;
+        const cy = projectile.y + projectile.h / 2;
+        const pulse = 1 + Math.sin(now * 0.018 + (projectile.phase ?? 0)) * 0.10;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        const aura = ctx.createRadialGradient(cx, cy, 2, cx, cy, projectile.w * 1.25);
+        aura.addColorStop(0, "#ffffff");
+        aura.addColorStop(0.18, "#ff9cf2");
+        aura.addColorStop(0.48, "#d946ef");
+        aura.addColorStop(1, "rgba(93,30,130,0)");
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.arc(cx, cy, projectile.w * 1.25 * pulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,190,255,.9)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, projectile.w * 0.56 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
       drawVelocityStretchedImage(
         ctx,
         img,
@@ -6572,7 +7144,9 @@ export default function JogoPage() {
       rect: { x: number; y: number; w: number; h: number },
       beam: BossProjectile,
     ) {
-      const angle = -(beam.angle ?? 0);
+      const angle = beam.angle ?? Math.PI;
+      const cos = Math.cos(-angle);
+      const sin = Math.sin(-angle);
       const points = [
         { x: rect.x, y: rect.y },
         { x: rect.x + rect.w, y: rect.y },
@@ -6582,13 +7156,11 @@ export default function JogoPage() {
       ];
 
       return points.some((point) => {
-        const originCenterX = beam.kind === "aimLaser" ? beam.x + Math.cos(beam.angle ?? 0) * (beam.w / 2) : beam.x;
-        const originCenterY = beam.kind === "aimLaser" ? beam.y + Math.sin(beam.angle ?? 0) * (beam.w / 2) : beam.y;
-        const dx = point.x - originCenterX;
-        const dy = point.y - originCenterY;
-        const rx = dx * Math.cos(angle) - dy * Math.sin(angle);
-        const ry = dx * Math.sin(angle) + dy * Math.cos(angle);
-        return Math.abs(rx) <= beam.w / 2 && Math.abs(ry) <= beam.h / 2;
+        const dx = point.x - beam.x;
+        const dy = point.y - beam.y;
+        const rx = dx * cos - dy * sin;
+        const ry = dx * sin + dy * cos;
+        return rx >= 0 && rx <= beam.w && Math.abs(ry) <= beam.h / 2;
       });
     }
 
@@ -6739,7 +7311,7 @@ export default function JogoPage() {
           ctx.fillStyle = color;
           ctx.fillRect(-power.w / 2, -power.h / 2, power.w, power.h);
           ctx.fillStyle = "#08030a";
-          ctx.font = `26px ${CONFIG.fonts.ui}`;
+          ctx.font = `26px "${CONFIG.fonts.ui}"`;
           ctx.textAlign = "center";
           const label =
             power.kind === "fireRate"
@@ -6868,7 +7440,7 @@ export default function JogoPage() {
       ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
       ctx.fillRect(18, 82, 340, 112);
       ctx.fillStyle = "white";
-      ctx.font = `24px ${CONFIG.fonts.ui}`;
+      ctx.font = `24px "${CONFIG.fonts.ui}"`;
       ctx.fillText("Z: tiro normal", 34, 116);
       ctx.fillText(
         strongCooldownRef.current > 0
@@ -7626,6 +8198,15 @@ export default function JogoPage() {
       const effectiveMaxSpeedX = CONFIG.gameplay.player.maxSpeedX * slowMultiplier;
       const effectiveMaxSpeedY = CONFIG.gameplay.player.maxSpeedY * slowMultiplier;
 
+      if (!isTutorialMode && bossIntroSequenceRef.current.active) {
+        atualizarCutsceneChocado(delta);
+        atualizarParticulas(delta);
+        atualizarShockwaves(delta);
+        atualizarPowerUpUi();
+        setIsLowHp(false);
+        return;
+      }
+
       if (isTutorialMode && tutorialResetRef.current.active) {
         const reset = tutorialResetRef.current;
         const progress = clamp((performance.now() - reset.startAt) / reset.durationMs, 0, 1);
@@ -8141,6 +8722,32 @@ export default function JogoPage() {
 
     function keyDown(e: KeyboardEvent) {
       const key = e.key.toLowerCase();
+
+      if (keyBindCaptureRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === "escape") {
+          cancelarCapturaTecla();
+          return;
+        }
+        const candidate = key === " " ? "space" : key === "ctrl" ? "control" : key;
+        const settingKey = keyBindCaptureRef.current;
+        setKeyBindPrompt((current) => current
+          ? { ...current, settingKey, candidate }
+          : { settingKey, label: "CONTROLE", candidate });
+        keyBindCaptureRef.current = null;
+        tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+        return;
+      }
+
+      if (keyBindDialogOpenRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === "escape") cancelarCapturaTecla();
+        if (key === "enter") confirmarCapturaTecla();
+        return;
+      }
+
       keysRef.current[key] = true;
 
       if (
@@ -8472,7 +9079,7 @@ export default function JogoPage() {
 
   return (
     <main
-      className={`game-fullscreen-page game-state-${gameState} ${tutorialLaunchZoom ? "game-tutorial-launch-zoom" : ""} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
+      className={`game-fullscreen-page game-state-${gameState} ${tutorialLaunchZoom ? "game-tutorial-launch-zoom" : ""} ${bossCinematicStage !== "idle" ? `sn-boss-cinematic sn-boss-cinematic-${bossCinematicStage}` : ""} ${bossDefeatStage !== "idle" && bossDefeatStage !== "done" ? `sn-boss-defeat sn-boss-defeat-${bossDefeatStage}` : ""} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
       style={gameStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -8490,6 +9097,17 @@ export default function JogoPage() {
             : "is-menu-hidden"
         }`}
       />
+
+      {bossCinematicStage !== "idle" && (
+        <div className="sn-cinematic-overlay" aria-hidden="true">
+          <span className="sn-cinematic-line top" />
+          <span className="sn-cinematic-line bottom" />
+          {bossCinematicStage === "drag" && <strong>IMPACTO DE ROTA</strong>}
+        </div>
+      )}
+      {bossDefeatStage !== "idle" && bossDefeatStage !== "done" && (
+        <div className="sn-boss-defeat-overlay" aria-hidden="true" />
+      )}
 
       {gameState === "title" && (
         <img
@@ -8548,130 +9166,80 @@ export default function JogoPage() {
       )}
 
       {(gameState === "playing" || gameState === "paused") && (
-        <div className="game-life-hud">
-          {normalLifeSlots.map((_, index) => {
-            const heartIsFull = index < playerHp;
-            const heartSrc = heartIsFull
-              ? CONFIG.uiImages.lifeFull
-              : CONFIG.uiImages.lifeEmpty;
-            const heartFallback = heartIsFull
-              ? CONFIG.uiImages.lifeFullFallback
-              : CONFIG.uiImages.lifeEmptyFallback;
+        <aside className="sn-player-hud" aria-label="Status do jogador">
+          <div className="sn-life-panel">
+            <div className="sn-life-hearts">
+              {normalLifeSlots.map((_, index) => {
+                const heartIsFull = index < playerHp;
+                const heartSrc = heartIsFull ? CONFIG.uiImages.lifeFull : CONFIG.uiImages.lifeEmpty;
+                const heartFallback = heartIsFull ? CONFIG.uiImages.lifeFullFallback : CONFIG.uiImages.lifeEmptyFallback;
+                return (
+                  <img
+                    key={`normal-${index}-${heartIsFull ? "full" : "empty"}`}
+                    className={heartIsFull ? "is-full" : "is-empty"}
+                    src={assetUrl(heartSrc)}
+                    alt={heartIsFull ? "vida" : "vida perdida"}
+                    draggable={false}
+                    onError={(event) => {
+                      const img = event.currentTarget;
+                      if (img.dataset.fallbackApplied === "true") return;
+                      img.dataset.fallbackApplied = "true";
+                      img.src = assetUrl(heartFallback);
+                    }}
+                  />
+                );
+              })}
+              {goldenLifeSlots.map((_, index) => (
+                <img
+                  key={`golden-${index}`}
+                  className="is-golden"
+                  src={assetUrl(CONFIG.uiImages.heartGolden)}
+                  alt="vida dourada"
+                  draggable={false}
+                />
+              ))}
+            </div>
+          </div>
 
-            return (
-              <img
-                key={`normal-${index}-${heartIsFull ? "full" : "empty"}`}
-                className={`game-normal-heart ${heartIsFull ? "is-full" : "is-empty"}`}
-                data-heart-state={heartIsFull ? "full" : "empty"}
-                src={assetUrl(heartSrc)}
-                alt={heartIsFull ? "vida" : "vida perdida"}
-                draggable={false}
-                onContextMenu={(event) => event.preventDefault()}
-                onError={(event) => {
-                  const img = event.currentTarget;
+          <div className="sn-ability-stack">
+            {[
+              { id: "dodge", label: "DODGE", ratio: dodgeReadyRatio, color: "#f4f1de" },
+              { id: "strong", label: "FORTE", ratio: strongReadyRatio, color: "#ffbf3f" },
+              { id: "boost", label: "BOOST", ratio: boostCharge / CONFIG.gameplay.boost.maxCharge, color: "#42b9ff" },
+            ].map((ability) => {
+              const ratio = clamp(ability.ratio, 0, 1);
+              const ready = ratio >= 0.999;
+              return (
+                <div className={`sn-ability ${ability.id} ${ready ? "is-ready" : ""}`} key={ability.id}>
+                  <span className="sn-ability-label">{ability.label}</span>
+                  <span className="sn-ability-track">
+                    <span style={{ width: `${ratio * 100}%`, background: ability.color }} />
+                  </span>
+                  <strong>{ready ? "PRONTO" : `${Math.ceil(ratio * 100)}%`}</strong>
+                </div>
+              );
+            })}
+          </div>
 
-                  if (img.dataset.fallbackApplied === "true") return;
-
-                  img.dataset.fallbackApplied = "true";
-                  img.src = assetUrl(heartFallback);
-                }}
-              />
-            );
-          })}
-
-          {goldenLifeSlots.map((_, index) => (
-            <img
-              key={`golden-${index}`}
-              className="game-golden-heart"
-              src={assetUrl(CONFIG.uiImages.heartGolden)}
-              alt="vida dourada"
-              draggable={false}
-              onContextMenu={(event) => event.preventDefault()}
-              onError={(event) => {
-                const img = event.currentTarget;
-                img.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cpath fill='%23ffd166' d='M32 56S6 40 6 21C6 11 13 6 22 6c5 0 8 2 10 6 2-4 5-6 10-6 9 0 16 5 16 15 0 19-26 35-26 35z'/%3E%3Cpath fill='%23fff3bf' d='M18 14c-4 2-6 5-6 10 0 3 1 6 3 8-1-10 5-16 14-16-3-3-7-4-11-2z'/%3E%3C/svg%3E";
-              }}
-            />
-          ))}
-        </div>
+          {activePowerUpsUi.length > 0 && (
+            <div className="sn-powerup-row" aria-label="Power-ups ativos">
+              {activePowerUpsUi.map((power) => (
+                <div className="sn-powerup-slot" data-kind={power.kind} key={power.kind} title={power.label}>
+                  <img src={power.icon} alt={power.label} draggable={false} />
+                  {power.remainingMs !== undefined && (
+                    <span>{Math.ceil(power.remainingMs / 1000)}s</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
       )}
 
-      {(gameState === "playing" || gameState === "paused") &&
-        activePowerUpsUi.length > 0 && (
-          <div className="game-powerup-hud">
-            {activePowerUpsUi.map((power) => (
-              <div className="game-powerup-slot" key={power.kind}>
-                <img src={power.icon} alt={power.label} draggable={false} />
-                {power.remainingMs !== undefined && (
-                  <span>{Math.ceil(power.remainingMs / 1000)}S</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-      {(gameState === "playing" || gameState === "paused") &&
-        waveUi.mode === "infinite" && (
-          <div className="game-wave-hud">
-            <strong>WAVE {waveUi.wave || 1}</strong>
-            <span>
-              {waveUi.bossWave
-                ? "BOSS"
-                : waveUi.active
-                  ? "EM ANDAMENTO"
-                  : "PREPARANDO"}
-            </span>
-          </div>
-        )}
-
-      {(gameState === "playing" || gameState === "paused") &&
-        waveUi.mode === "infinite" && (
-          <div className="game-score-hud">
-            <strong>SCORE</strong>
-            <span>{score.toString().padStart(6, "0")}</span>
-          </div>
-        )}
-
-      {(gameState === "playing" || gameState === "paused") && (
-        <div className="game-ability-hud">
-          <div
-            className={`game-ability-meter dodge ${dodgeReadyRatio >= 1 ? "ready" : ""}`}
-          >
-            <div className="game-ability-fill">
-              <span
-                style={{ height: `${clamp(dodgeReadyRatio * 100, 0, 100)}%` }}
-              />
-              <strong>{dodgeReadyRatio >= 1 ? "READY!" : "DODGE"}</strong>
-            </div>
-          </div>
-
-          <div
-            className={`game-ability-meter strong ${strongReadyRatio >= 1 ? "ready" : ""}`}
-          >
-            <div className="game-ability-fill">
-              <span
-                style={{ height: `${clamp(strongReadyRatio * 100, 0, 100)}%` }}
-              />
-              <strong>{strongReadyRatio >= 1 ? "READY!" : "FORTE"}</strong>
-            </div>
-          </div>
-
-          <div
-            className={`game-ability-meter boost ${boostCharge >= CONFIG.gameplay.boost.maxCharge ? "ready" : ""}`}
-          >
-            <div className="game-ability-fill">
-              <span
-                style={{
-                  height: `${clamp((boostCharge / CONFIG.gameplay.boost.maxCharge) * 100, 0, 100)}%`,
-                }}
-              />
-              <strong>
-                {boostCharge >= CONFIG.gameplay.boost.maxCharge
-                  ? "READY!"
-                  : "BOOST"}
-              </strong>
-            </div>
-          </div>
+      {(gameState === "playing" || gameState === "paused") && waveUi.mode === "infinite" && (
+        <div className="sn-run-info">
+          <span>WAVE {waveUi.wave || 1}</span>
+          <strong>{score.toString().padStart(6, "0")}</strong>
         </div>
       )}
 
@@ -8687,30 +9255,27 @@ export default function JogoPage() {
       {bossTipVisible &&
         (gameState === "playing" || gameState === "paused") &&
         waveUi.bossWave && (
-          <div className="game-boss-tip-card">
-            <div className="game-boss-tip-header">
-              <strong>CHOCADO</strong>
-              <span>ANÁLISE TÁTICA • 10s</span>
+          <aside className="sn-boss-tip">
+            <header>
+              <div>
+                <strong>CHOCADO</strong>
+                <span>LEITURA TÁTICA</span>
+              </div>
+              <em>10s</em>
+            </header>
+            <div className="sn-boss-tip-icons" aria-hidden="true">
+              <span>✦</span><span>◎</span><span>▥</span><span>⌁</span><span>⊙</span>
             </div>
-            <div className="game-boss-patterns">
-              <span>✦</span>
-              <span>◎</span>
-              <span>▥</span>
-              <span>⌁</span>
-              <span>⊙</span>
-            </div>
-            <div className="game-boss-tip-lines">
-              <p>• Projéteis roxos: mantenha distância média.</p>
-              <p>• Lasers: espere o aviso e troque de faixa.</p>
-              <p>• Servos: destrua ou use Dodge só no último segundo.</p>
-              <p>• Fase 2: abaixo de 400 HP, padrões combinados.</p>
-            </div>
-          </div>
+            <p><b>ORBITAIS:</b> mantenha distância média e atravesse os espaços.</p>
+            <p><b>LASERS:</b> siga o aviso luminoso e mude de faixa.</p>
+            <p><b>SERVOS:</b> destrua ou use Dodge no último instante.</p>
+            <p><b>FASE 2:</b> abaixo de 400 HP, ele combina padrões.</p>
+          </aside>
         )}
 
       {bossDanielLine.visible &&
         (gameState === "playing" || gameState === "paused") && (
-          <div className="game-daniel-dialog game-daniel-boss-dialog">
+          <div className="game-daniel-dialog game-daniel-boss-dialog sn-dialog">
             <img
               className="game-daniel-icon"
               src={assetUrl(getDanielIcon(bossDanielLine.expression, danielMouthOpen))}
@@ -8848,7 +9413,7 @@ export default function JogoPage() {
                               }
                               setIndiceConfiguracao(index);
                             }}
-                            onClick={() => alterarConfiguracaoAtual(1)}
+                            onClick={() => option.kind === "keybind" ? iniciarCapturaTecla(option.key, option.label) : alterarConfiguracaoAtual(1)}
                           >
                             <span className="game-setting-label">
                               {option.label}
@@ -8859,6 +9424,10 @@ export default function JogoPage() {
                                   className={`game-setting-toggle ${value ? "is-on" : "is-off"}`}
                                 >
                                   {value ? "✓ CORRETO" : "✕ ERRADO"}
+                                </strong>
+                              ) : option.kind === "keybind" ? (
+                                <strong className="sn-keybind-value">
+                                  {formatarConfiguracao(option)}
                                 </strong>
                               ) : (
                                 <>
@@ -8877,12 +9446,97 @@ export default function JogoPage() {
                         );
                       })}
                     </div>
+                    {section === "MOBILE" && (
+                      <button
+                        type="button"
+                        className="sn-mobile-editor-open"
+                        onClick={() => setMobileEditorOpen(true)}
+                      >
+                        PERSONALIZAR POSIÇÃO E ESCALA
+                      </button>
+                    )}
                   </div>
                 );
               })}
             </div>
           </aside>
         </section>
+      )}
+
+      {keyBindPrompt && (
+        <div className="sn-modal-backdrop">
+          <section className="sn-confirm-card">
+            <span>CONFIGURAR CONTROLE</span>
+            {keyBindPrompt.candidate ? (
+              <>
+                <h2>{labelTecla(keyBindPrompt.candidate)}</h2>
+                <p>Deseja atribuir esta tecla para <strong>{keyBindPrompt.label}</strong>?</p>
+                <div>
+                  <button type="button" onClick={confirmarCapturaTecla}>CONFIRMAR</button>
+                  <button type="button" onClick={cancelarCapturaTecla}>CANCELAR</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>PRESSIONE UMA TECLA</h2>
+                <p>ESC cancela. Qualquer outra tecla será mostrada antes de confirmar.</p>
+                <button type="button" onClick={cancelarCapturaTecla}>CANCELAR</button>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+
+      {mobileEditorOpen && (
+        <div className="sn-modal-backdrop sn-mobile-editor-backdrop">
+          <section className="sn-mobile-editor-card">
+            <header>
+              <div>
+                <span>CONTROLES MOBILE</span>
+                <h2>ARRASTE E REDIMENSIONE</h2>
+              </div>
+              <button type="button" onClick={() => setMobileEditorOpen(false)}>X</button>
+            </header>
+            <div className="sn-mobile-editor-stage">
+              {(Object.keys(mobileControlLayout) as MobileControlId[]).map((id) => {
+                const placement = mobileControlLayout[id];
+                return (
+                  <button
+                    type="button"
+                    key={id}
+                    className={`sn-editor-control ${selectedMobileControl === id ? "is-selected" : ""}`}
+                    style={{
+                      left: `${placement.x}%`,
+                      top: `${placement.y}%`,
+                      transform: `translate(-50%, -50%) scale(${placement.scale})`,
+                    }}
+                    onPointerDown={(event) => {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      setSelectedMobileControl(id);
+                      moverControleMobile(id, event);
+                    }}
+                    onPointerMove={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) moverControleMobile(id, event);
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                    }}
+                  >
+                    {MOBILE_CONTROL_LABELS[id]}
+                  </button>
+                );
+              })}
+            </div>
+            <footer>
+              <strong>{MOBILE_CONTROL_LABELS[selectedMobileControl]}</strong>
+              <button type="button" onClick={() => atualizarControleMobile(selectedMobileControl, { scale: clamp(mobileControlLayout[selectedMobileControl].scale - 0.08, 0.42, 1.35) })}>−</button>
+              <span>{Math.round(mobileControlLayout[selectedMobileControl].scale * 100)}%</span>
+              <button type="button" onClick={() => atualizarControleMobile(selectedMobileControl, { scale: clamp(mobileControlLayout[selectedMobileControl].scale + 0.08, 0.42, 1.35) })}>+</button>
+              <button type="button" onClick={() => persistirLayoutMobile(DEFAULT_MOBILE_CONTROL_LAYOUT)}>RESTAURAR</button>
+              <button type="button" onClick={() => setMobileEditorOpen(false)}>SALVAR E FECHAR</button>
+            </footer>
+          </section>
+        </div>
       )}
 
       {gameState === "storyCutscene" && (
@@ -8915,7 +9569,7 @@ export default function JogoPage() {
           </div>
 
           <div className="game-daniel-choice-panel">
-            <div className="game-daniel-dialog is-choice">
+            <div className="game-daniel-dialog is-choice sn-dialog">
               <img
                 className="game-daniel-icon"
                 src={assetUrl(getDanielIcon("normal", danielMouthOpen))}
@@ -8957,7 +9611,7 @@ export default function JogoPage() {
             </strong>
           </div>
 
-          <div className="game-daniel-dialog game-daniel-tutorial-dialog">
+          <div className="game-daniel-dialog game-daniel-tutorial-dialog sn-dialog">
             <img
               className="game-daniel-icon"
               src={assetUrl(getDanielIcon(TUTORIAL_DANIEL_TEXT[tutorialStep].expression, danielMouthOpen))}
@@ -9005,7 +9659,7 @@ export default function JogoPage() {
         <section className="game-screen game-over-screen">
           <div className="game-over-card">
             <p>{gameOverTaunt}</p>
-            <span className="game-over-wave">VOCE CAIU NA WAVE {gameOverWave}</span>
+            <span className="game-over-wave">VOCÊ CAIU NA WAVE {gameOverWave}</span>
             <h1>GAME OVER</h1>
             <button
               onClick={() => iniciarJogo(currentModeRef.current ?? "infinite")}
@@ -9018,30 +9672,48 @@ export default function JogoPage() {
       )}
 
       {gameState === "victory" && (
-        <section className="game-screen game-victory-screen">
-          <div className="game-victory-stars" />
-          <div className="game-victory-card">
-            <p>MISSÃO CONCLUÍDA</p>
-            <h1>VITÓRIA!</h1>
-            <span>A TERRA FOI SALVA DA DESINFORMAÇÃO</span>
-            <div className="game-victory-daniel">
-              <img src={assetUrl(getDanielIcon("happy", danielMouthOpen))} alt="Daniel" draggable={false} />
+        <section className={`game-screen sn-victory-screen victory-step-${victoryStep}`}>
+          <div className="sn-victory-stars" />
+          <div className="sn-victory-earth" />
+          <div className="sn-victory-ship" />
+          <div className="sn-victory-broadcast">
+            <span>CANAL SPACE NEWS</span>
+            <strong>{victoryStep < 2 ? "SINAL RESTAURADO" : "MISSÃO CONCLUÍDA"}</strong>
+          </div>
+          <div className="sn-victory-dialog sn-dialog">
+            <img src={assetUrl(getDanielIcon("happy", danielMouthOpen))} alt="Daniel" draggable={false} />
+            <div>
               <strong>DANIEL</strong>
-              <p>Conseguimos, Cleber. O sinal do Chocado caiu. A rede está limpa... por enquanto.</p>
-            </div>
-            <div className="game-victory-actions">
-              <button onClick={() => iniciarJogo("story")}>JOGAR HISTÓRIA DE NOVO</button>
-              <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+              <p>
+                {victoryStep === 0 && "Cleber... os sensores estão voltando. Aguenta só mais um instante."}
+                {victoryStep === 1 && "Confirmado! O núcleo do Chocado foi destruído e os portais estão fechando."}
+                {victoryStep === 2 && "Conseguimos. A Terra está segura — e a verdade voltou ao ar."}
+                {victoryStep >= 3 && "Missão encerrada, parceiro. Pode trazer a Space News para casa."}
+              </p>
             </div>
           </div>
+          {victoryStep >= 2 && (
+            <div className="sn-victory-title">
+              <small>MISSÃO CONCLUÍDA</small>
+              <h1>VITÓRIA!</h1>
+              <span>A TERRA FOI SALVA DA DESINFORMAÇÃO</span>
+            </div>
+          )}
+          {victoryStep >= 3 && (
+            <div className="sn-victory-actions">
+              <button onClick={() => iniciarJogo("story")}>JOGAR NOVAMENTE</button>
+              <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+            </div>
+          )}
         </section>
       )}
+
 
 
       {(gameState === "playing" || gameState === "tutorial") && (
         <button
           type="button"
-          className="game-pc-pause-button"
+          className="sn-pause-button"
           onClick={pausarOuVoltar}
           aria-label="Pausar jogo"
         >
@@ -9051,174 +9723,77 @@ export default function JogoPage() {
       )}
 
       {(gameState === "playing" || gameState === "tutorial") && (
-        <div
-          className="game-mobile-top-actions"
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          <button
-            type="button"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              solicitarFullscreen();
-            }}
-            aria-label="fullscreen"
-          >
-            <img
-              draggable={false}
-              src={CONFIG.uiImages.mobileFullscreen}
-              alt="fullscreen"
-            />
-          </button>
-          <button
-            type="button"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              pausarOuVoltar();
-            }}
-            aria-label="pause"
-          >
-            <img
-              draggable={false}
-              src={CONFIG.uiImages.mobilePause}
-              alt="pause"
-            />
-          </button>
-        </div>
-      )}
-
-      {(gameState === "playing" || gameState === "tutorial") && (
-        <div
-          className="game-mobile-controls"
-          onContextMenu={(event) => event.preventDefault()}
-        >
+        <div className="sn-mobile-controls" onContextMenu={(event) => event.preventDefault()}>
           <div
-            className="game-mobile-joystick"
+            className="sn-mobile-joystick"
+            style={mobileControlStyle("joystick")}
             onPointerDown={(event) => {
               event.preventDefault();
-              event.stopPropagation();
               event.currentTarget.setPointerCapture(event.pointerId);
               atualizarJoystick(event);
             }}
             onPointerMove={(event) => {
               event.preventDefault();
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                atualizarJoystick(event);
-              }
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) atualizarJoystick(event);
             }}
             onPointerUp={(event) => {
-              event.currentTarget.releasePointerCapture(event.pointerId);
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
               resetarJoystick();
             }}
             onPointerCancel={resetarJoystick}
-            onPointerLeave={resetarJoystick}
           >
             <div
-              className="game-mobile-joystick-knob"
-              style={{
-                transform: `translate(calc(-50% + ${mobileStick.x}px), calc(-50% + ${mobileStick.y}px))`,
-              }}
+              className="sn-mobile-joystick-knob"
+              style={{ transform: `translate(calc(-50% + ${mobileStick.x}px), calc(-50% + ${mobileStick.y}px))` }}
             />
           </div>
 
-          <div className="game-mobile-actions">
-            <button
-              type="button"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                executarEsquiva();
-              }}
-              disabled={gameState === "tutorial" && tutorialStep !== "dodge"}
-              aria-label="esquiva"
-            >
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobileDodge}
-                alt="esquiva"
-              />
-            </button>
+          <button className="sn-mobile-button shot" style={mobileControlStyle("shot")}
+            onPointerDown={(event) => { event.preventDefault(); mobileShootRef.current = true; }}
+            onPointerUp={() => { mobileShootRef.current = false; }}
+            onPointerCancel={() => { mobileShootRef.current = false; }}
+            disabled={gameState === "tutorial" && tutorialStep !== "shot"}
+            aria-label="tiro normal">
+            <img src={CONFIG.uiImages.mobileShot} alt="tiro normal" draggable={false} />
+          </button>
 
-            <button
-              type="button"
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                keysRef.current["shift"] = true;
-              }}
-              onPointerUp={(event) => {
-                event.preventDefault();
-                keysRef.current["shift"] = false;
-              }}
-              onPointerLeave={() => {
-                keysRef.current["shift"] = false;
-              }}
-              onPointerCancel={() => {
-                keysRef.current["shift"] = false;
-              }}
-              disabled={boostCharge < CONFIG.gameplay.boost.maxCharge || (gameState === "tutorial" && tutorialStep !== "boost")}
-              aria-label="boost"
-            >
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobileBoost}
-                alt="boost"
-              />
-            </button>
+          <button className="sn-mobile-button strong" style={mobileControlStyle("strong")}
+            onPointerDown={(event) => { event.preventDefault(); keysRef.current[normalizarTeclaConfig(CONFIG.settings.pcStrongKey)] = true; }}
+            onPointerUp={() => { keysRef.current[normalizarTeclaConfig(CONFIG.settings.pcStrongKey)] = false; }}
+            onPointerCancel={() => { keysRef.current[normalizarTeclaConfig(CONFIG.settings.pcStrongKey)] = false; }}
+            disabled={strongCooldown > 0 || (gameState === "tutorial" && tutorialStep !== "strong")}
+            aria-label="tiro forte">
+            {strongCooldown > 0 ? <span>{strongCooldown}s</span> : <img src={CONFIG.uiImages.mobileStrong} alt="tiro forte" draggable={false} />}
+          </button>
 
-            <button
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                mobileShootRef.current = true;
-              }}
-              onPointerUp={(event) => {
-                event.preventDefault();
-                mobileShootRef.current = false;
-              }}
-              onPointerLeave={() => (mobileShootRef.current = false)}
-              onPointerCancel={() => (mobileShootRef.current = false)}
-              disabled={gameState === "tutorial" && tutorialStep !== "shot"}
-            >
-              <img
-                draggable={false}
-                src={CONFIG.uiImages.mobileShot}
-                alt="tiro"
-              />
-            </button>
+          <button className="sn-mobile-button boost" style={mobileControlStyle("boost")}
+            onPointerDown={(event) => { event.preventDefault(); keysRef.current[normalizarTeclaConfig(CONFIG.settings.pcBoostKey)] = true; }}
+            onPointerUp={() => { keysRef.current[normalizarTeclaConfig(CONFIG.settings.pcBoostKey)] = false; }}
+            onPointerCancel={() => { keysRef.current[normalizarTeclaConfig(CONFIG.settings.pcBoostKey)] = false; }}
+            disabled={boostCharge < CONFIG.gameplay.boost.maxCharge || (gameState === "tutorial" && tutorialStep !== "boost")}
+            aria-label="boost">
+            <img src={CONFIG.uiImages.mobileBoost} alt="boost" draggable={false} />
+          </button>
 
-            <button
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                keysRef.current["x"] = true;
-              }}
-              onPointerUp={(event) => {
-                event.preventDefault();
-                keysRef.current["x"] = false;
-              }}
-              onPointerLeave={() => {
-                keysRef.current["x"] = false;
-              }}
-              onPointerCancel={() => {
-                keysRef.current["x"] = false;
-              }}
-              disabled={strongCooldown > 0 || (gameState === "tutorial" && tutorialStep !== "strong")}
-            >
-              {strongCooldown > 0 ? (
-                <span>{strongCooldown}s</span>
-              ) : (
-                <img
-                  draggable={false}
-                  src={CONFIG.uiImages.mobileStrong}
-                  alt="tiro forte"
-                />
-              )}
-            </button>
-          </div>
+          <button className="sn-mobile-button dodge" style={mobileControlStyle("dodge")}
+            onPointerDown={(event) => { event.preventDefault(); executarEsquiva(); }}
+            disabled={gameState === "tutorial" && tutorialStep !== "dodge"}
+            aria-label="dodge">
+            <img src={CONFIG.uiImages.mobileDodge} alt="dodge" draggable={false} />
+          </button>
+
+          <button className="sn-mobile-button system fullscreen" style={mobileControlStyle("fullscreen")}
+            onPointerDown={(event) => { event.preventDefault(); solicitarFullscreen(); }} aria-label="tela cheia">
+            <img src={CONFIG.uiImages.mobileFullscreen} alt="tela cheia" draggable={false} />
+          </button>
+
+          <button className="sn-mobile-button system pause" style={mobileControlStyle("pause")}
+            onPointerDown={(event) => { event.preventDefault(); pausarOuVoltar(); }} aria-label="pause">
+            <img src={CONFIG.uiImages.mobilePause} alt="pause" draggable={false} />
+          </button>
         </div>
       )}
+
     </main>
   );
 }
