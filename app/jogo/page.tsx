@@ -1,5 +1,38 @@
 "use client";
 
+/*
+  SPACE NEWS V7 POLISH NOTES / SUPORTE NOVO
+
+  Assets novos suportados/recomendados:
+  - /game/ui/mobile-pause.png também usado como pause do PC.
+  - /sounds/daniel/radio-open.mp3
+  - /sounds/daniel/radio-close.mp3
+  - /sounds/daniel/boss-warning-01.mp3
+  - /sounds/daniel/boss-phase2-01.mp3
+  - /sounds/daniel/victory-01.mp3
+  - /sounds/chocado-grab.mp3
+  - /sounds/chocado-dash.mp3
+  - /sounds/chocado-release.mp3
+  - /sounds/chocado-phase-two.mp3
+  - /sounds/chocado-defeat-burst.mp3
+  - /sounds/chocado-final-explosion.mp3
+  - /sounds/chocado-orb.mp3
+  - /sounds/chocado-laser-charge.mp3
+  - /sounds/chocado-laser-fire.mp3
+  - /sounds/chocado-serpent.mp3
+  - /sounds/chocado-wall.mp3
+
+  CSS V7 faz o rollback visual da HUD e corrige:
+  - barras legíveis quando READY
+  - powerups perto das barras
+  - pause PC dourado com imagem
+  - Daniel maior, sem barra azul
+  - textos pixel e acentos com fallbacks corretos
+*/
+
+
+// SPACE NEWS V6 HUD CLEAN PATCH: HUD visual rollback is handled in globals.css.
+
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
@@ -50,6 +83,8 @@ type SpriteKey =
   | "portal"
   | "chocado"
   | "bossServo"
+  | "bossOrb"
+  | "bossWarning"
   | "enemyRed"
   | "enemyBlack"
   | "enemyBlackWindup"
@@ -218,6 +253,8 @@ type BossProjectile = {
   aimY?: number;
   returnAt?: number;
   returning?: boolean;
+  stretchUntil?: number;
+  telegraphSoundPlayed?: boolean;
 };
 
 type BossState = {
@@ -236,6 +273,7 @@ type BossState = {
   nextAttackAt: number;
   attackIndex: number;
   roarDone: boolean;
+  phaseTwoAnnounced?: boolean;
 };
 
 type SpriteConfig = {
@@ -408,6 +446,10 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
     frames: 1,
     fps: 8,
   },
+
+  bossOrb: { src: "/game/bosses/chocado-orb.png" },
+
+  bossWarning: { src: "/game/bosses/chocado-warning.png" },
 
   enemyRed: {
     // Inimigo vermelho sem spritesheet: 1 idle + 4 frames separados.
@@ -746,38 +788,38 @@ const CONFIG = {
       chocado: {
         width: 360,
         height: 650,
-        hp: 500,
-        introBarMs: 1800,
-        introRoarMs: 900,
+        hp: 1000,
+        introBarMs: 2600,
+        introRoarMs: 1500,
         floatAmplitude: 16,
         floatSpeed: 0.0022,
-        attackDelayMs: 1200,
-        servoCountMin: 8,
-        servoCountMax: 14,
-        servoSpeed: 3.95,
+        attackDelayMs: 1750,
+        servoCountMin: 4,
+        servoCountMax: 7,
+        servoSpeed: 3.05,
         servoHomingMs: 3600,
         servoBulletLifeMs: 18000,
         servoReturnAtMs: 12500,
-        servoReturnDamage: 10,
+        servoReturnDamage: 5,
         servoDamage: 1,
-        servoWaveCountMin: 28,
-        servoWaveCountMax: 42,
-        servoWaveSpeed: 3.95,
+        servoWaveCountMin: 10,
+        servoWaveCountMax: 16,
+        servoWaveSpeed: 2.85,
         servoWaveSize: 20,
         servoWaveTravelMs: 1900,
         servoWaveLifeMs: 7600,
         laserTelegraphMs: 850,
         laserActiveMs: 1450,
         laserDamage: 1,
-        laserThicknessX: 100,
-        laserThicknessTriple: 82,
+        laserThicknessX: 58,
+        laserThicknessTriple: 46,
         laserShake: 3.8,
         aimLaserWindupMs: 1850,
         aimLaserLockBeforeMs: 430,
         aimLaserActiveMs: 1850,
-        aimLaserThickness: 116,
+        aimLaserThickness: 62,
         aimLaserLength: 1800,
-        aimLaserFollow: 0.115,
+        aimLaserFollow: 0.055,
         aimLaserShake: 6.5,
 
         // Ajuste fino dos pontos de origem dos ataques do Chocado.
@@ -818,10 +860,10 @@ const CONFIG = {
           },
         },
 
-        cannonOrbSpeed: 5.2,
+        cannonOrbSpeed: 3.55,
         cannonOrbDamage: 1,
-        enragedHp: 200,
-        enragedAttackRate: 0.68,
+        enragedHp: 400,
+        enragedAttackRate: 1.08,
       },
     },
 
@@ -946,8 +988,33 @@ const CONFIG = {
     chocadoServo: "/sounds/chocado-servo.mp3",
     chocadoLaser: "/sounds/chocado-laser.mp3",
     chocadoCannon: "/sounds/chocado-cannon.mp3",
+    chocadoOrb: "/sounds/chocado-orb.mp3",
+    chocadoPhaseTwo: "/sounds/chocado-phase-two.mp3",
+    chocadoWarning: "/sounds/chocado-warning.mp3",
+    chocadoHit: "/sounds/chocado-hit.mp3",
+    chocadoBarrier: "/sounds/chocado-barrier.mp3",
+    chocadoOrbFan: "/sounds/chocado-orb-fan.mp3",
+    chocadoSerpent: "/sounds/chocado-serpent.mp3",
+    chocadoWall: "/sounds/chocado-wall.mp3",
+    chocadoAimLock: "/sounds/chocado-aim-lock.mp3",
+    chocadoTipOpen: "/sounds/chocado-tip-open.mp3",
+    bossUiBeep: "/sounds/boss-ui-beep.mp3",
     chocadoDefeat: "/sounds/chocado-defeat.mp3",
     chocadoMusic: "/sounds/chocado-music.mp3",
+    danielRadioOpen: "/sounds/daniel/radio-open.mp3",
+    danielRadioClose: "/sounds/daniel/radio-close.mp3",
+    danielRadioStatic: "/sounds/daniel/radio-static-short.mp3",
+    danielBossIntroVoice: "/sounds/daniel/boss-intro-01.mp3",
+    danielBossPhaseVoice: "/sounds/daniel/boss-phase2-01.mp3",
+    danielVictoryVoice: "/sounds/daniel/victory-01.mp3",
+    chocadoGrab: "/sounds/chocado-grab.mp3",
+    chocadoDash: "/sounds/chocado-dash.mp3",
+    chocadoRelease: "/sounds/chocado-release.mp3",
+    chocadoLaserCharge: "/sounds/chocado-laser-charge.mp3",
+    chocadoLaserFire: "/sounds/chocado-laser-fire.mp3",
+    chocadoDefeatBurst: "/sounds/chocado-defeat-burst.mp3",
+    chocadoFinalExplosion: "/sounds/chocado-final-explosion.mp3",
+    victoryFanfare: "/sounds/victory-fanfare.mp3",
     gameOverFinalExplosion: "/sounds/game-over-final-explosion.mp3",
   },
 
@@ -996,6 +1063,11 @@ const CONFIG = {
     showGameplayHints: false,
     showMobileStartHint: true,
     mobileControls: "joystick",
+    pcMoveLayout: "both",
+    pcShootKey: "z",
+    pcStrongKey: "x",
+    pcBoostKey: "shift",
+    pcDodgeKey: "control",
 
     // Áudio
     masterVolume: 1,
@@ -1087,33 +1159,72 @@ const TUTORIAL_ORDER: TutorialStep[] = ["move", "shot", "strong", "boost", "dodg
 const TUTORIAL_DANIEL_TEXT: Record<TutorialStep, { expression: DanielExpression; pc: string; mobile: string }> = {
   move: {
     expression: "normal",
-    pc: "Daniel na escuta. Estou alinhando a rota da Space News. Leve a nave para cima, para baixo e para os lados com WASD ou setas. Sem pressa: quero ver controle estável.",
-    mobile: "Daniel na escuta. Estou alinhando a rota da Space News. Arraste o joystick e sinta a nave responder. Sem pressa: quero ver controle estável.",
+    pc: "Daniel na escuta. Controle básico primeiro: mova a Space News para cima, para baixo e para os lados. Preciso confirmar estabilidade antes de liberar combate.",
+    mobile: "Daniel na escuta. Controle básico primeiro: mova a Space News pelo joystick. Preciso confirmar estabilidade antes de liberar combate.",
   },
   shot: {
     expression: "serious",
-    pc: "Contato de treino chegando pela direita. É um drone roxo. Agora só o tiro normal está liberado: aperte Z e derrube ele no movimento.",
-    mobile: "Contato de treino chegando pela direita. É um drone roxo. Agora só o tiro normal está liberado: toque no botão de tiro e derrube ele no movimento.",
+    pc: "Alvo de treino entrando pela direita. Use somente o tiro normal com Z. Mantenha distância e elimine o drone roxo.",
+    mobile: "Alvo de treino entrando pela direita. Use somente o tiro normal. Mantenha distância e elimine o drone roxo.",
   },
   strong: {
     expression: "alert",
-    pc: "Formação tripla detectada. Esses três drones vão cruzar sua linha. Use X e limpa o grupo com o tiro forte. Tiro normal não vai contar aqui.",
-    mobile: "Formação tripla detectada. Esses três drones vão cruzar sua linha. Use o tiro forte e limpa o grupo. Tiro normal não vai contar aqui.",
+    pc: "Formação tripla detectada. Use o tiro forte com X para romper o grupo. Tiro normal está bloqueado nesta etapa.",
+    mobile: "Formação tripla detectada. Use o tiro forte para romper o grupo. Tiro normal está bloqueado nesta etapa.",
   },
   boost: {
     expression: "serious",
-    pc: "Robô preto em rota de colisão. Segura firme e use SHIFT para atravessar com boost. Se errar, eu puxo a nave de volta para a posição segura.",
-    mobile: "Robô preto em rota de colisão. Use o botão de boost para atravessar. Se errar, eu puxo a nave de volta para a posição segura.",
+    pc: "Unidade pesada em rota frontal. Use SHIFT para atravessar com boost. Entre decidido e saia antes do impacto.",
+    mobile: "Unidade pesada em rota frontal. Use o boost para atravessar. Entre decidido e saia antes do impacto.",
   },
   dodge: {
-    expression: "fear",
-    pc: "Mais um vindo rápido! Agora não é para bater: use CTRL no timing e sinta os i-frames da esquiva. Eu aumentei a janela para você pegar o ritmo.",
-    mobile: "Mais um vindo rápido! Agora não é para bater: use a esquiva no timing e sinta os i-frames. Eu aumentei a janela para você pegar o ritmo.",
+    expression: "alert",
+    pc: "Nova investida. Agora não ataque. Use a esquiva no tempo certo e deixe o inimigo passar pela sua linha.",
+    mobile: "Nova investida. Agora não ataque. Use a esquiva no tempo certo e deixe o inimigo passar pela sua linha.",
   },
   done: {
     expression: "happy",
-    pc: "Perfeito, Cleber. Controles calibrados. Vou aproximar a câmera da nave e liberar a rota de combate. A primeira wave entra sem corte seco.",
-    mobile: "Perfeito, Cleber. Controles calibrados. Vou aproximar a câmera da nave e liberar a rota de combate. A primeira wave entra sem corte seco.",
+    pc: "Treinamento confirmado. Mantendo a mesma rota e liberando combate real. Sem corte brusco: a primeira wave entra agora.",
+    mobile: "Treinamento confirmado. Mantendo a mesma rota e liberando combate real. A primeira wave entra agora.",
+  },
+};
+
+const BOSS_DANIEL_LINES = {
+  falseClear: {
+    expression: "happy" as DanielExpression,
+    text: "Boa, Cleber. A última formação caiu. Estou fechando o relatório da missão...",
+  },
+  sensor: {
+    expression: "serious" as DanielExpression,
+    text: "Espera. Tem uma assinatura estranha no sensor. Isso não parece destroço...",
+  },
+  warning: {
+    expression: "fear" as DanielExpression,
+    text: "CLEBER, CUIDADO! O Chocado entrou pela lateral. Reajustando rota agora!",
+  },
+  bossIntro: {
+    expression: "alert" as DanielExpression,
+    text: "Chocado está no campo. Observe o padrão antes de atacar e guarde boost para emergências.",
+  },
+  laser: {
+    expression: "alert" as DanielExpression,
+    text: "Laser carregando. Saia da linha de mira antes do disparo fechar.",
+  },
+  servo: {
+    expression: "serious" as DanielExpression,
+    text: "Servos no campo. Priorize espaço livre e destrua o que bloquear sua rota.",
+  },
+  cannon: {
+    expression: "serious" as DanielExpression,
+    text: "Projéteis pesados. Movimentos curtos, Cleber. Não se prenda no canto.",
+  },
+  phaseTwo: {
+    expression: "alert" as DanielExpression,
+    text: "Ele entrou na segunda fase. Padrões combinados, mas com aviso visual. Espere a abertura antes de gastar boost.",
+  },
+  critical: {
+    expression: "fear" as DanielExpression,
+    text: "CLEBER, CUIDADO! Ele está fechando espaço. Priorize sobreviver antes de atacar.",
   },
 };
 
@@ -1128,7 +1239,7 @@ type GameSettingKey = keyof typeof CONFIG.settings;
 type GameSettingOption = {
   key: GameSettingKey;
   label: string;
-  category: "ÁUDIO" | "VISUAL" | "ACESSIBILIDADE" | "MOBILE";
+  category: "ÁUDIO" | "VISUAL" | "ACESSIBILIDADE" | "MOBILE" | "CONTROLES";
   kind: "toggle" | "range" | "select";
   min?: number;
   max?: number;
@@ -1142,6 +1253,7 @@ const SETTINGS_SECTIONS = [
   "VISUAL",
   "ACESSIBILIDADE",
   "MOBILE",
+  "CONTROLES",
 ] as const;
 
 const SETTINGS_OPTIONS: GameSettingOption[] = [
@@ -1255,6 +1367,46 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
     label: "Dica mobile",
     category: "MOBILE",
     kind: "toggle",
+  },
+  {
+    key: "pcMoveLayout" as GameSettingKey,
+    label: "Layout movimento PC",
+    category: "CONTROLES",
+    kind: "select",
+    values: ["both", "wasd", "arrows"],
+    formatter: (v) => String(v) === "arrows" ? "SETAS" : String(v) === "wasd" ? "WASD" : "WASD + SETAS",
+  },
+  {
+    key: "pcShootKey" as GameSettingKey,
+    label: "Tiro normal PC",
+    category: "CONTROLES",
+    kind: "select",
+    values: ["z", "j", "k", "space"],
+    formatter: (v) => String(v).toUpperCase().replace("SPACE", "ESPAÇO"),
+  },
+  {
+    key: "pcStrongKey" as GameSettingKey,
+    label: "Tiro forte PC",
+    category: "CONTROLES",
+    kind: "select",
+    values: ["x", "k", "l", "shift"],
+    formatter: (v) => String(v).toUpperCase(),
+  },
+  {
+    key: "pcBoostKey" as GameSettingKey,
+    label: "Boost PC",
+    category: "CONTROLES",
+    kind: "select",
+    values: ["shift", "space", "c"],
+    formatter: (v) => String(v).toUpperCase().replace("SPACE", "ESPAÇO"),
+  },
+  {
+    key: "pcDodgeKey" as GameSettingKey,
+    label: "Dodge PC",
+    category: "CONTROLES",
+    kind: "select",
+    values: ["control", "space", "c", "v"],
+    formatter: (v) => String(v).toUpperCase().replace("CONTROL", "CTRL").replace("SPACE", "ESPAÇO"),
   },
 ];
 
@@ -1477,6 +1629,21 @@ function rand(min: number, max: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 
 type StretchProfile = "player" | "shot" | "enemy" | "impact";
@@ -1825,6 +1992,15 @@ export default function JogoPage() {
     bossWave: false,
     message: "",
   });
+  const storyBossRevealTimeoutsRef = useRef<number[]>([]);
+  const bossDanielTimeoutRef = useRef<number | null>(null);
+  const [bossDanielLine, setBossDanielLine] = useState<{
+    text: string;
+    expression: DanielExpression;
+    visible: boolean;
+  }>({ text: "", expression: "normal", visible: false });
+  const bossTipTimeoutRef = useRef<number | null>(null);
+  const [bossTipVisible, setBossTipVisible] = useState(false);
 
   const assetsRef = useRef(new AssetManager());
   const enemyIdRef = useRef(0);
@@ -1906,6 +2082,10 @@ export default function JogoPage() {
   const [flashSnapshot, setFlashSnapshot] = useState("");
 
   function setEstado(estado: GameState) {
+    if (estado !== "playing") {
+      limparTimersRevelacaoBoss();
+      setBossDanielLine((current) => ({ ...current, visible: false }));
+    }
     gameStateRef.current = estado;
     setGameState(estado);
   }
@@ -1942,8 +2122,68 @@ export default function JogoPage() {
     value: boolean | number | string,
   ) {
     (CONFIG.settings as Record<string, boolean | number | string>)[key] = value;
+    try {
+      window.localStorage.setItem("spaceNews.settings", JSON.stringify(CONFIG.settings));
+    } catch {}
     setSettingsSnapshot({ ...CONFIG.settings });
   }
+
+  function normalizarTeclaConfig(valor: unknown) {
+    const key = String(valor || "").toLowerCase();
+    if (key === "space" || key === "espaço") return " ";
+    if (key === "ctrl") return "control";
+    return key;
+  }
+
+  function labelTecla(valor: unknown) {
+    const key = String(valor || "").toLowerCase();
+    if (key === " ") return "ESPAÇO";
+    if (key === "space") return "ESPAÇO";
+    if (key === "control") return "CTRL";
+    if (key === "shift") return "SHIFT";
+    return key.toUpperCase();
+  }
+
+  function teclaControlePressionada(action: "shot" | "strong" | "boost" | "dodge") {
+    const settingKey = action === "shot"
+      ? "pcShootKey"
+      : action === "strong"
+        ? "pcStrongKey"
+        : action === "boost"
+          ? "pcBoostKey"
+          : "pcDodgeKey";
+    const key = normalizarTeclaConfig((CONFIG.settings as Record<string, unknown>)[settingKey]);
+    return Boolean(keysRef.current[key]);
+  }
+
+  function labelControlePc(action: "move" | "shot" | "strong" | "boost" | "dodge") {
+    if (action === "move") {
+      const layout = String((CONFIG.settings as Record<string, unknown>).pcMoveLayout || "both");
+      if (layout === "arrows") return "SETAS";
+      if (layout === "wasd") return "WASD";
+      return "WASD ou SETAS";
+    }
+    const settingKey = action === "shot"
+      ? "pcShootKey"
+      : action === "strong"
+        ? "pcStrongKey"
+        : action === "boost"
+          ? "pcBoostKey"
+          : "pcDodgeKey";
+    return labelTecla((CONFIG.settings as Record<string, unknown>)[settingKey]);
+  }
+
+  function textoTutorialDaniel(step: TutorialStep) {
+    const isMobile = typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+    if (isMobile) return TUTORIAL_DANIEL_TEXT[step].mobile;
+    if (step === "move") return `Daniel na escuta. Controle básico primeiro: mova a Space News com ${labelControlePc("move")}. Preciso confirmar estabilidade antes de liberar combate.`;
+    if (step === "shot") return `Drone de treino chegando. Tiro normal liberado em ${labelControlePc("shot")}. Derrube o alvo sem mudar a rota.`;
+    if (step === "strong") return `Formação tripla detectada. Use ${labelControlePc("strong")} para romper o grupo. Tiro normal está bloqueado nesta etapa.`;
+    if (step === "boost") return `Unidade pesada em rota frontal. Use ${labelControlePc("boost")} para atravessar com boost. Entre decidido e saia antes do impacto.`;
+    if (step === "dodge") return `Nova investida. Agora não ataque. Use ${labelControlePc("dodge")} no tempo certo e deixe o inimigo passar pela sua linha.`;
+    return TUTORIAL_DANIEL_TEXT.done.pc;
+  }
+
 
   function formatarConfiguracao(option: GameSettingOption) {
     const value = settingsSnapshot[option.key];
@@ -2151,7 +2391,7 @@ export default function JogoPage() {
           setTutorialLaunchZoom(false);
           iniciarJogo(currentModeRef.current ?? "story");
         }
-      }, 2450);
+      }, 1350);
     }
   }
 
@@ -3504,7 +3744,187 @@ export default function JogoPage() {
     player.lastStretchAt = now;
   }
 
-  function spawnBossChocado() {
+  function limparTimersRevelacaoBoss() {
+    for (const timeoutId of storyBossRevealTimeoutsRef.current) {
+      window.clearTimeout(timeoutId);
+    }
+    storyBossRevealTimeoutsRef.current = [];
+
+    if (bossDanielTimeoutRef.current !== null) {
+      window.clearTimeout(bossDanielTimeoutRef.current);
+      bossDanielTimeoutRef.current = null;
+    }
+
+    if (bossTipTimeoutRef.current !== null) {
+      window.clearTimeout(bossTipTimeoutRef.current);
+      bossTipTimeoutRef.current = null;
+    }
+    setBossTipVisible(false);
+  }
+
+  function mostrarDanielBoss(line: { text: string; expression: DanielExpression }, durationMs = 3600) {
+    if (bossDanielTimeoutRef.current !== null) {
+      window.clearTimeout(bossDanielTimeoutRef.current);
+    }
+
+    tocarSom(CONFIG.sounds.danielRadioOpen || CONFIG.sounds.menuMove, 0.26, "sfx");
+
+    setBossDanielLine({
+      text: line.text,
+      expression: line.expression,
+      visible: true,
+    });
+
+    bossDanielTimeoutRef.current = window.setTimeout(() => {
+      tocarSom(CONFIG.sounds.danielRadioClose || CONFIG.sounds.menuBack, 0.16, "sfx");
+      setBossDanielLine((current) => ({ ...current, visible: false }));
+      bossDanielTimeoutRef.current = null;
+    }, durationMs);
+  }
+
+  function mostrarDanielBossSeLivre(line: { text: string; expression: DanielExpression }, durationMs = 3200) {
+    if (bossDanielLine.visible || bossDanielTimeoutRef.current !== null) return;
+    mostrarDanielBoss(line, durationMs);
+  }
+
+
+
+  function mostrarBossTipInicial() {
+    if (bossTipTimeoutRef.current !== null) {
+      window.clearTimeout(bossTipTimeoutRef.current);
+    }
+
+    setBossTipVisible(true);
+    tocarSom(CONFIG.sounds.chocadoTipOpen || CONFIG.sounds.bossUiBeep || CONFIG.sounds.menuMove, 0.34, "sfx");
+
+    bossTipTimeoutRef.current = window.setTimeout(() => {
+      setBossTipVisible(false);
+      bossTipTimeoutRef.current = null;
+    }, 10000);
+  }
+
+  function iniciarRevelacaoChocadoHistoria() {
+    const now = performance.now();
+    const wave = waveStateRef.current;
+
+    limparTimersRevelacaoBoss();
+    limparCombate();
+
+    wave.active = false;
+    wave.queue = [];
+    wave.nextWaveAt = 0;
+    wave.bossWave = false;
+    wave.message = "MISSÃO CONCLUÍDA";
+    wave.messageUntil = now + 2400;
+
+    setWaveUi({
+      mode: "story",
+      wave: CONFIG.gameplay.storyWaves.normalWaves,
+      active: false,
+      bossWave: false,
+      message: wave.message,
+    });
+
+    mostrarDanielBoss(BOSS_DANIEL_LINES.falseClear, 2600);
+
+    const sensorTimer = window.setTimeout(() => {
+      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
+      mostrarDanielBoss(BOSS_DANIEL_LINES.sensor, 3600);
+      tocarSom(CONFIG.sounds.danielRadioStatic || CONFIG.sounds.tutorialWarning || CONFIG.sounds.menuBack, 0.42, "sfx");
+      shakeRef.current = { intensity: 3, endAt: performance.now() + 700 };
+    }, 3000);
+
+    const appearTimer = window.setTimeout(() => {
+      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
+      waveStateRef.current = {
+        ...waveStateRef.current,
+        mode: "story",
+        active: true,
+        wave: CONFIG.gameplay.storyWaves.bossWave,
+        bossWave: true,
+        queue: [],
+        message: "",
+        messageUntil: 0,
+      };
+      setWaveUi({ mode: "story", wave: CONFIG.gameplay.storyWaves.bossWave, active: true, bossWave: true, message: "" });
+      spawnBossChocado(true);
+      const boss = bossRef.current;
+      boss.intro = true;
+      boss.x = CONFIG.canvasWidth + 70;
+      boss.introStartedAt = performance.now();
+      boss.nextAttackAt = performance.now() + 999999;
+      mostrarDanielBoss(BOSS_DANIEL_LINES.warning, 3600);
+      tocarSom(CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoRoar || CONFIG.sounds.bossIntro, 0.55, "sfx");
+      shakeRef.current = { intensity: 6, endAt: performance.now() + 1100 };
+    }, 6200);
+
+    const grabTimer = window.setTimeout(() => {
+      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
+      const player = playerRef.current;
+      const boss = bossRef.current;
+      tocarMusicaChocado();
+      tocarSom(CONFIG.sounds.chocadoGrab || CONFIG.sounds.chocadoRoar || CONFIG.sounds.bossIntro, 0.82, "sfx");
+      boss.x = CONFIG.canvasWidth - boss.w - 8;
+      player.x = boss.x - player.w * 0.42;
+      player.y = boss.y + boss.h * 0.5 - player.h * 0.5;
+      player.vx = 0;
+      player.vy = 0;
+      player.invincibleUntil = performance.now() + 3600;
+      player.stretchUntil = performance.now() + 900;
+      player.stretchVx = -9;
+      player.stretchVy = 0;
+      backgroundOffsetRef.current -= 520;
+      criarExplosao(player.x + player.w * 0.5, player.y + player.h * 0.5, "#ff4fd8", 48);
+      criarExplosao(boss.x + boss.w * 0.22, boss.y + boss.h * 0.5, "#facc15", 32);
+      shakeRef.current = { intensity: 16, endAt: performance.now() + 1600 };
+    }, 8500);
+
+    const dashTimer = window.setTimeout(() => {
+      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
+      const player = playerRef.current;
+      tocarSom(CONFIG.sounds.chocadoDash || CONFIG.sounds.chocadoGrab || CONFIG.sounds.chocadoRoar, 0.76, "sfx");
+      backgroundOffsetRef.current -= 1700;
+      player.x = Math.max(80, player.x - 360);
+      player.y = clamp(player.y + rand(-70, 70), 70, CONFIG.canvasHeight - player.h - 70);
+      player.vx = -18;
+      player.vy = rand(-4.5, 4.5);
+      player.stretchUntil = performance.now() + 1100;
+      player.stretchVx = -26;
+      player.stretchVy = 0;
+      criarExplosao(player.x + player.w * 0.75, player.y + player.h * 0.5, "#fff1a8", 54);
+      shockwavesRef.current.push({
+        id: enemyIdRef.current++,
+        x: player.x + player.w * 0.5,
+        y: player.y + player.h * 0.5,
+        radius: 760,
+        life: 1050,
+        maxLife: 1050,
+      });
+      shakeRef.current = { intensity: 24, endAt: performance.now() + 1600 };
+    }, 10100);
+
+    const releaseTimer = window.setTimeout(() => {
+      if (gameStateRef.current !== "playing" || currentModeRef.current !== "story") return;
+      const player = playerRef.current;
+      const boss = bossRef.current;
+      tocarSom(CONFIG.sounds.chocadoRelease || CONFIG.sounds.chocadoDash || CONFIG.sounds.explosion, 0.72, "sfx");
+      player.x = 84;
+      player.y = clamp(CONFIG.canvasHeight * 0.5 - player.h * 0.5, 80, CONFIG.canvasHeight - player.h - 80);
+      player.vx = 11.5;
+      player.vy = 0;
+      player.invincibleUntil = performance.now() + 1800;
+      boss.introStartedAt = performance.now();
+      boss.nextAttackAt = performance.now() + CONFIG.gameplay.boss.chocado.introBarMs + CONFIG.gameplay.boss.chocado.introRoarMs + CONFIG.gameplay.boss.chocado.attackDelayMs;
+      mostrarBossTipInicial();
+      mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 4800);
+      criarExplosao(player.x, player.y + player.h * 0.5, "#60eaff", 42);
+      shakeRef.current = { intensity: 12, endAt: performance.now() + 900 };
+    }, 11900);
+
+    storyBossRevealTimeoutsRef.current = [sensorTimer, appearTimer, grabTimer, dashTimer, releaseTimer];
+  }
+
+  function spawnBossChocado(fromStoryReveal = false) {
     const now = performance.now();
     const cfg = CONFIG.gameplay.boss.chocado;
 
@@ -3529,11 +3949,17 @@ export default function JogoPage() {
       nextAttackAt: now + cfg.introBarMs + cfg.introRoarMs + cfg.attackDelayMs,
       attackIndex: -1,
       roarDone: false,
+      phaseTwoAnnounced: false,
     };
 
-    mostrarMensagemWave("CHOCADO CHEGOU", true);
+    waveStateRef.current.message = "";
+    waveStateRef.current.messageUntil = 0;
+    setWaveUi((current) => ({ ...current, bossWave: true, message: "" }));
+    mostrarBossTipInicial();
+    mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 4600);
+    shakeRef.current = { intensity: fromStoryReveal ? 10 : 6, endAt: performance.now() + 520 };
     tocarSom(CONFIG.sounds.bossIntro, 0.62, "sfx");
-    tocarMusicaChocado();
+    if (!fromStoryReveal) tocarMusicaChocado();
   }
 
   function bossEstaAtivo() {
@@ -3724,7 +4150,7 @@ export default function JogoPage() {
     return events.sort((a, b) => a.at - b.at);
   }
 
-  function iniciarWaveHistoria(waveNumber: number) {
+  function iniciarWaveHistoria(waveNumber: number, fromStoryReveal = false) {
     const now = performance.now();
     const cfg = CONFIG.gameplay.storyWaves;
     const bossWave = waveNumber >= cfg.bossWave;
@@ -3763,7 +4189,7 @@ export default function JogoPage() {
     );
 
     if (bossWave) {
-      spawnBossChocado();
+      spawnBossChocado(fromStoryReveal);
     }
   }
 
@@ -3786,7 +4212,8 @@ export default function JogoPage() {
       bossWave: false,
       message: "TERRA SALVA",
     });
-    tocarSom(CONFIG.sounds.chocadoDefeat || CONFIG.sounds.menuConfirm, 0.75, "sfx");
+    tocarSom(CONFIG.sounds.victoryFanfare || CONFIG.sounds.menuConfirm, 0.82, "sfx");
+    mostrarDanielBoss({ expression: "happy", text: "Conseguimos. A rede de desinformação caiu. A Terra está limpa, Cleber!" }, 5200);
     window.setTimeout(() => {
       if (gameStateRef.current === "playing") {
         setEstado("victory");
@@ -3970,8 +4397,19 @@ export default function JogoPage() {
       }
 
       if (isStory && completedWave >= CONFIG.gameplay.storyWaves.normalWaves) {
-        wave.nextWaveAt = now + CONFIG.gameplay.storyWaves.nextWaveDelayMs;
-        wave.message = "CHEFE FINAL SE APROXIMA";
+        wave.nextWaveAt = 0;
+        wave.message = "MISSÃO CONCLUÍDA";
+        wave.messageUntil = now + 2600;
+        adicionarPontuacao(CONFIG.gameplay.score.waveClear);
+        setWaveUi({
+          mode,
+          wave: completedWave,
+          active: false,
+          bossWave: false,
+          message: wave.message,
+        });
+        iniciarRevelacaoChocadoHistoria();
+        return;
       } else {
         wave.message = isStory
           ? `WAVE ${completedWave}/${CONFIG.gameplay.storyWaves.normalWaves} CONCLUIDA`
@@ -4503,7 +4941,10 @@ export default function JogoPage() {
 
 
   useEffect(() => {
-    const shouldTalk = gameState === "tutorial" || gameState === "tutorialChoice";
+    const shouldTalk =
+      gameState === "tutorial" ||
+      gameState === "tutorialChoice" ||
+      bossDanielLine.visible;
 
     if (!shouldTalk) {
       setDanielMouthOpen(false);
@@ -4515,7 +4956,7 @@ export default function JogoPage() {
     }, 135);
 
     return () => window.clearInterval(timer);
-  }, [gameState, tutorialStep]);
+  }, [gameState, tutorialStep, bossDanielLine.visible, bossDanielLine.text]);
 
   useEffect(() => {
     const shouldPlayAlarm =
@@ -4693,17 +5134,44 @@ export default function JogoPage() {
       const boss = bossRef.current;
       if (boss.active && !boss.intro && boss.hp > 0) {
         const box = getBossHitbox();
-        const cx = box.x + box.w / 2;
-        const cy = box.y + box.h / 2;
-        const dx = cx - baseX;
-        const dy = cy - baseY;
-        const forward = dx * dir.x + dy * dir.y;
-        const side = Math.abs(dx * -dir.y + dy * dir.x);
-        if (forward >= -18 && forward <= range && side <= cone * 0.72) {
+
+        // Flames contra boss: usa interseção com a hitbox inteira, não só o centro.
+        // Assim o fogo pega em qualquer parte visível do Chocado.
+        const samplePoints = [
+          { x: box.x + box.w * 0.18, y: box.y + box.h * 0.18 },
+          { x: box.x + box.w * 0.18, y: box.y + box.h * 0.5 },
+          { x: box.x + box.w * 0.18, y: box.y + box.h * 0.82 },
+          { x: box.x + box.w * 0.5, y: box.y + box.h * 0.5 },
+          { x: box.x + box.w * 0.82, y: box.y + box.h * 0.28 },
+          { x: box.x + box.w * 0.82, y: box.y + box.h * 0.72 },
+        ];
+
+        let bestForward = Number.POSITIVE_INFINITY;
+        let hitBoss = false;
+
+        for (const point of samplePoints) {
+          const dx = point.x - baseX;
+          const dy = point.y - baseY;
+          const forward = dx * dir.x + dy * dir.y;
+          const side = Math.abs(dx * -dir.y + dy * dir.x);
+          const allowedSide = cone * 0.92 + Math.min(box.w, box.h) * 0.30;
+
+          if (forward >= -64 && forward <= range + box.w * 0.18 && side <= allowedSide) {
+            hitBoss = true;
+            bestForward = Math.min(bestForward, Math.max(0, forward));
+          }
+        }
+
+        if (hitBoss) {
           const applied = Math.min(damage, Math.max(0, boss.hp));
           boss.hp -= damage;
           carregarBoostPorDano(applied);
-          criarParticulasHit(baseX + dir.x * Math.min(range, forward), baseY + dir.y * Math.min(range, forward), "#ff7a18", 3);
+          criarParticulasHit(
+            baseX + dir.x * Math.min(range, bestForward),
+            baseY + dir.y * Math.min(range, bestForward),
+            powerActive ? "#ffb703" : "#ff7a18",
+            4,
+          );
           if (boss.hp <= 0) boss.hp = 0;
         }
       }
@@ -4870,6 +5338,8 @@ export default function JogoPage() {
     }
 
     const cooldownTimer = window.setInterval(() => {
+      if (gameStateRef.current === "paused") return;
+
       const player = playerRef.current;
       const now = performance.now();
 
@@ -5357,7 +5827,7 @@ export default function JogoPage() {
         }
       }
 
-      tocarSom(CONFIG.sounds.chocadoServo, 0.5, "sfx");
+      tocarSom(CONFIG.sounds.chocadoServo, 0.42, "sfx");
     }
 
     function spawnBossLaser(pattern: "x" | "triple") {
@@ -5365,11 +5835,14 @@ export default function JogoPage() {
       const now = performance.now();
       const life = cfg.laserTelegraphMs + cfg.laserActiveMs;
 
+      const boss = bossRef.current;
       if (pattern === "x") {
         const offsets = cfg.attackOffsets.laserX;
-        const centerX = CONFIG.canvasWidth / 2 + offsets.x;
-        const centerY = CONFIG.canvasHeight / 2 + offsets.y;
+        const originX = boss.x + boss.w * 0.26 + offsets.x;
+        const originY = boss.y + boss.h * 0.5 + offsets.y;
         for (const angle of [0.43, -0.43]) {
+          const centerX = originX - Math.cos(angle) * 870;
+          const centerY = originY - Math.sin(angle) * 870;
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "laser",
@@ -5388,12 +5861,13 @@ export default function JogoPage() {
         }
       } else {
         const offsets = cfg.attackOffsets.tripleLaser;
+        const originX = boss.x + boss.w * 0.24 + offsets.x;
         const lanes = offsets.lanesY.map((laneY) => laneY + offsets.y);
         for (const y of lanes) {
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "laser",
-            x: CONFIG.canvasWidth / 2 + offsets.x,
+            x: originX - 870,
             y,
             w: 1740,
             h: cfg.laserThicknessTriple,
@@ -5408,7 +5882,7 @@ export default function JogoPage() {
         }
       }
 
-      tocarSom(CONFIG.sounds.chocadoLaser, 0.55, "sfx");
+      tocarSom(CONFIG.sounds.chocadoLaser, 0.48, "sfx");
     }
 
     function spawnBossCannonBurst() {
@@ -5445,7 +5919,7 @@ export default function JogoPage() {
         delay += 180;
       }
 
-      tocarSom(CONFIG.sounds.chocadoCannon, 0.5, "sfx");
+      tocarSom(CONFIG.sounds.chocadoCannon, 0.42, "sfx");
     }
 
     function spawnBossServoWaveAttack() {
@@ -5521,7 +5995,110 @@ export default function JogoPage() {
         activeAt: now + cfg.aimLaserWindupMs,
         locked: false,
       });
-      tocarSom(CONFIG.sounds.chocadoLaser, 0.46, "sfx");
+      tocarSom(CONFIG.sounds.chocadoAimLock || CONFIG.sounds.chocadoLaser, 0.38, "sfx");
+    }
+
+
+    function spawnBossOrbFan(enraged = false) {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const originX = boss.x + cfg.attackOffsets.cannon.x;
+      const originY = boss.y + boss.h / 2;
+      const count = enraged ? 8 : 6;
+      const spread = enraged ? 0.68 : 0.56;
+
+      for (let i = 0; i < count; i += 1) {
+        const t = count <= 1 ? 0.5 : i / (count - 1);
+        const angle = Math.PI + (t - 0.5) * spread;
+        const speed = cfg.cannonOrbSpeed * (enraged ? 1.02 : 0.86);
+        bossProjectilesRef.current.push({
+          id: bossProjectileIdRef.current++,
+          kind: "orb",
+          x: originX,
+          y: originY,
+          w: enraged ? 27 : 24,
+          h: enraged ? 27 : 24,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          damage: cfg.cannonOrbDamage,
+          life: enraged ? 6200 : 5200,
+          maxLife: enraged ? 6200 : 5200,
+          stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+          activeAt: now + i * (enraged ? 62 : 72),
+          phase: i,
+        });
+      }
+      tocarSom(CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb || CONFIG.sounds.chocadoCannon, 0.34, "sfx");
+    }
+
+    function spawnBossClosingWalls(enraged = false) {
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const lanes = enraged ? [130, 285, 520] : [150, 350, 540];
+
+      lanes.forEach((y, index) => {
+        const fromTop = index % 2 === 0;
+        bossProjectilesRef.current.push({
+          id: bossProjectileIdRef.current++,
+          kind: "laser",
+          x: CONFIG.canvasWidth / 2,
+          y,
+          w: CONFIG.canvasWidth * 1.08,
+          h: enraged ? 28 : 24,
+          vx: 0,
+          vy: 0,
+          damage: cfg.laserDamage,
+          life: cfg.laserTelegraphMs + cfg.laserActiveMs + (enraged ? 420 : 0),
+          maxLife: cfg.laserTelegraphMs + cfg.laserActiveMs + (enraged ? 420 : 0),
+          angle: fromTop ? 0.09 : -0.09,
+          activeAt: now + cfg.laserTelegraphMs + index * (enraged ? 150 : 170),
+          stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+        });
+      });
+      tocarSom(CONFIG.sounds.chocadoWall || CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoLaser, 0.34, "sfx");
+    }
+
+    function spawnBossSerpentPattern(enraged = false) {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const count = enraged ? 18 : 14;
+      const originX = boss.x + 18;
+      const centerY = boss.y + boss.h / 2;
+
+      for (let i = 0; i < count; i += 1) {
+        const wave = Math.sin(i * 0.62) * (enraged ? 108 : 82);
+        bossProjectilesRef.current.push({
+          id: bossProjectileIdRef.current++,
+          kind: "orb",
+          x: originX + i * 3,
+          y: centerY + wave,
+          w: enraged ? 24 : 22,
+          h: enraged ? 24 : 22,
+          vx: -(enraged ? 3.25 : 3.05),
+          vy: Math.cos(i * 0.55) * (enraged ? 1.15 : 0.9),
+          damage: cfg.cannonOrbDamage,
+          life: enraged ? 7600 : 6500,
+          maxLife: enraged ? 7600 : 6500,
+          activeAt: now + i * (enraged ? 92 : 104),
+          stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+          phase: i,
+        });
+      }
+      tocarSom(CONFIG.sounds.chocadoSerpent || CONFIG.sounds.chocadoOrb || CONFIG.sounds.chocadoServo, 0.32, "sfx");
+    }
+
+    function spawnBossEnragedCombo() {
+      // Fase 2 continua mais complexa, mas agora não empilha padrões injustos.
+      const pick = Math.floor(Math.random() * 3);
+      if (pick === 0) {
+        spawnBossOrbFan(true);
+      } else if (pick === 1) {
+        spawnBossClosingWalls(true);
+      } else {
+        spawnBossSerpentPattern(true);
+      }
     }
 
     function iniciarProximoAtaqueDoBoss() {
@@ -5531,22 +6108,20 @@ export default function JogoPage() {
       const rate = enraged ? cfg.enragedAttackRate : 1;
       const now = performance.now();
 
-      // Ataques randomizados, evitando repetir o mesmo padrão duas vezes seguidas.
       const previousAttack = boss.attackIndex;
-      const possibleAttacks = [0, 1, 2, 3].filter(
-        (attackId) => attackId !== previousAttack,
-      );
-      const attack = possibleAttacks[
-        Math.floor(Math.random() * possibleAttacks.length)
-      ];
+      const baseAttacks = enraged
+        ? (Math.random() < 0.55 ? [4, 5, 6, 6, 3, 2] : [0, 1, 2, 3, 4, 5, 6])
+        : [0, 1, 2, 3, 4, 5];
+      const possibleAttacks = baseAttacks.filter((attackId) => attackId !== previousAttack);
+      const attack = possibleAttacks[Math.floor(Math.random() * possibleAttacks.length)];
 
       if (attack === 0) {
         const evenCount = Math.max(
           2,
           Math.floor(rand(cfg.servoCountMin, cfg.servoCountMax + 1) / 2) * 2,
         );
-        spawnBossServoPair(evenCount);
-        boss.nextAttackAt = now + rand(2200, 3100) * rate;
+        spawnBossServoPair(enraged ? evenCount + 1 : evenCount);
+        boss.nextAttackAt = now + rand(3100, 4200) * rate;
       } else if (attack === 1) {
         spawnBossLaser(Math.random() < 0.5 ? "x" : "triple");
         boss.nextAttackAt =
@@ -5554,10 +6129,19 @@ export default function JogoPage() {
       } else if (attack === 2) {
         spawnBossServoWaveAttack();
         boss.nextAttackAt = now + rand(2700, 3800) * rate;
-      } else {
+      } else if (attack === 3) {
         spawnBossAimedLaser();
         boss.nextAttackAt =
           now + (cfg.aimLaserWindupMs + cfg.aimLaserActiveMs + rand(800, 1400)) * rate;
+      } else if (attack === 4) {
+        spawnBossOrbFan(enraged);
+        boss.nextAttackAt = now + rand(enraged ? 2300 : 2900, enraged ? 3300 : 3900) * rate;
+      } else if (attack === 5) {
+        spawnBossSerpentPattern(enraged);
+        boss.nextAttackAt = now + rand(enraged ? 2600 : 3300, enraged ? 3800 : 4500) * rate;
+      } else {
+        spawnBossEnragedCombo();
+        boss.nextAttackAt = now + rand(3600, 4800) * rate;
       }
 
       boss.attackIndex = attack;
@@ -5574,6 +6158,31 @@ export default function JogoPage() {
         (CONFIG.canvasHeight - boss.h) / 2 +
         Math.sin(boss.age * cfg.floatSpeed) * cfg.floatAmplitude;
 
+      if (!boss.intro && !boss.phaseTwoAnnounced && boss.hp <= cfg.enragedHp && boss.hp > 0) {
+        boss.phaseTwoAnnounced = true;
+        setBossTipVisible(true);
+        if (bossTipTimeoutRef.current !== null) window.clearTimeout(bossTipTimeoutRef.current);
+        bossTipTimeoutRef.current = window.setTimeout(() => {
+          setBossTipVisible(false);
+          bossTipTimeoutRef.current = null;
+        }, 8000);
+        mostrarMensagemWave("FASE 2", true);
+        mostrarDanielBossSeLivre(BOSS_DANIEL_LINES.phaseTwo, 3400);
+        tocarSom(CONFIG.sounds.chocadoPhaseTwo || CONFIG.sounds.chocadoRoar, 0.62, "sfx");
+        shockwavesRef.current.push({
+          id: enemyIdRef.current++,
+          x: boss.x + boss.w * 0.35,
+          y: boss.y + boss.h * 0.5,
+          radius: 760,
+          life: 1100,
+          maxLife: 1100,
+        });
+        criarExplosao(boss.x + boss.w * 0.35, boss.y + boss.h * 0.5, "#d946ef", 34);
+        if (CONFIG.settings.enableScreenShake) {
+          shakeRef.current = { intensity: 8, endAt: performance.now() + 520 };
+        }
+      }
+
       if (boss.intro) {
         const introElapsed = now - boss.introStartedAt;
         if (introElapsed >= cfg.introBarMs && !boss.roarDone) {
@@ -5587,7 +6196,8 @@ export default function JogoPage() {
           boss.intro = false;
           boss.battleStartedAt = now;
           boss.nextAttackAt = now + cfg.attackDelayMs;
-          mostrarMensagemWave("BATALHA INICIADA", true);
+          waveStateRef.current.message = "";
+          setWaveUi((current) => ({ ...current, message: "" }));
         }
       } else if (now >= boss.nextAttackAt) {
         iniciarProximoAtaqueDoBoss();
@@ -5599,12 +6209,32 @@ export default function JogoPage() {
         bossProjectilesRef.current = [];
         pararMusicaChocado(true);
         tocarSom(
-          CONFIG.sounds.chocadoDefeat || CONFIG.sounds.enemyDeath,
-          0.72,
+          CONFIG.sounds.chocadoDefeatBurst || CONFIG.sounds.chocadoDefeat || CONFIG.sounds.enemyDeath,
+          0.82,
           "hit",
         );
-        criarExplosao(boss.x + boss.w / 2, boss.y + boss.h / 2, "#ffe18c", 72);
+        tocarSom(CONFIG.sounds.chocadoFinalExplosion || CONFIG.sounds.gameOverFinalExplosion || CONFIG.sounds.explosion, 0.58, "sfx");
+        for (let i = 0; i < 9; i += 1) {
+          window.setTimeout(() => {
+            criarExplosao(
+              boss.x + rand(50, boss.w - 50),
+              boss.y + rand(60, boss.h - 60),
+              i % 2 === 0 ? "#ffe18c" : "#ff4fd8",
+              44 + i * 3,
+            );
+            shakeRef.current = { intensity: Math.max(5, 16 - i), endAt: performance.now() + 360 };
+          }, i * 160);
+        }
+        shockwavesRef.current.push({
+          id: enemyIdRef.current++,
+          x: boss.x + boss.w * 0.42,
+          y: boss.y + boss.h * 0.5,
+          radius: 940,
+          life: 1500,
+          maxLife: 1500,
+        });
         adicionarPontuacao(CONFIG.gameplay.score.bossWaveClear);
+        mostrarDanielBoss({ expression: "happy", text: "Alvo principal colapsando! Cleber, afaste a nave. A assinatura do Chocado está se desfazendo!" }, 4200);
         mostrarMensagemWave("CHOCADO DERROTADO", true);
       }
     }
@@ -5769,37 +6399,55 @@ export default function JogoPage() {
       }
       ctx.restore();
 
-      // Barra de vida do boss no topo.
+      // HUD limpa do boss no topo.
       const barW = 760;
-      const barH = 24;
+      const barH = 20;
       const barX = (CONFIG.canvasWidth - barW) / 2;
-      const barY = 20;
+      const barY = 16;
+      const phaseTwo = !boss.intro && boss.hp <= cfg.enragedHp;
       ctx.save();
-      ctx.fillStyle = "rgba(8, 3, 10, 0.88)";
-      ctx.fillRect(barX - 10, barY - 4, barW + 20, 78);
-      ctx.strokeStyle = "#f8e7b0";
-      ctx.lineWidth = 4;
-      ctx.strokeRect(barX - 10, barY - 4, barW + 20, 78);
+      ctx.fillStyle = "rgba(6, 3, 12, 0.74)";
+      roundRect(ctx, barX - 18, barY - 6, barW + 36, 76, 8);
+      ctx.fill();
+      ctx.strokeStyle = phaseTwo ? "rgba(245, 93, 255, 0.95)" : "rgba(248, 231, 176, 0.95)";
+      ctx.lineWidth = 3;
+      roundRect(ctx, barX - 18, barY - 6, barW + 36, 76, 8);
+      ctx.stroke();
       ctx.fillStyle = "#fff7e6";
-      ctx.font = `30px ${CONFIG.fonts.menu}`;
+      ctx.font = `24px ${CONFIG.fonts.menu}`;
       ctx.textAlign = "center";
-      ctx.fillText("CHOCADO", CONFIG.canvasWidth / 2, barY + 4);
-      ctx.fillStyle = "#1b0612";
-      ctx.fillRect(barX, barY + 18, barW, barH);
+      ctx.fillText("CHOCADO", CONFIG.canvasWidth / 2, barY + 2);
+      ctx.fillStyle = "rgba(27, 6, 18, 0.95)";
+      roundRect(ctx, barX, barY + 18, barW, barH, 5);
+      ctx.fill();
       const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-      gradient.addColorStop(0, "#ff3355");
-      gradient.addColorStop(0.55, "#ffb703");
+      gradient.addColorStop(0, phaseTwo ? "#d946ef" : "#ff3355");
+      gradient.addColorStop(0.52, phaseTwo ? "#fb7185" : "#ffb703");
       gradient.addColorStop(1, "#fff1a8");
       ctx.fillStyle = gradient;
-      ctx.fillRect(barX, barY + 18, barW * progress, barH);
-      ctx.strokeStyle = "#f8e7b0";
-      ctx.strokeRect(barX, barY + 18, barW, barH);
-      ctx.fillStyle = "#f8e7b0";
-      ctx.font = `18px ${CONFIG.fonts.ui}`;
+      roundRect(ctx, barX, barY + 18, barW * progress, barH, 5);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 247, 230, 0.85)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, barX, barY + 18, barW, barH, 5);
+      ctx.stroke();
       const hpText = boss.intro
-        ? "CARREGANDO..."
+        ? "SINAL HOSTIL CARREGANDO"
         : `${Math.ceil(Math.max(0, boss.hp))} / ${boss.maxHp} HP`;
-      ctx.fillText(hpText, CONFIG.canvasWidth / 2, barY + 66);
+      ctx.font = `16px ${CONFIG.fonts.ui}`;
+      ctx.fillStyle = "#f8e7b0";
+      ctx.fillText(hpText, CONFIG.canvasWidth / 2, barY + 58);
+      if (phaseTwo) {
+        const badgeX = barX + barW + 28;
+        ctx.fillStyle = "rgba(90, 12, 95, 0.82)";
+        roundRect(ctx, badgeX, barY + 14, 122, 30, 6);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(245, 93, 255, 0.95)";
+        ctx.stroke();
+        ctx.fillStyle = "#ffd6ff";
+        ctx.font = `16px ${CONFIG.fonts.ui}`;
+        ctx.fillText("FASE 2", badgeX + 61, barY + 35);
+      }
       ctx.restore();
     }
 
@@ -5874,8 +6522,27 @@ export default function JogoPage() {
       const img =
         projectile.kind === "servo" || projectile.kind === "servoWave"
           ? assetsRef.current.get("bossServo")
-          : assetsRef.current.get("enemyBullet");
-      const color = projectile.kind === "servo" || projectile.kind === "servoWave" ? "#ffb703" : "#ff4d6d";
+          : assetsRef.current.get("bossOrb") ?? assetsRef.current.get("enemyBullet");
+      const color = projectile.kind === "servo" || projectile.kind === "servoWave" ? "#ffb703" : "#d946ef";
+      const angle = Math.atan2(projectile.vy, projectile.vx);
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = color;
+      for (let i = 1; i <= 3; i += 1) {
+        ctx.beginPath();
+        ctx.ellipse(
+          projectile.x + projectile.w / 2 - projectile.vx * i * 2.3,
+          projectile.y + projectile.h / 2 - projectile.vy * i * 2.3,
+          projectile.w * (0.48 - i * 0.07),
+          projectile.h * (0.48 - i * 0.07),
+          angle,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+      }
+      ctx.restore();
       drawVelocityStretchedImage(
         ctx,
         img,
@@ -5885,11 +6552,20 @@ export default function JogoPage() {
         projectile.h,
         projectile.vx,
         projectile.vy,
-        Math.atan2(projectile.vy, projectile.vx),
+        angle,
         color,
         getStretchSettings("shot").multiplier,
         getStretchPulse(performance.now() + 60, "shot"),
       );
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.42;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(projectile.x + projectile.w / 2, projectile.y + projectile.h / 2, Math.max(projectile.w, projectile.h) * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
 
     function rectHitsRotatedBeam(
@@ -6988,20 +7664,24 @@ export default function JogoPage() {
         return;
       }
 
+      const moveLayout = String((CONFIG.settings as Record<string, unknown>).pcMoveLayout || "both");
+      const useWasd = moveLayout !== "arrows";
+      const useArrows = moveLayout !== "wasd";
+
       const keyboardX =
-        (keysRef.current["arrowright"] || keysRef.current["d"] ? 1 : 0) -
-        (keysRef.current["arrowleft"] || keysRef.current["a"] ? 1 : 0);
+        ((useArrows && keysRef.current["arrowright"]) || (useWasd && keysRef.current["d"]) ? 1 : 0) -
+        ((useArrows && keysRef.current["arrowleft"]) || (useWasd && keysRef.current["a"]) ? 1 : 0);
 
       const keyboardY =
-        (keysRef.current["arrowdown"] || keysRef.current["s"] ? 1 : 0) -
-        (keysRef.current["arrowup"] || keysRef.current["w"] ? 1 : 0);
+        ((useArrows && keysRef.current["arrowdown"]) || (useWasd && keysRef.current["s"]) ? 1 : 0) -
+        ((useArrows && keysRef.current["arrowup"]) || (useWasd && keysRef.current["w"]) ? 1 : 0);
 
       let inputX = clamp(keyboardX + mobileMoveRef.current.x, -1, 1);
       let inputY = clamp(keyboardY + mobileMoveRef.current.y, -1, 1);
 
       const nowForHold = performance.now();
 
-      if (keysRef.current["shift"] && (!isTutorialMode || tutorialStepRef.current === "boost")) {
+      if (teclaControlePressionada("boost") && (!isTutorialMode || tutorialStepRef.current === "boost")) {
         iniciarMiraBoost();
       } else if (boostAimRef.current.active) {
         soltarMiraBoost(false);
@@ -7027,13 +7707,12 @@ export default function JogoPage() {
         }
       }
 
-      if (keysRef.current["x"] && (!isTutorialMode || tutorialStepRef.current === "strong")) {
+      if (teclaControlePressionada("strong") && (!isTutorialMode || tutorialStepRef.current === "strong")) {
         shootStrong(1, 0);
       }
 
-      if ((keysRef.current["control"] || keysRef.current["ctrl"]) && (!isTutorialMode || tutorialStepRef.current === "dodge")) {
-        keysRef.current["control"] = false;
-        keysRef.current["ctrl"] = false;
+      if (teclaControlePressionada("dodge") && (!isTutorialMode || tutorialStepRef.current === "dodge")) {
+        keysRef.current[normalizarTeclaConfig((CONFIG.settings as Record<string, unknown>).pcDodgeKey)] = false;
         executarEsquiva();
       }
 
@@ -7107,7 +7786,7 @@ export default function JogoPage() {
       player.x += player.vx * speedFactor;
       player.y += player.vy * speedFactor;
 
-      if ((keysRef.current["z"] || mobileShootRef.current) && (!isTutorialMode || tutorialStepRef.current === "shot")) {
+      if ((teclaControlePressionada("shot") || mobileShootRef.current) && (!isTutorialMode || tutorialStepRef.current === "shot")) {
         shootNormal();
       }
 
@@ -7663,7 +8342,7 @@ export default function JogoPage() {
       const key = e.key.toLowerCase();
       keysRef.current[key] = false;
 
-      if (key === "shift") {
+      if (key === normalizarTeclaConfig((CONFIG.settings as Record<string, unknown>).pcBoostKey)) {
         soltarMiraBoost(false);
       }
     }
@@ -7997,9 +8676,51 @@ export default function JogoPage() {
       )}
 
       {waveUi.message &&
-        (gameState === "playing" || gameState === "paused") && (
-          <div className={`game-wave-banner ${waveUi.bossWave ? "boss" : ""}`}>
+        (gameState === "playing" || gameState === "paused") &&
+        !waveUi.bossWave && (
+          <div className="game-wave-banner">
             {waveUi.message}
+          </div>
+        )}
+
+
+      {bossTipVisible &&
+        (gameState === "playing" || gameState === "paused") &&
+        waveUi.bossWave && (
+          <div className="game-boss-tip-card">
+            <div className="game-boss-tip-header">
+              <strong>CHOCADO</strong>
+              <span>ANÁLISE TÁTICA • 10s</span>
+            </div>
+            <div className="game-boss-patterns">
+              <span>✦</span>
+              <span>◎</span>
+              <span>▥</span>
+              <span>⌁</span>
+              <span>⊙</span>
+            </div>
+            <div className="game-boss-tip-lines">
+              <p>• Projéteis roxos: mantenha distância média.</p>
+              <p>• Lasers: espere o aviso e troque de faixa.</p>
+              <p>• Servos: destrua ou use Dodge só no último segundo.</p>
+              <p>• Fase 2: abaixo de 400 HP, padrões combinados.</p>
+            </div>
+          </div>
+        )}
+
+      {bossDanielLine.visible &&
+        (gameState === "playing" || gameState === "paused") && (
+          <div className="game-daniel-dialog game-daniel-boss-dialog">
+            <img
+              className="game-daniel-icon"
+              src={assetUrl(getDanielIcon(bossDanielLine.expression, danielMouthOpen))}
+              alt="Daniel"
+              draggable={false}
+            />
+            <div className="game-daniel-text">
+              <strong>DANIEL</strong>
+              <p>{bossDanielLine.text}</p>
+            </div>
           </div>
         )}
 
@@ -8246,9 +8967,7 @@ export default function JogoPage() {
             <div className="game-daniel-text">
               <strong>DANIEL</strong>
               <p>
-                {typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches
-                  ? TUTORIAL_DANIEL_TEXT[tutorialStep].mobile
-                  : TUTORIAL_DANIEL_TEXT[tutorialStep].pc}
+                {textoTutorialDaniel(tutorialStep)}
               </p>
               {tutorialStep === "done" && (
                 <span className="game-tutorial-auto-start">Rota de combate liberada.</span>
@@ -8300,14 +9019,35 @@ export default function JogoPage() {
 
       {gameState === "victory" && (
         <section className="game-screen game-victory-screen">
+          <div className="game-victory-stars" />
           <div className="game-victory-card">
             <p>MISSÃO CONCLUÍDA</p>
-            <span>A TERRA FOI SALVA DA DESINFORMAÇÃO</span>
             <h1>VITÓRIA!</h1>
-            <button onClick={() => iniciarJogo("story")}>JOGAR HISTÓRIA DE NOVO</button>
-            <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+            <span>A TERRA FOI SALVA DA DESINFORMAÇÃO</span>
+            <div className="game-victory-daniel">
+              <img src={assetUrl(getDanielIcon("happy", danielMouthOpen))} alt="Daniel" draggable={false} />
+              <strong>DANIEL</strong>
+              <p>Conseguimos, Cleber. O sinal do Chocado caiu. A rede está limpa... por enquanto.</p>
+            </div>
+            <div className="game-victory-actions">
+              <button onClick={() => iniciarJogo("story")}>JOGAR HISTÓRIA DE NOVO</button>
+              <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+            </div>
           </div>
         </section>
+      )}
+
+
+      {(gameState === "playing" || gameState === "tutorial") && (
+        <button
+          type="button"
+          className="game-pc-pause-button"
+          onClick={pausarOuVoltar}
+          aria-label="Pausar jogo"
+        >
+          <img src={assetUrl(CONFIG.uiImages.mobilePause)} alt="pause" draggable={false} />
+          <span>P / ESC</span>
+        </button>
       )}
 
       {(gameState === "playing" || gameState === "tutorial") && (
