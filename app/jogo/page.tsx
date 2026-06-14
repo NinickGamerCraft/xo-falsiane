@@ -285,6 +285,14 @@ type BossProjectile = {
   returning?: boolean;
   stretchUntil?: number;
   telegraphSoundPlayed?: boolean;
+  angleStart?: number;
+  angleEnd?: number;
+  sweepStartAt?: number;
+  sweepDurationMs?: number;
+  visualVariant?: "default" | "phase2" | "prism" | "mine" | "shard";
+  driftAmplitude?: number;
+  driftFrequency?: number;
+  baseY?: number;
 };
 
 type BossState = {
@@ -1537,7 +1545,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260603-glow-hitbox-cursor";
+const ASSET_VERSION = "space-news-20260614-v11-boss-ui-victory";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -2034,6 +2042,7 @@ export default function JogoPage() {
 
   const settingsIndexRef = useRef(0);
   const [settingsIndex, setSettingsIndex] = useState(0);
+  const [settingsSection, setSettingsSection] = useState<(typeof SETTINGS_SECTIONS)[number]>("ÁUDIO");
   const [settingsSnapshot, setSettingsSnapshot] = useState({
     ...CONFIG.settings,
   });
@@ -2277,6 +2286,13 @@ export default function JogoPage() {
     setSettingsIndex(safeIndex);
   }
 
+  function selecionarSecaoConfiguracoes(section: (typeof SETTINGS_SECTIONS)[number]) {
+    setSettingsSection(section);
+    const firstIndex = SETTINGS_OPTIONS.findIndex((option) => option.category === section);
+    if (firstIndex >= 0) setIndiceConfiguracao(firstIndex);
+    tocarSom(CONFIG.sounds.menuMove, 0.22, "menu");
+  }
+
   function atualizarConfiguracao(
     key: GameSettingKey,
     value: boolean | number | string,
@@ -2480,7 +2496,7 @@ export default function JogoPage() {
     tocarSom(CONFIG.sounds.menuConfirm, 0.42, "menu");
     settingsReturnStateRef.current =
       gameStateRef.current === "paused" ? "paused" : "mainMenu";
-    setIndiceConfiguracao(0);
+    selecionarSecaoConfiguracoes("ÁUDIO");
     setEstado("settings");
   }
 
@@ -5308,6 +5324,7 @@ export default function JogoPage() {
       return;
     }
     setVictoryStep(0);
+    setBossDanielLine((current) => ({ ...current, visible: false }));
     tocarSom(CONFIG.sounds.danielRadioOpen || CONFIG.sounds.menuMove, 0.22, "sfx");
     const timers = [
       window.setTimeout(() => {
@@ -6490,116 +6507,259 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb || CONFIG.sounds.chocadoCannon, 0.34, "sfx");
     }
 
-    function spawnBossClosingWalls(enraged = false) {
+    function spawnBossPrismSweep(enraged = false) {
+      const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
-      const lanes = enraged ? [130, 285, 520] : [150, 350, 540];
+      const telegraph = enraged ? 1050 : 1250;
+      const activeMs = enraged ? 1750 : 1550;
+      const originX = boss.x + boss.w * 0.055;
+      const origins = [0.23, 0.50, 0.77];
+      const sweeps = enraged
+        ? [
+            { start: -0.58, end: -0.10 },
+            { start: 0.32, end: -0.32 },
+            { start: 0.58, end: 0.10 },
+          ]
+        : [
+            { start: -0.42, end: -0.12 },
+            { start: 0.00, end: 0.00 },
+            { start: 0.42, end: 0.12 },
+          ];
 
-      lanes.forEach((y, index) => {
-        const fromTop = index % 2 === 0;
+      origins.forEach((ratio, index) => {
+        const activeAt = now + telegraph + index * (enraged ? 120 : 165);
+        const startAngle = Math.PI + sweeps[index].start;
+        const endAngle = Math.PI + sweeps[index].end;
         bossProjectilesRef.current.push({
           id: bossProjectileIdRef.current++,
           kind: "laser",
-          x: CONFIG.canvasWidth / 2,
-          y,
-          w: CONFIG.canvasWidth * 1.08,
-          h: enraged ? 28 : 24,
+          x: originX,
+          y: boss.y + boss.h * ratio,
+          w: 1680,
+          h: enraged ? 42 : 34,
           vx: 0,
           vy: 0,
           damage: cfg.laserDamage,
-          life: cfg.laserTelegraphMs + cfg.laserActiveMs + (enraged ? 420 : 0),
-          maxLife: cfg.laserTelegraphMs + cfg.laserActiveMs + (enraged ? 420 : 0),
-          angle: fromTop ? 0.09 : -0.09,
-          activeAt: now + cfg.laserTelegraphMs + index * (enraged ? 150 : 170),
+          life: telegraph + activeMs + index * 165,
+          maxLife: telegraph + activeMs + index * 165,
+          angle: startAngle,
+          angleStart: startAngle,
+          angleEnd: endAngle,
+          sweepStartAt: activeAt,
+          sweepDurationMs: activeMs,
+          activeAt,
+          visualVariant: "prism",
           stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         });
       });
-      tocarSom(CONFIG.sounds.chocadoWall || CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoLaser, 0.34, "sfx");
+
+      tocarSom(CONFIG.sounds.chocadoLaserCharge || CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoLaser, 0.48, "sfx");
     }
 
     function spawnBossSerpentPattern(enraged = false) {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
-      const count = enraged ? 18 : 14;
-      const originX = boss.x + 18;
+      const count = enraged ? 16 : 12;
+      const originX = boss.x + boss.w * 0.055;
       const centerY = boss.y + boss.h / 2;
+      const amplitude = enraged ? 128 : 96;
+
+      for (let stream = 0; stream < 2; stream += 1) {
+        for (let i = 0; i < count; i += 1) {
+          const phase = i * 0.58 + stream * Math.PI;
+          const delay = i * (enraged ? 82 : 105) + stream * 42;
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "orb",
+            x: originX,
+            y: centerY + Math.sin(phase) * amplitude,
+            baseY: centerY,
+            driftAmplitude: amplitude,
+            driftFrequency: enraged ? 0.0048 : 0.0041,
+            w: enraged ? 25 : 22,
+            h: enraged ? 25 : 22,
+            vx: -(enraged ? 3.22 : 2.92),
+            vy: 0,
+            damage: cfg.cannonOrbDamage,
+            life: enraged ? 7400 : 6500,
+            maxLife: enraged ? 7400 : 6500,
+            activeAt: now + delay,
+            stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+            phase,
+            visualVariant: "shard",
+          });
+        }
+      }
+      tocarSom(CONFIG.sounds.chocadoSerpent || CONFIG.sounds.chocadoOrb || CONFIG.sounds.chocadoServo, 0.38, "sfx");
+    }
+
+    function spawnBossCorePulse(enraged = false) {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const waves = enraged ? 3 : 2;
+      const count = enraged ? 11 : 9;
+      const originX = boss.x + boss.w * 0.06;
+      const originY = boss.y + boss.h * 0.5;
+
+      for (let wave = 0; wave < waves; wave += 1) {
+        for (let i = 0; i < count; i += 1) {
+          const t = count <= 1 ? 0.5 : i / (count - 1);
+          // Arco voltado para a esquerda com uma abertura central justa.
+          if (wave % 2 === 1 && Math.abs(t - 0.5) < 0.12) continue;
+          const angle = Math.PI + (t - 0.5) * (enraged ? 1.72 : 1.42);
+          const speed = (enraged ? 3.8 : 3.28) + wave * 0.18;
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "orb",
+            x: originX,
+            y: originY,
+            w: enraged ? 27 : 24,
+            h: enraged ? 27 : 24,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            damage: cfg.cannonOrbDamage,
+            life: 6500,
+            maxLife: 6500,
+            activeAt: now + wave * 420 + i * 38,
+            phase: i + wave * 10,
+            visualVariant: enraged ? "phase2" : "default",
+            stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+          });
+        }
+      }
+      tocarSom(CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb, 0.42, "sfx");
+    }
+
+    function spawnBossMineField(enraged = true) {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const now = performance.now();
+      const count = enraged ? 7 : 5;
+      const originX = boss.x + boss.w * 0.04;
+      const gap = CONFIG.canvasHeight / (count + 1);
 
       for (let i = 0; i < count; i += 1) {
-        const wave = Math.sin(i * 0.62) * (enraged ? 108 : 82);
+        const baseY = gap * (i + 1);
         bossProjectilesRef.current.push({
           id: bossProjectileIdRef.current++,
           kind: "orb",
-          x: originX + i * 3,
-          y: centerY + wave,
-          w: enraged ? 24 : 22,
-          h: enraged ? 24 : 22,
-          vx: -(enraged ? 3.25 : 3.05),
-          vy: Math.cos(i * 0.55) * (enraged ? 1.15 : 0.9),
+          x: originX + (i % 2) * 28,
+          y: baseY,
+          baseY,
+          driftAmplitude: enraged ? 52 : 36,
+          driftFrequency: enraged ? 0.0036 : 0.0030,
+          w: enraged ? 42 : 36,
+          h: enraged ? 42 : 36,
+          vx: -(enraged ? 1.52 : 1.26),
+          vy: 0,
           damage: cfg.cannonOrbDamage,
-          life: enraged ? 7600 : 6500,
-          maxLife: enraged ? 7600 : 6500,
-          activeAt: now + i * (enraged ? 92 : 104),
+          life: enraged ? 9400 : 8200,
+          maxLife: enraged ? 9400 : 8200,
+          activeAt: now + i * 210,
+          phase: i * 0.82,
+          visualVariant: "mine",
           stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
-          phase: i,
         });
       }
-      tocarSom(CONFIG.sounds.chocadoSerpent || CONFIG.sounds.chocadoOrb || CONFIG.sounds.chocadoServo, 0.32, "sfx");
+      tocarSom(CONFIG.sounds.chocadoBarrier || CONFIG.sounds.chocadoOrb, 0.44, "sfx");
+    }
+
+    function spawnBossCrossBurst(enraged = false) {
+      const boss = bossRef.current;
+      const cfg = CONFIG.gameplay.boss.chocado;
+      const player = playerRef.current;
+      const now = performance.now();
+      const originX = boss.x + boss.w * 0.05;
+      const originsY = [boss.y + boss.h * 0.22, boss.y + boss.h * 0.5, boss.y + boss.h * 0.78];
+
+      originsY.forEach((originY, lane) => {
+        const dx = player.x + player.w / 2 - originX;
+        const dy = player.y + player.h / 2 - originY;
+        const baseAngle = Math.atan2(dy, dx);
+        const offsets = enraged ? [-0.20, 0, 0.20] : [-0.13, 0.13];
+        offsets.forEach((offset, index) => {
+          const angle = baseAngle + offset;
+          const speed = enraged ? 4.15 : 3.62;
+          bossProjectilesRef.current.push({
+            id: bossProjectileIdRef.current++,
+            kind: "orb",
+            x: originX,
+            y: originY,
+            w: enraged ? 25 : 22,
+            h: enraged ? 25 : 22,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            damage: cfg.cannonOrbDamage,
+            life: 6200,
+            maxLife: 6200,
+            activeAt: now + lane * 260 + index * 70,
+            phase: lane * 10 + index,
+            visualVariant: "shard",
+            stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+          });
+        });
+      });
+      tocarSom(CONFIG.sounds.chocadoCannon, 0.43, "sfx");
     }
 
     function spawnBossEnragedCombo() {
-      // Fase 2 continua mais complexa, mas agora não empilha padrões injustos.
-      const pick = Math.floor(Math.random() * 3);
-      if (pick === 0) {
-        spawnBossOrbFan(true);
-      } else if (pick === 1) {
-        spawnBossClosingWalls(true);
-      } else {
-        spawnBossSerpentPattern(true);
-      }
+      // Um padrão complexo por vez: visualmente rico sem empilhar dano impossível.
+      const pick = Math.floor(Math.random() * 4);
+      if (pick === 0) spawnBossPrismSweep(true);
+      else if (pick === 1) spawnBossCorePulse(true);
+      else if (pick === 2) spawnBossMineField(true);
+      else spawnBossSerpentPattern(true);
     }
 
     function iniciarProximoAtaqueDoBoss() {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const enraged = boss.hp <= cfg.enragedHp;
-      const rate = enraged ? cfg.enragedAttackRate : 1;
       const now = performance.now();
-
       const previousAttack = boss.attackIndex;
-      const baseAttacks = enraged
-        ? (Math.random() < 0.55 ? [4, 5, 6, 6, 3, 2] : [0, 1, 2, 3, 4, 5, 6])
-        : [0, 1, 2, 3, 4, 5];
-      const possibleAttacks = baseAttacks.filter((attackId) => attackId !== previousAttack);
-      const attack = possibleAttacks[Math.floor(Math.random() * possibleAttacks.length)];
+
+      // Fase 1 apresenta os padrões. Fase 2 prioriza ataques exclusivos e mais elaborados.
+      const pool = enraged
+        ? [3, 4, 5, 6, 6, 7, 7, 8, 8, 9]
+        : [0, 1, 2, 3, 4, 5, 7];
+      const possible = pool.filter((attackId) => attackId !== previousAttack);
+      const attack = possible[Math.floor(Math.random() * possible.length)];
 
       if (attack === 0) {
-        const evenCount = Math.max(
-          2,
-          Math.floor(rand(cfg.servoCountMin, cfg.servoCountMax + 1) / 2) * 2,
-        );
-        spawnBossServoPair(enraged ? evenCount + 1 : evenCount);
-        boss.nextAttackAt = now + rand(3100, 4200) * rate;
+        const evenCount = Math.max(2, Math.floor(rand(cfg.servoCountMin, cfg.servoCountMax + 1) / 2) * 2);
+        spawnBossServoPair(evenCount);
+        boss.nextAttackAt = now + rand(3400, 4400);
       } else if (attack === 1) {
         spawnBossLaser(Math.random() < 0.5 ? "x" : "triple");
-        boss.nextAttackAt =
-          now + (cfg.laserTelegraphMs + cfg.laserActiveMs + rand(850, 1450)) * rate;
+        boss.nextAttackAt = now + cfg.laserTelegraphMs + cfg.laserActiveMs + rand(1200, 1750);
       } else if (attack === 2) {
         spawnBossServoWaveAttack();
-        boss.nextAttackAt = now + rand(2700, 3800) * rate;
+        boss.nextAttackAt = now + rand(3200, 4300);
       } else if (attack === 3) {
         spawnBossAimedLaser();
-        boss.nextAttackAt =
-          now + (cfg.aimLaserWindupMs + cfg.aimLaserActiveMs + rand(800, 1400)) * rate;
+        boss.nextAttackAt = now + cfg.aimLaserWindupMs + cfg.aimLaserActiveMs + rand(1050, 1550);
       } else if (attack === 4) {
         spawnBossOrbFan(enraged);
-        boss.nextAttackAt = now + rand(enraged ? 2300 : 2900, enraged ? 3300 : 3900) * rate;
+        boss.nextAttackAt = now + rand(enraged ? 3100 : 3400, enraged ? 4050 : 4550);
       } else if (attack === 5) {
         spawnBossSerpentPattern(enraged);
-        boss.nextAttackAt = now + rand(enraged ? 2600 : 3300, enraged ? 3800 : 4500) * rate;
+        boss.nextAttackAt = now + rand(enraged ? 4100 : 4500, enraged ? 5200 : 5600);
+      } else if (attack === 6) {
+        spawnBossPrismSweep(true);
+        boss.nextAttackAt = now + rand(4800, 5800);
+      } else if (attack === 7) {
+        if (enraged) spawnBossCorePulse(true);
+        else spawnBossCrossBurst(false);
+        boss.nextAttackAt = now + rand(enraged ? 4200 : 3600, enraged ? 5200 : 4600);
+      } else if (attack === 8) {
+        spawnBossMineField(true);
+        boss.nextAttackAt = now + rand(5100, 6200);
       } else {
         spawnBossEnragedCombo();
-        boss.nextAttackAt = now + rand(3600, 4800) * rate;
+        boss.nextAttackAt = now + rand(5000, 6100);
       }
 
       boss.attackIndex = attack;
@@ -6839,6 +6999,14 @@ export default function JogoPage() {
             }
           }
 
+          if (updated.kind === "laser" && updated.angleStart !== undefined && updated.angleEnd !== undefined) {
+            const sweepStart = updated.sweepStartAt ?? updated.activeAt ?? now;
+            const duration = Math.max(1, updated.sweepDurationMs ?? 1);
+            const t = clamp((now - sweepStart) / duration, 0, 1);
+            const eased = t * t * (3 - 2 * t);
+            updated.angle = updated.angleStart + (updated.angleEnd - updated.angleStart) * eased;
+          }
+
           if (updated.kind === "laser") {
             const active = !updated.activeAt || now >= updated.activeAt;
             if (active && CONFIG.settings.enableScreenShake) {
@@ -6852,7 +7020,11 @@ export default function JogoPage() {
           if (updated.kind !== "laser" && updated.kind !== "aimLaser") {
             updated.x += updated.vx * speedFactor;
             if (updated.kind !== "servoWave") {
-              updated.y += updated.vy * speedFactor;
+              if (updated.baseY !== undefined && updated.driftAmplitude && updated.driftFrequency) {
+                updated.y = updated.baseY + Math.sin(now * updated.driftFrequency + (updated.phase ?? 0)) * updated.driftAmplitude;
+              } else {
+                updated.y += updated.vy * speedFactor;
+              }
             }
           }
 
@@ -7009,7 +7181,31 @@ export default function JogoPage() {
         const activeTime = Math.max(0, now - (projectile.activeAt ?? now));
         const pulse = active ? 1 + Math.sin(activeTime * 0.11) * 0.16 : 1;
         const drawHeight = projectile.h * pulse;
-        const beamColor = isAim ? "#ff4fd8" : "#ffd166";
+        const isPrism = projectile.visualVariant === "prism";
+        const beamColor = isAim ? "#ff4fd8" : isPrism ? "#d946ef" : "#ffd166";
+
+        if (!active && !isAim) {
+          ctx.save();
+          ctx.translate(projectile.x, projectile.y);
+          ctx.rotate(projectile.angle ?? Math.PI);
+          ctx.globalAlpha = 0.84;
+          ctx.strokeStyle = isPrism ? "#f0abfc" : "#ffd166";
+          ctx.shadowColor = ctx.strokeStyle;
+          ctx.shadowBlur = 14;
+          ctx.lineWidth = isPrism ? 4 : 3;
+          ctx.setLineDash([18, 13]);
+          ctx.lineDashOffset = -(now * 0.04);
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(projectile.w, 0);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.arc(0, 0, drawHeight * 0.9, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+          return;
+        }
 
         if (!active && isAim) {
           const t = now * 0.006;
@@ -7044,16 +7240,25 @@ export default function JogoPage() {
         ctx.globalAlpha = active ? 0.96 : 0.24;
 
         const beamGradient = ctx.createLinearGradient(0, 0, projectile.w, 0);
-        beamGradient.addColorStop(0, "#fff7d6");
-        beamGradient.addColorStop(0.04, beamColor);
-        beamGradient.addColorStop(0.72, beamColor);
+        beamGradient.addColorStop(0, "#ffffff");
+        beamGradient.addColorStop(0.035, beamColor);
+        beamGradient.addColorStop(0.48, isPrism ? "#67e8f9" : beamColor);
+        beamGradient.addColorStop(0.78, beamColor);
         beamGradient.addColorStop(1, "rgba(255,79,216,0)");
         ctx.fillStyle = beamGradient;
         ctx.shadowColor = beamColor;
         ctx.shadowBlur = active ? 24 : 8;
         ctx.fillRect(0, -drawHeight / 2, projectile.w, drawHeight);
-        ctx.fillStyle = "rgba(255,255,255,.92)";
+        ctx.fillStyle = "rgba(255,255,255,.94)";
         ctx.fillRect(0, -Math.max(3, drawHeight * 0.10), projectile.w * 0.94, Math.max(6, drawHeight * 0.20));
+        if (isPrism) {
+          ctx.globalAlpha = 0.72;
+          ctx.fillStyle = "#67e8f9";
+          ctx.fillRect(0, -drawHeight * 0.42, projectile.w * 0.82, Math.max(3, drawHeight * 0.08));
+          ctx.fillStyle = "#f0abfc";
+          ctx.fillRect(0, drawHeight * 0.34, projectile.w * 0.74, Math.max(3, drawHeight * 0.08));
+          ctx.globalAlpha = 0.96;
+        }
 
         // Núcleo de saída preso ao Chocado: impede o laser de parecer surgir atrás dele.
         const muzzle = ctx.createRadialGradient(0, 0, 2, 0, 0, drawHeight * 1.35);
@@ -7090,6 +7295,57 @@ export default function JogoPage() {
         ctx.fill();
       }
       ctx.restore();
+
+      if (!isServo && projectile.visualVariant === "mine") {
+        const cx = projectile.x + projectile.w / 2;
+        const cy = projectile.y + projectile.h / 2;
+        const pulse = 1 + Math.sin(now * 0.011 + (projectile.phase ?? 0)) * 0.12;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(now * 0.0018 + (projectile.phase ?? 0));
+        ctx.globalCompositeOperation = "lighter";
+        ctx.shadowColor = "#d946ef";
+        ctx.shadowBlur = 22;
+        ctx.strokeStyle = "#f0abfc";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, projectile.w * 0.52 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        for (let i = 0; i < 6; i += 1) {
+          ctx.rotate(Math.PI / 3);
+          ctx.beginPath();
+          ctx.moveTo(projectile.w * 0.42, 0);
+          ctx.lineTo(projectile.w * 0.76, 0);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#6b177d";
+        ctx.beginPath();
+        ctx.arc(0, 0, projectile.w * 0.34, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(0, 0, projectile.w * 0.11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      if (!isServo && projectile.visualVariant === "shard") {
+        const cx = projectile.x + projectile.w / 2;
+        const cy = projectile.y + projectile.h / 2;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle + Math.PI / 4);
+        ctx.globalCompositeOperation = "lighter";
+        ctx.shadowColor = "#d946ef";
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = "#d946ef";
+        ctx.fillRect(-projectile.w * 0.42, -projectile.h * 0.42, projectile.w * 0.84, projectile.h * 0.84);
+        ctx.fillStyle = "#f5d0fe";
+        ctx.fillRect(-projectile.w * 0.17, -projectile.h * 0.17, projectile.w * 0.34, projectile.h * 0.34);
+        ctx.restore();
+        return;
+      }
 
       if (!isServo) {
         const cx = projectile.x + projectile.w / 2;
@@ -9376,8 +9632,21 @@ export default function JogoPage() {
               </button>
             </div>
 
+            <nav className="game-settings-tabs" aria-label="Categorias de configurações">
+              {SETTINGS_SECTIONS.map((section) => (
+                <button
+                  type="button"
+                  key={section}
+                  className={settingsSection === section ? "is-active" : ""}
+                  onClick={() => selecionarSecaoConfiguracoes(section)}
+                >
+                  {section}
+                </button>
+              ))}
+            </nav>
+
             <div className="game-settings-list">
-              {SETTINGS_SECTIONS.map((section) => {
+              {[settingsSection].map((section) => {
                 const sectionOptions = SETTINGS_OPTIONS.map(
                   (option, index) => ({ option, index }),
                 ).filter((entry) => entry.option.category === section);
@@ -9674,11 +9943,13 @@ export default function JogoPage() {
       {gameState === "victory" && (
         <section className={`game-screen sn-victory-screen victory-step-${victoryStep}`}>
           <div className="sn-victory-stars" />
+          <div className="sn-victory-burst" />
+          <div className="sn-victory-scanlines" />
           <div className="sn-victory-earth" />
           <div className="sn-victory-ship" />
           <div className="sn-victory-broadcast">
             <span>CANAL SPACE NEWS</span>
-            <strong>{victoryStep < 2 ? "SINAL RESTAURADO" : "MISSÃO CONCLUÍDA"}</strong>
+            <strong>{victoryStep === 0 ? "RECUPERANDO TRANSMISSÃO" : "SINAL RESTAURADO"}</strong>
           </div>
           <div className="sn-victory-dialog sn-dialog">
             <img src={assetUrl(getDanielIcon("happy", danielMouthOpen))} alt="Daniel" draggable={false} />
