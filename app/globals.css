@@ -7821,3 +7821,168 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   .sn-victory-dialog { bottom: 2% !important; transform: translateX(-50%) scale(.82) !important; transform-origin: bottom center !important; }
 }
 
+
+
+/* =========================================================
+   SPACE NEWS V12 — PERFORMANCE, MOBILE E LEGIBILIDADE
+   ========================================================= */
+
+/* HUD desktop mais legível */
+.sn-player-hud { width: 382px !important; }
+.sn-life-hearts img { width: 38px !important; height: 38px !important; }
+.sn-ability-stack { width: 360px !important; }
+.sn-ability {
+  height: 35px !important;
+  grid-template-columns: 76px minmax(132px, 1fr) 76px !important;
+  font-size: 15px !important;
+}
+.sn-ability-label { font-size: 15px !important; }
+.sn-ability strong { font-size: 14px !important; min-width: 72px !important; }
+.sn-powerup-row { max-width: 360px !important; }
+.sn-powerup-slot { width: 50px !important; height: 50px !important; }
+.sn-run-info span { font-size: 16px !important; }
+.sn-run-info strong { font-size: 25px !important; }
+
+/* FPS opcional */
+.sn-fps-counter {
+  position: fixed;
+  right: 22px;
+  bottom: 18px;
+  z-index: 105;
+  min-width: 78px;
+  padding: 8px 11px;
+  border: 2px solid rgba(101,220,255,.62);
+  border-radius: 8px;
+  background: rgba(3,9,16,.78);
+  color: #aeeeff;
+  font-family: var(--game-ui-font), "ByteBounce", monospace;
+  font-size: 14px;
+  text-align: center;
+  text-shadow: 1px 1px 0 #000;
+  pointer-events: none;
+}
+.sn-fps-counter.is-low { color: #ffb36b; border-color: rgba(255,151,75,.72); }
+
+/* Editor mobile sempre cabe na tela */
+.sn-mobile-editor-backdrop {
+  padding: 6px !important;
+  overflow: hidden !important;
+}
+.sn-mobile-editor-card {
+  width: min(1180px, 98vw) !important;
+  height: min(94dvh, 680px) !important;
+  max-height: 94dvh !important;
+  padding: 10px !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+  overflow: hidden !important;
+}
+.sn-mobile-editor-card > header { margin-bottom: 7px !important; }
+.sn-mobile-editor-card header h2 { font-size: clamp(17px, 2.2vw, 25px) !important; }
+.sn-mobile-editor-stage {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  aspect-ratio: auto !important;
+}
+.sn-mobile-editor-card footer {
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  justify-content: flex-start !important;
+  margin-top: 7px !important;
+  padding-bottom: 2px !important;
+}
+.sn-mobile-editor-card footer > * { flex: 0 0 auto !important; }
+.sn-editor-control { min-width: 70px !important; min-height: 42px !important; font-size: 11px !important; }
+
+/* Controles mobile: maiores e ordenados pelo layout salvo/default */
+@media (pointer: coarse) and (orientation: landscape) {
+  .sn-mobile-joystick { width: 156px !important; height: 156px !important; }
+  .sn-mobile-button { width: 86px !important; height: 86px !important; padding: 13px !important; }
+  .sn-mobile-button.system { width: 66px !important; height: 66px !important; }
+
+  /* HUD menor que a versão anterior, sem perder legibilidade */
+  .sn-player-hud {
+    transform: scale(.58) !important;
+    transform-origin: top left !important;
+    top: calc(var(--stage-top, 0px) + 7px) !important;
+    left: calc(var(--stage-left, 0px) + 7px) !important;
+  }
+
+  /* Filtros caros em elementos HTML pioram FPS mobile */
+  .sn-player-hud,
+  .sn-mobile-button,
+  .sn-mobile-joystick,
+  .game-settings-panel,
+  .sn-mobile-editor-card,
+  .sn-dialog {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .sn-fps-counter {
+    right: calc(100vw - var(--stage-left, 0px) - var(--stage-w, 100vw) + 8px) !important;
+    bottom: calc(100dvh - var(--stage-top, 0px) - var(--stage-h, 100dvh) + 8px) !important;
+    padding: 5px 7px !important;
+    min-width: 58px !important;
+    font-size: 10px !important;
+  }
+
+  .sn-boss-tip { display: none !important; }
+
+  .sn-mobile-editor-card {
+    height: 96dvh !important;
+    width: 98vw !important;
+    padding: 7px !important;
+    border-width: 2px !important;
+  }
+  .sn-mobile-editor-card > header span { font-size: 9px !important; }
+  .sn-mobile-editor-card header h2 { font-size: 15px !important; margin-top: 2px !important; }
+  .sn-mobile-editor-card > header button { padding: 7px 11px !important; }
+  .sn-mobile-editor-stage::before { font-size: 17px !important; }
+  .sn-mobile-editor-card footer { gap: 5px !important; }
+  .sn-mobile-editor-card footer button { padding: 7px 10px !important; font-size: 10px !important; }
+  .sn-mobile-editor-card footer strong { min-width: 95px !important; font-size: 10px !important; }
+}
+
+/* Configurações mobile: menos altura desperdiçada */
+@media (pointer: coarse) and (orientation: landscape) {
+  .game-settings-panel {
+    height: 96dvh !important;
+    max-height: 96dvh !important;
+    width: 97vw !important;
+  }
+  .game-settings-list { max-height: calc(96dvh - 88px) !important; }
+  .game-settings-category-list { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .game-setting-row { min-height: 40px !important; }
+}
+
+/* Vitória: composição mais compacta e consistente */
+.sn-victory-broadcast { top: 7% !important; }
+.sn-victory-title { top: 37% !important; }
+.sn-victory-actions { top: 58% !important; }
+.sn-victory-dialog {
+  bottom: 3.5% !important;
+  width: min(920px, 90vw) !important;
+  min-height: 126px !important;
+}
+.sn-victory-earth { opacity: .60 !important; }
+
+@media (max-width: 900px), (pointer: coarse) {
+  .sn-victory-broadcast { top: 4% !important; }
+  .sn-victory-title { top: 30% !important; }
+  .sn-victory-title h1 { font-size: clamp(50px, 11vw, 86px) !important; }
+  .sn-victory-actions { top: 51% !important; gap: 8px !important; }
+  .sn-victory-actions button { min-width: 150px !important; padding: 10px 12px !important; font-size: 11px !important; }
+  .sn-victory-dialog {
+    bottom: 2% !important;
+    width: 92vw !important;
+    min-height: 94px !important;
+    grid-template-columns: 72px 1fr !important;
+    gap: 10px !important;
+    padding: 9px 12px !important;
+    transform: translateX(-50%) !important;
+  }
+  .sn-victory-dialog img { width: 68px !important; height: 68px !important; }
+  .sn-victory-dialog p { font-size: clamp(13px, 2.1vw, 18px) !important; }
+}

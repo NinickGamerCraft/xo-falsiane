@@ -1129,8 +1129,8 @@ const CONFIG = {
     showMobileStartHint: true,
     mobileControls: "joystick",
     mobileLayout: "compact",
-    mobileScale: 0.78,
-    mobileOpacity: 0.82,
+    mobileScale: 0.90,
+    mobileOpacity: 0.86,
     mobileButtonGap: 10,
     mobileMirror: false,
     pcMoveLayout: "both",
@@ -1154,6 +1154,8 @@ const CONFIG = {
     enableFlashingLights: true,
     enableAbilityReadySounds: true,
     enableBoostFireSprite: true,
+    showFps: false,
+    performanceMode: "auto",
     autoPauseOnBlur: true,
   },
 
@@ -1324,13 +1326,13 @@ type GameSettingOption = {
 };
 
 const DEFAULT_MOBILE_CONTROL_LAYOUT: MobileControlLayoutMap = {
-  joystick: { x: 13, y: 74, scale: 0.78 },
-  strong: { x: 78, y: 68, scale: 0.64 },
-  shot: { x: 89, y: 66, scale: 0.72 },
-  dodge: { x: 78, y: 84, scale: 0.60 },
-  boost: { x: 89, y: 83, scale: 0.64 },
-  fullscreen: { x: 91, y: 9, scale: 0.52 },
-  pause: { x: 96, y: 9, scale: 0.52 },
+  joystick: { x: 14, y: 76, scale: 0.88 },
+  dodge: { x: 78, y: 68, scale: 0.78 },
+  boost: { x: 89, y: 68, scale: 0.78 },
+  shot: { x: 78, y: 84, scale: 0.82 },
+  strong: { x: 89, y: 84, scale: 0.82 },
+  fullscreen: { x: 90, y: 9, scale: 0.58 },
+  pause: { x: 96, y: 9, scale: 0.58 },
 };
 
 const MOBILE_CONTROL_LABELS: Record<MobileControlId, string> = {
@@ -1428,6 +1430,20 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   {
     key: "enableBoostFireSprite",
     label: "Fogo do boost",
+    category: "VISUAL",
+    kind: "toggle",
+  },
+  {
+    key: "performanceMode" as GameSettingKey,
+    label: "Modo de desempenho",
+    category: "VISUAL",
+    kind: "select",
+    values: ["auto", "performance", "quality"],
+    formatter: (v) => String(v) === "performance" ? "DESEMPENHO" : String(v) === "quality" ? "QUALIDADE" : "AUTOMÁTICO",
+  },
+  {
+    key: "showFps" as GameSettingKey,
+    label: "Mostrar contador de FPS",
     category: "VISUAL",
     kind: "toggle",
   },
@@ -1545,7 +1561,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260614-v11-boss-ui-victory";
+const ASSET_VERSION = "space-news-20260614-v12-performance-mobile-boss";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -2059,6 +2075,8 @@ export default function JogoPage() {
   const [mobileControlLayout, setMobileControlLayout] = useState<MobileControlLayoutMap>(
     DEFAULT_MOBILE_CONTROL_LAYOUT,
   );
+  const [fpsUi, setFpsUi] = useState(60);
+  const fpsCounterRef = useRef({ frames: 0, lastAt: performance.now(), value: 60 });
 
   const storyIndexRef = useRef(0);
   const [storyIndex, setStoryIndex] = useState(0);
@@ -2210,6 +2228,7 @@ export default function JogoPage() {
   const audioPoolIndexRef = useRef(new Map<string, number>());
   const slowPlayerUntilRef = useRef(0);
   const bossProjectileIdRef = useRef(0);
+  const bossAttackHistoryRef = useRef<number[]>([]);
   const bossRef = useRef<BossState>({
     active: false,
     intro: false,
@@ -4347,6 +4366,7 @@ export default function JogoPage() {
     const cfg = CONFIG.gameplay.boss.chocado;
 
     bossProjectilesRef.current = [];
+    bossAttackHistoryRef.current = [];
     enemiesRef.current = enemiesRef.current.filter(
       (enemy) => enemy.kind === "asteroid" || enemy.kind === "fragment",
     );
@@ -5302,18 +5322,32 @@ export default function JogoPage() {
   useEffect(() => {
     try {
       const savedSettings = window.localStorage.getItem("spaceNews.settings");
+      const settingsVersion = window.localStorage.getItem("spaceNews.settingsVersion");
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings) as Partial<typeof CONFIG.settings>;
         Object.assign(CONFIG.settings, parsed);
-        setSettingsSnapshot({ ...CONFIG.settings });
       }
+      if (settingsVersion !== "v12") {
+        CONFIG.settings.mobileScale = Math.max(0.90, Number(CONFIG.settings.mobileScale) || 0.90);
+        CONFIG.settings.performanceMode = "auto";
+        CONFIG.settings.showFps = false;
+        window.localStorage.setItem("spaceNews.settings", JSON.stringify(CONFIG.settings));
+        window.localStorage.setItem("spaceNews.settingsVersion", "v12");
+      }
+      setSettingsSnapshot({ ...CONFIG.settings });
+
       const savedLayout = window.localStorage.getItem("spaceNews.mobileLayout");
-      if (savedLayout) {
+      const layoutVersion = window.localStorage.getItem("spaceNews.mobileLayoutVersion");
+      if (savedLayout && layoutVersion === "v12") {
         const parsed = JSON.parse(savedLayout) as Partial<MobileControlLayoutMap>;
         setMobileControlLayout({
           ...DEFAULT_MOBILE_CONTROL_LAYOUT,
           ...parsed,
         });
+      } else {
+        setMobileControlLayout(DEFAULT_MOBILE_CONTROL_LAYOUT);
+        window.localStorage.setItem("spaceNews.mobileLayout", JSON.stringify(DEFAULT_MOBILE_CONTROL_LAYOUT));
+        window.localStorage.setItem("spaceNews.mobileLayoutVersion", "v12");
       }
     } catch {}
   }, []);
@@ -5515,6 +5549,29 @@ export default function JogoPage() {
 
     let animationFrame = 0;
     let lastTime = performance.now();
+    const mobileLike = window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
+    const lowHardware = (navigator.hardwareConcurrency || 8) <= 4;
+
+    function usarEfeitosReduzidos() {
+      const mode = String((CONFIG.settings as Record<string, unknown>).performanceMode ?? "auto");
+      if (mode === "performance") return true;
+      if (mode === "quality") return false;
+      return mobileLike || lowHardware;
+    }
+
+    function limitarObjetosPesados() {
+      const reduced = usarEfeitosReduzidos();
+      const projectileCap = reduced ? 54 : 110;
+      if (bossProjectilesRef.current.length > projectileCap) {
+        const beams = bossProjectilesRef.current.filter((projectile) => projectile.kind === "laser" || projectile.kind === "aimLaser");
+        const others = bossProjectilesRef.current.filter((projectile) => projectile.kind !== "laser" && projectile.kind !== "aimLaser");
+        bossProjectilesRef.current = [...beams, ...others.slice(-Math.max(0, projectileCap - beams.length))];
+      }
+      const particleCap = reduced ? 82 : 190;
+      if (particlesRef.current.length > particleCap) particlesRef.current = particlesRef.current.slice(-particleCap);
+      const shockwaveCap = reduced ? 10 : 20;
+      if (shockwavesRef.current.length > shockwaveCap) shockwavesRef.current = shockwavesRef.current.slice(-shockwaveCap);
+    }
 
     function encontrarAlvoMaisProximo(x: number, y: number) {
       let best: { x: number; y: number; distance: number } | null = null;
@@ -6478,9 +6535,10 @@ export default function JogoPage() {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
+      const reduced = usarEfeitosReduzidos();
       const originX = boss.x + cfg.attackOffsets.cannon.x;
-      const originY = boss.y + boss.h / 2;
-      const count = enraged ? 8 : 6;
+      const originY = boss.y + boss.h / 2 + cfg.attackOffsets.cannon.middleY;
+      const count = reduced ? (enraged ? 6 : 5) : (enraged ? 8 : 6);
       const spread = enraged ? 0.68 : 0.56;
 
       for (let i = 0; i < count; i += 1) {
@@ -6492,15 +6550,15 @@ export default function JogoPage() {
           kind: "orb",
           x: originX,
           y: originY,
-          w: enraged ? 27 : 24,
-          h: enraged ? 27 : 24,
+          w: enraged ? 26 : 23,
+          h: enraged ? 26 : 23,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
           damage: cfg.cannonOrbDamage,
-          life: enraged ? 6200 : 5200,
-          maxLife: enraged ? 6200 : 5200,
+          life: enraged ? 5700 : 5000,
+          maxLife: enraged ? 5700 : 5000,
           stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
-          activeAt: now + i * (enraged ? 62 : 72),
+          activeAt: now + i * (enraged ? 72 : 84),
           phase: i,
         });
       }
@@ -6511,38 +6569,37 @@ export default function JogoPage() {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
-      const telegraph = enraged ? 1050 : 1250;
-      const activeMs = enraged ? 1750 : 1550;
-      const originX = boss.x + boss.w * 0.055;
-      const origins = [0.23, 0.50, 0.77];
-      const sweeps = enraged
-        ? [
-            { start: -0.58, end: -0.10 },
-            { start: 0.32, end: -0.32 },
-            { start: 0.58, end: 0.10 },
-          ]
-        : [
-            { start: -0.42, end: -0.12 },
-            { start: 0.00, end: 0.00 },
-            { start: 0.42, end: 0.12 },
-          ];
+      const reduced = usarEfeitosReduzidos();
+      const telegraph = enraged ? 1080 : 1280;
+      const activeMs = enraged ? 1550 : 1400;
+      const originX = boss.x + cfg.attackOffsets.cannon.x;
+      const allOrigins = [
+        boss.y + cfg.attackOffsets.cannon.topY,
+        boss.y + boss.h / 2 + cfg.attackOffsets.cannon.middleY,
+        boss.y + boss.h + cfg.attackOffsets.cannon.bottomY,
+      ];
+      const origins = reduced ? [allOrigins[0], allOrigins[2]] : allOrigins;
+      const sweepPairs = enraged
+        ? [{ start: -0.46, end: -0.10 }, { start: 0.18, end: -0.18 }, { start: 0.46, end: 0.10 }]
+        : [{ start: -0.34, end: -0.10 }, { start: 0.08, end: -0.08 }, { start: 0.34, end: 0.10 }];
+      const pairs = reduced ? [sweepPairs[0], sweepPairs[2]] : sweepPairs;
 
-      origins.forEach((ratio, index) => {
-        const activeAt = now + telegraph + index * (enraged ? 120 : 165);
-        const startAngle = Math.PI + sweeps[index].start;
-        const endAngle = Math.PI + sweeps[index].end;
+      origins.forEach((originY, index) => {
+        const activeAt = now + telegraph + index * (enraged ? 145 : 175);
+        const startAngle = Math.PI + pairs[index].start;
+        const endAngle = Math.PI + pairs[index].end;
         bossProjectilesRef.current.push({
           id: bossProjectileIdRef.current++,
           kind: "laser",
           x: originX,
-          y: boss.y + boss.h * ratio,
-          w: 1680,
-          h: enraged ? 42 : 34,
+          y: originY,
+          w: 1550,
+          h: enraged ? 36 : 30,
           vx: 0,
           vy: 0,
           damage: cfg.laserDamage,
-          life: telegraph + activeMs + index * 165,
-          maxLife: telegraph + activeMs + index * 165,
+          life: telegraph + activeMs + index * 175,
+          maxLife: telegraph + activeMs + index * 175,
           angle: startAngle,
           angleStart: startAngle,
           angleEnd: endAngle,
@@ -6554,22 +6611,24 @@ export default function JogoPage() {
         });
       });
 
-      tocarSom(CONFIG.sounds.chocadoLaserCharge || CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoLaser, 0.48, "sfx");
+      tocarSom(CONFIG.sounds.chocadoLaserCharge || CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoLaser, 0.45, "sfx");
     }
 
     function spawnBossSerpentPattern(enraged = false) {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
-      const count = enraged ? 16 : 12;
-      const originX = boss.x + boss.w * 0.055;
+      const reduced = usarEfeitosReduzidos();
+      const count = reduced ? (enraged ? 9 : 7) : (enraged ? 13 : 10);
+      const streams = reduced ? 1 : 2;
+      const originX = boss.x + cfg.attackOffsets.cannon.x;
       const centerY = boss.y + boss.h / 2;
-      const amplitude = enraged ? 128 : 96;
+      const amplitude = enraged ? 118 : 88;
 
-      for (let stream = 0; stream < 2; stream += 1) {
+      for (let stream = 0; stream < streams; stream += 1) {
         for (let i = 0; i < count; i += 1) {
-          const phase = i * 0.58 + stream * Math.PI;
-          const delay = i * (enraged ? 82 : 105) + stream * 42;
+          const phase = i * 0.64 + stream * Math.PI;
+          const delay = i * (enraged ? 96 : 118) + stream * 55;
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "orb",
@@ -6577,14 +6636,14 @@ export default function JogoPage() {
             y: centerY + Math.sin(phase) * amplitude,
             baseY: centerY,
             driftAmplitude: amplitude,
-            driftFrequency: enraged ? 0.0048 : 0.0041,
-            w: enraged ? 25 : 22,
-            h: enraged ? 25 : 22,
-            vx: -(enraged ? 3.22 : 2.92),
+            driftFrequency: enraged ? 0.0043 : 0.0037,
+            w: enraged ? 23 : 21,
+            h: enraged ? 23 : 21,
+            vx: -(enraged ? 3.08 : 2.78),
             vy: 0,
             damage: cfg.cannonOrbDamage,
-            life: enraged ? 7400 : 6500,
-            maxLife: enraged ? 7400 : 6500,
+            life: enraged ? 6500 : 5900,
+            maxLife: enraged ? 6500 : 5900,
             activeAt: now + delay,
             stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
             phase,
@@ -6592,53 +6651,54 @@ export default function JogoPage() {
           });
         }
       }
-      tocarSom(CONFIG.sounds.chocadoSerpent || CONFIG.sounds.chocadoOrb || CONFIG.sounds.chocadoServo, 0.38, "sfx");
+      tocarSom(CONFIG.sounds.chocadoSerpent || CONFIG.sounds.chocadoOrb || CONFIG.sounds.chocadoServo, 0.36, "sfx");
     }
 
     function spawnBossCorePulse(enraged = false) {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
-      const waves = enraged ? 3 : 2;
-      const count = enraged ? 11 : 9;
-      const originX = boss.x + boss.w * 0.06;
-      const originY = boss.y + boss.h * 0.5;
+      const reduced = usarEfeitosReduzidos();
+      const waves = enraged && !reduced ? 3 : 2;
+      const count = reduced ? (enraged ? 8 : 7) : (enraged ? 10 : 8);
+      const originX = boss.x + cfg.attackOffsets.cannon.x;
+      const originY = boss.y + boss.h / 2 + cfg.attackOffsets.cannon.middleY;
 
       for (let wave = 0; wave < waves; wave += 1) {
         for (let i = 0; i < count; i += 1) {
           const t = count <= 1 ? 0.5 : i / (count - 1);
-          // Arco voltado para a esquerda com uma abertura central justa.
-          if (wave % 2 === 1 && Math.abs(t - 0.5) < 0.12) continue;
-          const angle = Math.PI + (t - 0.5) * (enraged ? 1.72 : 1.42);
-          const speed = (enraged ? 3.8 : 3.28) + wave * 0.18;
+          if (wave % 2 === 1 && Math.abs(t - 0.5) < 0.14) continue;
+          const angle = Math.PI + (t - 0.5) * (enraged ? 1.58 : 1.32);
+          const speed = (enraged ? 3.55 : 3.12) + wave * 0.14;
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "orb",
             x: originX,
             y: originY,
-            w: enraged ? 27 : 24,
-            h: enraged ? 27 : 24,
+            w: enraged ? 25 : 23,
+            h: enraged ? 25 : 23,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
             damage: cfg.cannonOrbDamage,
-            life: 6500,
-            maxLife: 6500,
-            activeAt: now + wave * 420 + i * 38,
+            life: 5900,
+            maxLife: 5900,
+            activeAt: now + wave * 470 + i * 46,
             phase: i + wave * 10,
             visualVariant: enraged ? "phase2" : "default",
             stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
           });
         }
       }
-      tocarSom(CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb, 0.42, "sfx");
+      tocarSom(CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb, 0.39, "sfx");
     }
 
     function spawnBossMineField(enraged = true) {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
-      const count = enraged ? 7 : 5;
-      const originX = boss.x + boss.w * 0.04;
+      const reduced = usarEfeitosReduzidos();
+      const count = reduced ? (enraged ? 5 : 4) : (enraged ? 6 : 5);
+      const originX = boss.x + cfg.attackOffsets.cannon.x;
       const gap = CONFIG.canvasHeight / (count + 1);
 
       for (let i = 0; i < count; i += 1) {
@@ -6646,25 +6706,25 @@ export default function JogoPage() {
         bossProjectilesRef.current.push({
           id: bossProjectileIdRef.current++,
           kind: "orb",
-          x: originX + (i % 2) * 28,
+          x: originX + (i % 2) * 24,
           y: baseY,
           baseY,
-          driftAmplitude: enraged ? 52 : 36,
-          driftFrequency: enraged ? 0.0036 : 0.0030,
-          w: enraged ? 42 : 36,
-          h: enraged ? 42 : 36,
-          vx: -(enraged ? 1.52 : 1.26),
+          driftAmplitude: enraged ? 44 : 30,
+          driftFrequency: enraged ? 0.0032 : 0.0028,
+          w: enraged ? 37 : 33,
+          h: enraged ? 37 : 33,
+          vx: -(enraged ? 1.48 : 1.22),
           vy: 0,
           damage: cfg.cannonOrbDamage,
-          life: enraged ? 9400 : 8200,
-          maxLife: enraged ? 9400 : 8200,
-          activeAt: now + i * 210,
+          life: enraged ? 8200 : 7400,
+          maxLife: enraged ? 8200 : 7400,
+          activeAt: now + i * 245,
           phase: i * 0.82,
           visualVariant: "mine",
           stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         });
       }
-      tocarSom(CONFIG.sounds.chocadoBarrier || CONFIG.sounds.chocadoOrb, 0.44, "sfx");
+      tocarSom(CONFIG.sounds.chocadoBarrier || CONFIG.sounds.chocadoOrb, 0.40, "sfx");
     }
 
     function spawnBossCrossBurst(enraged = false) {
@@ -6672,37 +6732,42 @@ export default function JogoPage() {
       const cfg = CONFIG.gameplay.boss.chocado;
       const player = playerRef.current;
       const now = performance.now();
-      const originX = boss.x + boss.w * 0.05;
-      const originsY = [boss.y + boss.h * 0.22, boss.y + boss.h * 0.5, boss.y + boss.h * 0.78];
+      const reduced = usarEfeitosReduzidos();
+      const originX = boss.x + cfg.attackOffsets.cannon.x;
+      const originsY = [
+        boss.y + cfg.attackOffsets.cannon.topY,
+        boss.y + boss.h / 2 + cfg.attackOffsets.cannon.middleY,
+        boss.y + boss.h + cfg.attackOffsets.cannon.bottomY,
+      ];
 
       originsY.forEach((originY, lane) => {
         const dx = player.x + player.w / 2 - originX;
         const dy = player.y + player.h / 2 - originY;
         const baseAngle = Math.atan2(dy, dx);
-        const offsets = enraged ? [-0.20, 0, 0.20] : [-0.13, 0.13];
+        const offsets = reduced ? [0] : enraged ? [-0.16, 0, 0.16] : [-0.11, 0.11];
         offsets.forEach((offset, index) => {
           const angle = baseAngle + offset;
-          const speed = enraged ? 4.15 : 3.62;
+          const speed = enraged ? 3.92 : 3.48;
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
             kind: "orb",
             x: originX,
             y: originY,
-            w: enraged ? 25 : 22,
-            h: enraged ? 25 : 22,
+            w: enraged ? 23 : 21,
+            h: enraged ? 23 : 21,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
             damage: cfg.cannonOrbDamage,
-            life: 6200,
-            maxLife: 6200,
-            activeAt: now + lane * 260 + index * 70,
+            life: 5700,
+            maxLife: 5700,
+            activeAt: now + lane * 300 + index * 82,
             phase: lane * 10 + index,
             visualVariant: "shard",
             stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
           });
         });
       });
-      tocarSom(CONFIG.sounds.chocadoCannon, 0.43, "sfx");
+      tocarSom(CONFIG.sounds.chocadoCannon, 0.40, "sfx");
     }
 
     function spawnBossEnragedCombo() {
@@ -6718,51 +6783,54 @@ export default function JogoPage() {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const enraged = boss.hp <= cfg.enragedHp;
+      const advanced = boss.hp <= Math.max(cfg.enragedHp + 300, 700);
       const now = performance.now();
-      const previousAttack = boss.attackIndex;
+      const recent = bossAttackHistoryRef.current.slice(-2);
 
-      // Fase 1 apresenta os padrões. Fase 2 prioriza ataques exclusivos e mais elaborados.
       const pool = enraged
-        ? [3, 4, 5, 6, 6, 7, 7, 8, 8, 9]
-        : [0, 1, 2, 3, 4, 5, 7];
-      const possible = pool.filter((attackId) => attackId !== previousAttack);
-      const attack = possible[Math.floor(Math.random() * possible.length)];
+        ? [3, 4, 5, 6, 7, 8, 9, 6, 7]
+        : advanced
+          ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          : [0, 1, 2, 3, 4, 5, 9];
+      const possible = pool.filter((attackId) => !recent.includes(attackId));
+      const usable = possible.length > 0 ? possible : pool.filter((attackId) => attackId !== boss.attackIndex);
+      const attack = usable[Math.floor(Math.random() * usable.length)];
 
       if (attack === 0) {
         const evenCount = Math.max(2, Math.floor(rand(cfg.servoCountMin, cfg.servoCountMax + 1) / 2) * 2);
-        spawnBossServoPair(evenCount);
-        boss.nextAttackAt = now + rand(3400, 4400);
+        spawnBossServoPair(usarEfeitosReduzidos() ? Math.min(6, evenCount) : evenCount);
+        boss.nextAttackAt = now + rand(3500, 4500);
       } else if (attack === 1) {
         spawnBossLaser(Math.random() < 0.5 ? "x" : "triple");
-        boss.nextAttackAt = now + cfg.laserTelegraphMs + cfg.laserActiveMs + rand(1200, 1750);
+        boss.nextAttackAt = now + cfg.laserTelegraphMs + cfg.laserActiveMs + rand(1350, 1850);
       } else if (attack === 2) {
         spawnBossServoWaveAttack();
-        boss.nextAttackAt = now + rand(3200, 4300);
+        boss.nextAttackAt = now + rand(3400, 4400);
       } else if (attack === 3) {
         spawnBossAimedLaser();
-        boss.nextAttackAt = now + cfg.aimLaserWindupMs + cfg.aimLaserActiveMs + rand(1050, 1550);
+        boss.nextAttackAt = now + cfg.aimLaserWindupMs + cfg.aimLaserActiveMs + rand(1200, 1700);
       } else if (attack === 4) {
         spawnBossOrbFan(enraged);
-        boss.nextAttackAt = now + rand(enraged ? 3100 : 3400, enraged ? 4050 : 4550);
+        boss.nextAttackAt = now + rand(enraged ? 3300 : 3600, enraged ? 4200 : 4700);
       } else if (attack === 5) {
         spawnBossSerpentPattern(enraged);
-        boss.nextAttackAt = now + rand(enraged ? 4100 : 4500, enraged ? 5200 : 5600);
+        boss.nextAttackAt = now + rand(enraged ? 4400 : 4700, enraged ? 5400 : 5800);
       } else if (attack === 6) {
-        spawnBossPrismSweep(true);
-        boss.nextAttackAt = now + rand(4800, 5800);
+        spawnBossPrismSweep(enraged);
+        boss.nextAttackAt = now + rand(enraged ? 5000 : 4700, enraged ? 5900 : 5600);
       } else if (attack === 7) {
-        if (enraged) spawnBossCorePulse(true);
-        else spawnBossCrossBurst(false);
-        boss.nextAttackAt = now + rand(enraged ? 4200 : 3600, enraged ? 5200 : 4600);
+        spawnBossCorePulse(enraged);
+        boss.nextAttackAt = now + rand(enraged ? 4500 : 4200, enraged ? 5500 : 5100);
       } else if (attack === 8) {
-        spawnBossMineField(true);
-        boss.nextAttackAt = now + rand(5100, 6200);
+        spawnBossMineField(enraged);
+        boss.nextAttackAt = now + rand(enraged ? 5300 : 4900, enraged ? 6300 : 5900);
       } else {
-        spawnBossEnragedCombo();
-        boss.nextAttackAt = now + rand(5000, 6100);
+        spawnBossCrossBurst(enraged);
+        boss.nextAttackAt = now + rand(enraged ? 4300 : 3900, enraged ? 5200 : 4800);
       }
 
       boss.attackIndex = attack;
+      bossAttackHistoryRef.current = [...recent, attack].slice(-2);
     }
 
     function atualizarDerrotaChocado(delta: number) {
@@ -7171,28 +7239,25 @@ export default function JogoPage() {
       projectile: BossProjectile,
     ) {
       const now = performance.now();
+      const reduced = usarEfeitosReduzidos();
       const active = !projectile.activeAt || now >= projectile.activeAt;
-      if (!active && projectile.kind !== "laser" && projectile.kind !== "aimLaser") {
-        return;
-      }
+      if (!active && projectile.kind !== "laser" && projectile.kind !== "aimLaser") return;
 
       if (projectile.kind === "laser" || projectile.kind === "aimLaser") {
         const isAim = projectile.kind === "aimLaser";
-        const activeTime = Math.max(0, now - (projectile.activeAt ?? now));
-        const pulse = active ? 1 + Math.sin(activeTime * 0.11) * 0.16 : 1;
-        const drawHeight = projectile.h * pulse;
         const isPrism = projectile.visualVariant === "prism";
+        const activeTime = Math.max(0, now - (projectile.activeAt ?? now));
+        const pulse = active ? 1 + Math.sin(activeTime * 0.10) * 0.10 : 1;
+        const drawHeight = projectile.h * pulse;
         const beamColor = isAim ? "#ff4fd8" : isPrism ? "#d946ef" : "#ffd166";
 
         if (!active && !isAim) {
           ctx.save();
           ctx.translate(projectile.x, projectile.y);
           ctx.rotate(projectile.angle ?? Math.PI);
-          ctx.globalAlpha = 0.84;
+          ctx.globalAlpha = 0.78;
           ctx.strokeStyle = isPrism ? "#f0abfc" : "#ffd166";
-          ctx.shadowColor = ctx.strokeStyle;
-          ctx.shadowBlur = 14;
-          ctx.lineWidth = isPrism ? 4 : 3;
+          ctx.lineWidth = isPrism ? 3 : 2;
           ctx.setLineDash([18, 13]);
           ctx.lineDashOffset = -(now * 0.04);
           ctx.beginPath();
@@ -7200,9 +7265,10 @@ export default function JogoPage() {
           ctx.lineTo(projectile.w, 0);
           ctx.stroke();
           ctx.setLineDash([]);
+          ctx.fillStyle = ctx.strokeStyle;
           ctx.beginPath();
-          ctx.arc(0, 0, drawHeight * 0.9, 0, Math.PI * 2);
-          ctx.stroke();
+          ctx.arc(0, 0, Math.max(8, drawHeight * 0.62), 0, Math.PI * 2);
+          ctx.fill();
           ctx.restore();
           return;
         }
@@ -7214,11 +7280,9 @@ export default function JogoPage() {
           const lockBefore = CONFIG.gameplay.boss.chocado.aimLaserLockBeforeMs ?? 430;
           const danger = Boolean(projectile.activeAt && now >= projectile.activeAt - lockBefore);
           ctx.save();
-          ctx.globalAlpha = danger ? 1 : 0.88;
+          ctx.globalAlpha = danger ? 1 : 0.82;
           ctx.strokeStyle = danger ? "#ff385f" : "#ffcf5c";
-          ctx.shadowColor = ctx.strokeStyle;
-          ctx.shadowBlur = danger ? 24 : 14;
-          ctx.lineWidth = danger ? 6 : 3;
+          ctx.lineWidth = danger ? 5 : 3;
           ctx.setLineDash([12, 9]);
           ctx.lineDashOffset = -t * 24;
           ctx.beginPath();
@@ -7227,7 +7291,7 @@ export default function JogoPage() {
           ctx.stroke();
           ctx.setLineDash([]);
           ctx.beginPath();
-          ctx.arc(aimX, aimY, (danger ? 48 : 40) + Math.sin(t * 6) * 5, 0, Math.PI * 2);
+          ctx.arc(aimX, aimY, (danger ? 43 : 36) + Math.sin(t * 6) * 4, 0, Math.PI * 2);
           ctx.stroke();
           ctx.restore();
           return;
@@ -7236,38 +7300,29 @@ export default function JogoPage() {
         ctx.save();
         ctx.translate(projectile.x, projectile.y);
         ctx.rotate(projectile.angle ?? Math.PI);
-        ctx.globalCompositeOperation = "lighter";
-        ctx.globalAlpha = active ? 0.96 : 0.24;
-
-        const beamGradient = ctx.createLinearGradient(0, 0, projectile.w, 0);
-        beamGradient.addColorStop(0, "#ffffff");
-        beamGradient.addColorStop(0.035, beamColor);
-        beamGradient.addColorStop(0.48, isPrism ? "#67e8f9" : beamColor);
-        beamGradient.addColorStop(0.78, beamColor);
-        beamGradient.addColorStop(1, "rgba(255,79,216,0)");
-        ctx.fillStyle = beamGradient;
-        ctx.shadowColor = beamColor;
-        ctx.shadowBlur = active ? 24 : 8;
+        ctx.globalCompositeOperation = reduced ? "source-over" : "lighter";
+        ctx.globalAlpha = 0.94;
+        ctx.fillStyle = beamColor;
         ctx.fillRect(0, -drawHeight / 2, projectile.w, drawHeight);
-        ctx.fillStyle = "rgba(255,255,255,.94)";
-        ctx.fillRect(0, -Math.max(3, drawHeight * 0.10), projectile.w * 0.94, Math.max(6, drawHeight * 0.20));
-        if (isPrism) {
-          ctx.globalAlpha = 0.72;
+        ctx.globalAlpha = 0.96;
+        ctx.fillStyle = "#fff9dd";
+        ctx.fillRect(0, -Math.max(3, drawHeight * 0.11), projectile.w * 0.94, Math.max(5, drawHeight * 0.22));
+        if (isPrism && !reduced) {
+          ctx.globalAlpha = 0.62;
           ctx.fillStyle = "#67e8f9";
-          ctx.fillRect(0, -drawHeight * 0.42, projectile.w * 0.82, Math.max(3, drawHeight * 0.08));
+          ctx.fillRect(0, -drawHeight * 0.40, projectile.w * 0.76, Math.max(2, drawHeight * 0.07));
           ctx.fillStyle = "#f0abfc";
-          ctx.fillRect(0, drawHeight * 0.34, projectile.w * 0.74, Math.max(3, drawHeight * 0.08));
-          ctx.globalAlpha = 0.96;
+          ctx.fillRect(0, drawHeight * 0.33, projectile.w * 0.68, Math.max(2, drawHeight * 0.07));
         }
-
-        // Núcleo de saída preso ao Chocado: impede o laser de parecer surgir atrás dele.
-        const muzzle = ctx.createRadialGradient(0, 0, 2, 0, 0, drawHeight * 1.35);
-        muzzle.addColorStop(0, "#ffffff");
-        muzzle.addColorStop(0.3, beamColor);
-        muzzle.addColorStop(1, "rgba(255,79,216,0)");
-        ctx.fillStyle = muzzle;
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = "#ffffff";
         ctx.beginPath();
-        ctx.arc(0, 0, drawHeight * 1.35, 0, Math.PI * 2);
+        ctx.arc(0, 0, drawHeight * 0.70, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = beamColor;
+        ctx.beginPath();
+        ctx.arc(0, 0, drawHeight * 1.02, 0, Math.PI * 2);
+        ctx.globalAlpha = 0.38;
         ctx.fill();
         ctx.restore();
         return;
@@ -7277,54 +7332,55 @@ export default function JogoPage() {
       const img = isServo ? assetsRef.current.get("bossServo") : assetsRef.current.get("bossOrb");
       const color = isServo ? "#ffb703" : "#d946ef";
       const angle = Math.atan2(projectile.vy, projectile.vx);
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      ctx.globalAlpha = 0.34;
-      ctx.fillStyle = color;
-      for (let i = 1; i <= 3; i += 1) {
-        ctx.beginPath();
-        ctx.ellipse(
-          projectile.x + projectile.w / 2 - projectile.vx * i * 2.3,
-          projectile.y + projectile.h / 2 - projectile.vy * i * 2.3,
-          projectile.w * (0.48 - i * 0.07),
-          projectile.h * (0.48 - i * 0.07),
-          angle,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
+      const trailSteps = reduced ? 1 : 2;
+
+      if (!reduced) {
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.globalAlpha = 0.20;
+        ctx.fillStyle = color;
+        for (let i = 1; i <= trailSteps; i += 1) {
+          ctx.beginPath();
+          ctx.ellipse(
+            projectile.x + projectile.w / 2 - projectile.vx * i * 2.1,
+            projectile.y + projectile.h / 2 - projectile.vy * i * 2.1,
+            projectile.w * (0.40 - i * 0.07),
+            projectile.h * (0.40 - i * 0.07),
+            angle,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+        }
+        ctx.restore();
       }
-      ctx.restore();
 
       if (!isServo && projectile.visualVariant === "mine") {
         const cx = projectile.x + projectile.w / 2;
         const cy = projectile.y + projectile.h / 2;
-        const pulse = 1 + Math.sin(now * 0.011 + (projectile.phase ?? 0)) * 0.12;
+        const pulse = 1 + Math.sin(now * 0.010 + (projectile.phase ?? 0)) * 0.08;
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.rotate(now * 0.0018 + (projectile.phase ?? 0));
-        ctx.globalCompositeOperation = "lighter";
-        ctx.shadowColor = "#d946ef";
-        ctx.shadowBlur = 22;
+        ctx.rotate(now * 0.0015 + (projectile.phase ?? 0));
         ctx.strokeStyle = "#f0abfc";
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(0, 0, projectile.w * 0.52 * pulse, 0, Math.PI * 2);
+        ctx.arc(0, 0, projectile.w * 0.48 * pulse, 0, Math.PI * 2);
         ctx.stroke();
-        for (let i = 0; i < 6; i += 1) {
-          ctx.rotate(Math.PI / 3);
+        for (let i = 0; i < 4; i += 1) {
+          ctx.rotate(Math.PI / 2);
           ctx.beginPath();
-          ctx.moveTo(projectile.w * 0.42, 0);
-          ctx.lineTo(projectile.w * 0.76, 0);
+          ctx.moveTo(projectile.w * 0.38, 0);
+          ctx.lineTo(projectile.w * 0.66, 0);
           ctx.stroke();
         }
         ctx.fillStyle = "#6b177d";
         ctx.beginPath();
-        ctx.arc(0, 0, projectile.w * 0.34, 0, Math.PI * 2);
+        ctx.arc(0, 0, projectile.w * 0.30, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = "#ffffff";
         ctx.beginPath();
-        ctx.arc(0, 0, projectile.w * 0.11, 0, Math.PI * 2);
+        ctx.arc(0, 0, projectile.w * 0.09, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
         return;
@@ -7336,13 +7392,10 @@ export default function JogoPage() {
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(angle + Math.PI / 4);
-        ctx.globalCompositeOperation = "lighter";
-        ctx.shadowColor = "#d946ef";
-        ctx.shadowBlur = 16;
         ctx.fillStyle = "#d946ef";
-        ctx.fillRect(-projectile.w * 0.42, -projectile.h * 0.42, projectile.w * 0.84, projectile.h * 0.84);
+        ctx.fillRect(-projectile.w * 0.38, -projectile.h * 0.38, projectile.w * 0.76, projectile.h * 0.76);
         ctx.fillStyle = "#f5d0fe";
-        ctx.fillRect(-projectile.w * 0.17, -projectile.h * 0.17, projectile.w * 0.34, projectile.h * 0.34);
+        ctx.fillRect(-projectile.w * 0.14, -projectile.h * 0.14, projectile.w * 0.28, projectile.h * 0.28);
         ctx.restore();
         return;
       }
@@ -7350,23 +7403,24 @@ export default function JogoPage() {
       if (!isServo) {
         const cx = projectile.x + projectile.w / 2;
         const cy = projectile.y + projectile.h / 2;
-        const pulse = 1 + Math.sin(now * 0.018 + (projectile.phase ?? 0)) * 0.10;
+        const pulse = 1 + Math.sin(now * 0.016 + (projectile.phase ?? 0)) * 0.07;
         ctx.save();
-        ctx.globalCompositeOperation = "lighter";
-        const aura = ctx.createRadialGradient(cx, cy, 2, cx, cy, projectile.w * 1.25);
-        aura.addColorStop(0, "#ffffff");
-        aura.addColorStop(0.18, "#ff9cf2");
-        aura.addColorStop(0.48, "#d946ef");
-        aura.addColorStop(1, "rgba(93,30,130,0)");
-        ctx.fillStyle = aura;
+        if (!reduced) {
+          ctx.globalAlpha = 0.18;
+          ctx.fillStyle = "#d946ef";
+          ctx.beginPath();
+          ctx.arc(cx, cy, projectile.w * 0.88 * pulse, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = projectile.visualVariant === "phase2" ? "#ef70ff" : "#d946ef";
         ctx.beginPath();
-        ctx.arc(cx, cy, projectile.w * 1.25 * pulse, 0, Math.PI * 2);
+        ctx.arc(cx, cy, projectile.w * 0.48 * pulse, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "rgba(255,190,255,.9)";
-        ctx.lineWidth = 2;
+        ctx.fillStyle = "#ffffff";
         ctx.beginPath();
-        ctx.arc(cx, cy, projectile.w * 0.56 * pulse, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.arc(cx, cy, projectile.w * 0.18 * pulse, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
         return;
       }
@@ -7386,12 +7440,11 @@ export default function JogoPage() {
         getStretchPulse(performance.now() + 60, "shot"),
       );
       ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      ctx.globalAlpha = 0.42;
+      ctx.globalAlpha = 0.35;
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(projectile.x + projectile.w / 2, projectile.y + projectile.h / 2, Math.max(projectile.w, projectile.h) * 0.62, 0, Math.PI * 2);
+      ctx.arc(projectile.x + projectile.w / 2, projectile.y + projectile.h / 2, Math.max(projectile.w, projectile.h) * 0.58, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -7627,6 +7680,8 @@ export default function JogoPage() {
           life: particle.life - delta,
         }))
         .filter((particle) => particle.life > 0);
+      const cap = usarEfeitosReduzidos() ? 82 : 190;
+      if (particlesRef.current.length > cap) particlesRef.current = particlesRef.current.slice(-cap);
     }
 
     function desenharParticulas(ctx: CanvasRenderingContext2D) {
@@ -8932,6 +8987,16 @@ export default function JogoPage() {
       const delta = Math.min(32, time - lastTime);
       lastTime = time;
 
+      const fpsCounter = fpsCounterRef.current;
+      fpsCounter.frames += 1;
+      if (time - fpsCounter.lastAt >= 650) {
+        fpsCounter.value = Math.max(1, Math.round((fpsCounter.frames * 1000) / Math.max(1, time - fpsCounter.lastAt)));
+        fpsCounter.frames = 0;
+        fpsCounter.lastAt = time;
+        setFpsUi(fpsCounter.value);
+      }
+
+      limitarObjetosPesados();
       aplicarPixelArt(renderCtx);
       atualizar(delta, renderCanvas);
       atualizarGameOverCutscene();
@@ -9508,6 +9573,10 @@ export default function JogoPage() {
         )}
 
 
+      {Boolean(settingsSnapshot.showFps) && (gameState === "playing" || gameState === "tutorial" || gameState === "paused") && (
+        <div className={`sn-fps-counter ${fpsUi < 40 ? "is-low" : ""}`}>{fpsUi} FPS</div>
+      )}
+
       {bossTipVisible &&
         (gameState === "playing" || gameState === "paused") &&
         waveUi.bossWave && (
@@ -9958,8 +10027,8 @@ export default function JogoPage() {
               <p>
                 {victoryStep === 0 && "Cleber... os sensores estão voltando. Aguenta só mais um instante."}
                 {victoryStep === 1 && "Confirmado! O núcleo do Chocado foi destruído e os portais estão fechando."}
-                {victoryStep === 2 && "Conseguimos. A Terra está segura — e a verdade voltou ao ar."}
-                {victoryStep >= 3 && "Missão encerrada, parceiro. Pode trazer a Space News para casa."}
+                {victoryStep === 2 && "Conseguimos! Os portais estão fechando e o sinal da Terra voltou ao ar."}
+                {victoryStep >= 3 && "Missão encerrada, parceiro. A Space News está voltando para casa."}
               </p>
             </div>
           </div>
