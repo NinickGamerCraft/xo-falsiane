@@ -35,6 +35,57 @@ const PORTAIS_PARA_CHECAGEM = [
   { nome: "Projeto Comprova", descricao: "Coalizão de veículos de checagem", url: "https://projetocomprova.com.br/" },
 ];
 
+const FAQ_ITEMS = [
+  {
+    pergunta: "O site detecta fake news com 100% de certeza?",
+    resposta: "Não. Ele ajuda a encontrar sinais de alerta e organizar uma checagem, mas nenhuma IA substitui documentos oficiais, especialistas e a comparação entre fontes confiáveis.",
+  },
+  {
+    pergunta: "Então eu posso confiar no resultado?",
+    resposta: "Use o resultado como ponto de partida. Leia a explicação, confira as fontes citadas e procure confirmar as informações mais importantes antes de compartilhar.",
+  },
+  {
+    pergunta: "Por que a mesma pergunta pode receber respostas um pouco diferentes?",
+    resposta: "A análise é gerada por inteligência artificial e pode variar na forma de explicar. O veredito deve continuar baseado nas evidências disponíveis, mas a redação pode mudar.",
+  },
+  {
+    pergunta: "O que significa “Não confirmado”?",
+    resposta: "Significa que ainda não há evidências suficientes para confirmar ou negar a informação. Isso não quer dizer automaticamente que ela seja falsa.",
+  },
+  {
+    pergunta: "O site consegue analisar qualquer link?",
+    resposta: "Nem sempre. Alguns sites bloqueiam leitura automática, exigem login ou carregam o texto de uma forma que impede a extração. Nesses casos, copie o trecho principal e use o modo Notícia Escrita.",
+  },
+  {
+    pergunta: "Posso verificar mensagens recebidas no WhatsApp ou nas redes sociais?",
+    resposta: "Sim. Copie o texto da mensagem e cole em Notícia Escrita. Remova dados pessoais antes de enviar e tente incluir contexto, data e origem.",
+  },
+  {
+    pergunta: "Como saber se uma fonte é confiável?",
+    resposta: "Observe autoria, data, transparência, correções públicas e referências. Compare a mesma informação em mais de um veículo e procure a fonte original do dado.",
+  },
+  {
+    pergunta: "Uma notícia com muitos compartilhamentos é verdadeira?",
+    resposta: "Não necessariamente. Popularidade não é prova. Conteúdos falsos também podem viralizar, principalmente quando provocam medo, raiva ou urgência.",
+  },
+  {
+    pergunta: "O Xô, falsiane! substitui uma pesquisa escolar?",
+    resposta: "Não. Ele pode ajudar a começar a pesquisa e entender o tema, mas trabalhos escolares devem usar livros, artigos, documentos e fontes indicadas pelo professor.",
+  },
+  {
+    pergunta: "O site é gratuito?",
+    resposta: "Sim. O projeto foi desenvolvido com finalidade educativa para ajudar no combate à desinformação.",
+  },
+  {
+    pergunta: "O que é o Space News?",
+    resposta: "É o jogo bônus do projeto. Ele transforma o combate à desinformação em uma aventura espacial e envia mensagens suspeitas diretamente para o detector.",
+  },
+  {
+    pergunta: "Por que eu não devo enviar dados pessoais?",
+    resposta: "Porque nomes completos, documentos, senhas, endereços e informações privadas não são necessários para verificar uma notícia. Envie somente o conteúdo relevante para a análise.",
+  },
+];
+
 export default function Home() {
   const [modo, setModo] = useState("pergunta");
   const [texto, setTexto] = useState("");
@@ -68,76 +119,131 @@ export default function Home() {
 
   useEffect(() => {
     const body = document.body;
+    body.classList.remove("game-page-active");
     body.classList.add("xo-page-active");
 
-    let root = document.querySelector<HTMLElement>("[vw]");
+    const ensureMarkup = () => {
+      let root = document.querySelector<HTMLElement>("#xo-vlibras-root [vw]")
+        ?? document.querySelector<HTMLElement>("[vw]");
 
-    if (!root) {
-      const container = document.createElement("div");
-      container.id = "xo-vlibras-root";
-      container.innerHTML = `
-        <div vw class="enabled">
-          <div vw-access-button class="active"></div>
-          <div vw-plugin-wrapper>
-            <div class="vw-plugin-top-wrapper"></div>
+      if (!root) {
+        const container = document.createElement("div");
+        container.id = "xo-vlibras-root";
+        container.innerHTML = `
+          <div vw class="enabled">
+            <div vw-access-button class="active"></div>
+            <div vw-plugin-wrapper>
+              <div class="vw-plugin-top-wrapper"></div>
+            </div>
           </div>
-        </div>
-      `;
-      document.body.appendChild(container);
-      root = container.querySelector<HTMLElement>("[vw]");
-    }
+        `;
+        document.body.appendChild(container);
+        root = container.querySelector<HTMLElement>("[vw]");
+      }
 
-    root?.style.removeProperty("display");
-    root?.style.removeProperty("visibility");
-    root?.style.removeProperty("pointer-events");
+      return root;
+    };
 
-    const inicializar = () => {
+    const revealWidget = () => {
+      document
+        .querySelectorAll<HTMLElement>(
+          "[vw], [vw-access-button], [vw-plugin-wrapper], .vlibras-container",
+        )
+        .forEach((element) => {
+          element.style.removeProperty("display");
+          element.style.removeProperty("visibility");
+          element.style.removeProperty("opacity");
+          element.style.removeProperty("pointer-events");
+          element.removeAttribute("aria-hidden");
+        });
+    };
+
+    const initializeWidget = () => {
+      ensureMarkup();
+      revealWidget();
+
       const win = window as any;
-      if (win.__xoVLibrasInicializado) return true;
       if (!win.VLibras?.Widget) return false;
+
       try {
-        new win.VLibras.Widget("https://vlibras.gov.br/app");
-        win.__xoVLibrasInicializado = true;
-        return true;
+        if (!win.__xoVLibrasWidgetInstance) {
+          win.__xoVLibrasWidgetInstance = new win.VLibras.Widget(
+            "https://vlibras.gov.br/app",
+          );
+        }
       } catch (error) {
         console.warn("Falha ao inicializar o VLibras:", error);
         return false;
       }
+
+      revealWidget();
+      const button = document.querySelector<HTMLElement>("[vw-access-button]");
+      if (button) {
+        button.setAttribute("aria-label", "Abrir tradutor VLibras");
+        button.setAttribute("title", "Abrir VLibras");
+      }
+      return Boolean(button);
     };
+
+    ensureMarkup();
 
     let script = document.querySelector<HTMLScriptElement>(
       "script[data-xo-vlibras], script[src*='vlibras-plugin.js']",
     );
+
+    const handleScriptReady = () => initializeWidget();
+
     if (!script) {
       script = document.createElement("script");
       script.src = "https://vlibras.gov.br/app/vlibras-plugin.js";
       script.async = true;
+      script.defer = true;
       script.dataset.xoVlibras = "true";
-      script.addEventListener("load", inicializar, { once: true });
+      script.addEventListener("load", handleScriptReady);
       document.body.appendChild(script);
-    } else if ((window as any).VLibras?.Widget) {
-      inicializar();
     } else {
-      script.addEventListener("load", inicializar, { once: true });
+      script.addEventListener("load", handleScriptReady);
+      if ((window as any).VLibras?.Widget) initializeWidget();
     }
 
+    let attempts = 0;
+    const retryTimer = window.setInterval(() => {
+      attempts += 1;
+      const ready = initializeWidget();
+      if (ready || attempts >= 40) window.clearInterval(retryTimer);
+    }, 250);
+
+    const observer = new MutationObserver(() => {
+      revealWidget();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
     (window as any).abrirVLibras = () => {
-      let tentativas = 0;
-      const abrir = () => {
-        inicializar();
-        const botao = document.querySelector<HTMLElement>("[vw-access-button]");
-        if (botao) {
-          botao.click();
+      let openAttempts = 0;
+      const tryOpen = () => {
+        initializeWidget();
+        revealWidget();
+        const button = document.querySelector<HTMLElement>("[vw-access-button]");
+        if (button && button.getBoundingClientRect().width > 0) {
+          button.click();
           return;
         }
-        tentativas += 1;
-        if (tentativas < 24) window.setTimeout(abrir, 150);
-        else alert("O VLibras não conseguiu carregar. Verifique sua conexão e tente novamente.");
+        openAttempts += 1;
+        if (openAttempts < 32) {
+          window.setTimeout(tryOpen, 180);
+        } else {
+          alert(
+            "O VLibras não conseguiu abrir neste navegador. Verifique a conexão, desative bloqueadores de conteúdo e tente novamente.",
+          );
+        }
       };
-      abrir();
+      tryOpen();
     };
 
     return () => {
+      window.clearInterval(retryTimer);
+      observer.disconnect();
+      script?.removeEventListener("load", handleScriptReady);
       body.classList.remove("xo-page-active");
       delete (window as any).abrirVLibras;
     };
@@ -313,17 +419,19 @@ export default function Home() {
 
   return (
     <main className={`checker-bg xo-main-page min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}>
-      <button
-        onClick={() => {
-          tocarClique();
-          setMenuAberto((aberto) => !aberto);
-        }}
-        className="floating-menu-btn floating-action"
-        data-label="Menu"
-        aria-label="Abrir menu"
-      >
-        ☰
-      </button>
+      {!menuAberto && (
+        <button
+          onClick={() => {
+            tocarClique();
+            setMenuAberto(true);
+          }}
+          className="floating-menu-btn floating-action"
+          data-label="Menu"
+          aria-label="Abrir menu"
+        >
+          ☰
+        </button>
+      )}
 
       <a
         href="/jogo"
@@ -466,20 +574,12 @@ export default function Home() {
         <div className="settings-section">
           <h3 className="settings-subtitle">❓ Perguntas Frequentes</h3>
 
-          <details className="faq-item">
-            <summary>O site detecta fake news 100%?</summary>
-            <p>Não. Ele auxilia na análise, mas a checagem final deve ser feita em fontes oficiais.</p>
-          </details>
-
-          <details className="faq-item">
-            <summary>O site lê links?</summary>
-            <p>Ele tenta ler o conteúdo do link, mas alguns sites podem bloquear leitura automática.</p>
-          </details>
-
-          <details className="faq-item">
-            <summary>As respostas podem errar?</summary>
-            <p>Sim. A IA pode falhar, por isso o resultado deve ser usado como apoio, não como verdade absoluta.</p>
-          </details>
+          {FAQ_ITEMS.map((item) => (
+            <details className="faq-item" key={item.pergunta}>
+              <summary>{item.pergunta}</summary>
+              <p>{item.resposta}</p>
+            </details>
+          ))}
         </div>
       </aside>
 

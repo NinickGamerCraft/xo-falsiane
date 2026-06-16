@@ -1638,7 +1638,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260615-v14-online-fps-infinite-audio";
+const ASSET_VERSION = "space-news-20260616-v22-mobile-event-prewarm";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -2214,6 +2214,11 @@ export default function JogoPage() {
   const [boostCharge, setBoostCharge] = useState(
     CONFIG.gameplay.boost.startCharge,
   );
+  const mobileRuntimeRef = useRef(false);
+  const scoreUiTimerRef = useRef<number | null>(null);
+  const boostUiTimerRef = useRef<number | null>(null);
+  const lastPowerUpUiAtRef = useRef(0);
+  const lastPowerUpUiSignatureRef = useRef("");
   const [dodgeReadyRatio, setDodgeReadyRatio] = useState(1);
   const [strongReadyRatio, setStrongReadyRatio] = useState(1);
   const lastDodgeAtRef = useRef(-9999);
@@ -3001,18 +3006,28 @@ export default function JogoPage() {
 
     const finalVolume = clamp(volume * CONFIG.settings.masterVolume * categoryVolume, 0, 1);
     const frequent = src.includes("game-shot") || src.includes("enemy-hit") || src.includes("enemy-shot");
+    const mobileAudioEvent = mobileRuntimeRef.current && (
+      frequent ||
+      src.includes("enemy-death") ||
+      src.includes("game-explosion") ||
+      src.includes("asteroid-break") ||
+      src.includes("powerup-spawn") ||
+      src.includes("powerup-pickup")
+    );
 
-    if (frequent) {
+    if (frequent || mobileAudioEvent) {
       const now = performance.now();
-      const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
-      const minGap = src.includes("game-shot") ? (coarsePointer ? 58 : 28) : (coarsePointer ? 30 : 18);
+      const minGap = src.includes("game-shot")
+        ? (mobileRuntimeRef.current ? 58 : 28)
+        : (mobileRuntimeRef.current ? 34 : 18);
       const lastAt = lastSoundPlayedAtRef.current.get(src) ?? -Infinity;
       if (now - lastAt < minGap) return;
       lastSoundPlayedAtRef.current.set(src, now);
       if (tocarSomWebAudio(src, finalVolume)) return;
-      // Sons muito frequentes não caem no HTMLAudio no mobile: isso evita
-      // pausas e stutters causados por vários elementos de mídia concorrentes.
-      if (window.matchMedia("(pointer: coarse)").matches) return;
+      carregarBufferAudio(src).catch(() => {});
+      // No mobile, não criamos HTMLAudio durante combate. A primeira reprodução
+      // pode ser ignorada, mas evita o travamento causado por decodificação tardia.
+      if (mobileRuntimeRef.current) return;
     }
 
     let pool = audioPoolRef.current.get(src);
@@ -3583,9 +3598,35 @@ export default function JogoPage() {
     }, 80);
   }
 
+  function sincronizarScoreUi(force = false) {
+    if (!mobileRuntimeRef.current || force) {
+      setScore(scoreRef.current);
+      return;
+    }
+
+    if (scoreUiTimerRef.current !== null) return;
+    scoreUiTimerRef.current = window.setTimeout(() => {
+      scoreUiTimerRef.current = null;
+      setScore(scoreRef.current);
+    }, 120);
+  }
+
+  function sincronizarBoostUi(force = false) {
+    if (!mobileRuntimeRef.current || force) {
+      setBoostCharge(boostChargeRef.current);
+      return;
+    }
+
+    if (boostUiTimerRef.current !== null) return;
+    boostUiTimerRef.current = window.setTimeout(() => {
+      boostUiTimerRef.current = null;
+      setBoostCharge(boostChargeRef.current);
+    }, 90);
+  }
+
   function adicionarPontuacao(valor: number) {
     scoreRef.current += valor;
-    setScore(scoreRef.current);
+    sincronizarScoreUi();
   }
 
   function carregarBoostPorDano(dano: number) {
@@ -3600,9 +3641,10 @@ export default function JogoPage() {
 
     const wasReady = boostChargeRef.current >= CONFIG.gameplay.boost.maxCharge;
     boostChargeRef.current = next;
-    setBoostCharge(next);
+    const becameReady = !wasReady && next >= CONFIG.gameplay.boost.maxCharge;
+    sincronizarBoostUi(becameReady);
 
-    if (!wasReady && next >= CONFIG.gameplay.boost.maxCharge) {
+    if (becameReady) {
       tocarSomHabilidadePronta("boost");
       abilityReadyRef.current.boost = true;
     }
@@ -4123,9 +4165,10 @@ export default function JogoPage() {
       return;
     }
 
+    const requestedAmount = mobileRuntimeRef.current ? Math.min(amount, 5) : amount;
     const finalAmount = Math.max(
       0,
-      Math.round(amount * CONFIG.settings.particleQuality),
+      Math.round(requestedAmount * CONFIG.settings.particleQuality),
     );
 
     for (let i = 0; i < finalAmount; i++) {
@@ -4151,9 +4194,11 @@ export default function JogoPage() {
       return;
     }
 
+    const mobileCap = amount >= 60 ? 18 : amount >= 20 ? 10 : 7;
+    const requestedAmount = mobileRuntimeRef.current ? Math.min(amount, mobileCap) : amount;
     const finalAmount = Math.max(
       0,
-      Math.round(amount * CONFIG.settings.particleQuality),
+      Math.round(requestedAmount * CONFIG.settings.particleQuality),
     );
 
     for (let i = 0; i < finalAmount; i++) {
@@ -5589,6 +5634,9 @@ export default function JogoPage() {
 
   function atualizarPowerUpUi() {
     const now = performance.now();
+    const minimumInterval = mobileRuntimeRef.current ? 220 : 100;
+    if (now - lastPowerUpUiAtRef.current < minimumInterval) return;
+    lastPowerUpUiAtRef.current = now;
     const active: ActivePowerUpUi[] = [];
 
     if (shieldActiveRef.current) {
@@ -5662,6 +5710,11 @@ export default function JogoPage() {
       });
     }
 
+    const signature = active
+      .map((item) => `${item.kind}:${item.remainingMs ? Math.ceil(item.remainingMs / 250) : "on"}`)
+      .join("|");
+    if (signature === lastPowerUpUiSignatureRef.current) return;
+    lastPowerUpUiSignatureRef.current = signature;
     setActivePowerUpsUi(active);
   }
 
@@ -5689,8 +5742,10 @@ export default function JogoPage() {
         const parsed = JSON.parse(savedSettings) as Partial<typeof CONFIG.settings>;
         Object.assign(CONFIG.settings, parsed);
       }
-      if (settingsVersion !== "v21") {
+      mobileRuntimeRef.current = window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
+      if (settingsVersion !== "v22") {
         const coarsePointer = window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
+        mobileRuntimeRef.current = coarsePointer;
         CONFIG.settings.mobileScale = Math.max(coarsePointer ? 1.02 : 0.94, Number(CONFIG.settings.mobileScale) || (coarsePointer ? 1.02 : 0.94));
         CONFIG.settings.mobileOpacity = Math.max(0.9, Number(CONFIG.settings.mobileOpacity) || 0.92);
         CONFIG.settings.performanceMode = "auto";
@@ -5702,7 +5757,7 @@ export default function JogoPage() {
         CONFIG.settings.showFps = false;
         CONFIG.settings.fpsLimit = String(CONFIG.settings.fpsLimit || "unlimited");
         window.localStorage.setItem("spaceNews.settings", JSON.stringify(CONFIG.settings));
-        window.localStorage.setItem("spaceNews.settingsVersion", "v21");
+        window.localStorage.setItem("spaceNews.settingsVersion", "v22");
       }
       setSettingsSnapshot({ ...CONFIG.settings });
 
@@ -5777,6 +5832,9 @@ export default function JogoPage() {
       CONFIG.sounds.normalShot,
       CONFIG.sounds.enemyShot,
       CONFIG.sounds.enemyHit,
+      CONFIG.sounds.enemyDeath,
+      CONFIG.sounds.explosion,
+      CONFIG.sounds.asteroidBreak,
       CONFIG.sounds.powerUpPickup,
       CONFIG.sounds.powerUpSpawn,
       CONFIG.sounds.goldenHeart,
@@ -5789,9 +5847,15 @@ export default function JogoPage() {
       CONFIG.sounds.chocadoOrb,
     ].filter(Boolean);
 
+    const mobileAudio = window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
+    const decodeWarmSounds = () => {
+      obterAudioContext()?.resume().catch(() => {});
+      for (const src of warmSounds) carregarBufferAudio(src).catch(() => {});
+    };
+
     for (const src of warmSounds) {
       const frequent = src === CONFIG.sounds.normalShot || src === CONFIG.sounds.enemyShot || src === CONFIG.sounds.enemyHit;
-      if (frequent) {
+      if (frequent || mobileAudio) {
         carregarBufferAudio(src).catch(() => {});
         continue;
       }
@@ -5802,6 +5866,9 @@ export default function JogoPage() {
       audioPoolRef.current.set(src, [audio]);
       audioPoolIndexRef.current.set(src, 0);
     }
+
+    window.addEventListener("pointerdown", decodeWarmSounds, { once: true, passive: true });
+    window.addEventListener("touchstart", decodeWarmSounds, { once: true, passive: true });
 
     const warmImages = [
       CONFIG.uiImages.powerRegen,
@@ -5820,6 +5887,18 @@ export default function JogoPage() {
       image.src = assetUrl(src);
       void image.decode?.().catch(() => {});
     }
+
+    return () => {
+      window.removeEventListener("pointerdown", decodeWarmSounds);
+      window.removeEventListener("touchstart", decodeWarmSounds);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scoreUiTimerRef.current !== null) window.clearTimeout(scoreUiTimerRef.current);
+      if (boostUiTimerRef.current !== null) window.clearTimeout(boostUiTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
