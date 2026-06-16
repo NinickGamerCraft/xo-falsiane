@@ -6,9 +6,8 @@ export const dynamic = "force-dynamic";
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-// Chave V2 = temporada nova e ranking anterior zerado sem precisar apagar o banco.
+// Chave V2 = ranking arcade atual, separado do ranking antigo.
 const LEADERBOARD_KEY = "space-news:infinite:leaderboard:v2";
-const LEADERBOARD_SEASON = 2;
 const MAX_STORED_ENTRIES = 100;
 
 const BLOCKED_INITIALS = new Set([
@@ -159,7 +158,7 @@ export async function GET() {
   try {
     const entries = await getTopEntries();
     return NextResponse.json(
-      { entries, online: true, season: LEADERBOARD_SEASON },
+      { entries, online: true },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
@@ -167,7 +166,6 @@ export async function GET() {
       {
         entries: [],
         online: false,
-        season: LEADERBOARD_SEASON,
         error:
           error instanceof Error ? error.message : "Leaderboard indisponível.",
       },
@@ -249,7 +247,7 @@ export async function POST(request: NextRequest) {
 
     const entries = await getTopEntries();
     return NextResponse.json(
-      { entries, online: true, season: LEADERBOARD_SEASON },
+      { entries, online: true },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

@@ -1269,7 +1269,6 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
 ];
 
 const LEADERBOARD_KEY = "spaceNews.infiniteLeaderboard.v2";
-const LEADERBOARD_SEASON = 2;
 const DEBUG_SEQUENCE = "170626";
 
 const BLOCKED_INITIALS = new Set([
@@ -11774,7 +11773,7 @@ export default function JogoPage() {
               {extrasSection === "records" && (
                 <div className="sn-ranking-panel">
                   <header>
-                    <span>TOP 10 · TEMPORADA {LEADERBOARD_SEASON}</span>
+                    <span>TOP 10 · CONECTADO - ONLINE</span>
                     <small>
                       {leaderboardStatus === "online"
                         ? "Arcade global · 3 letras"
@@ -11791,7 +11790,7 @@ export default function JogoPage() {
                   </div>
                   {leaderboard.length === 0 ? (
                     <p className="sn-ranking-empty">
-                      A temporada começou. Entre no modo Infinito e grave as
+                      O ranking está vazio. Entre no modo Infinito e registre as
                       primeiras iniciais.
                     </p>
                   ) : (
@@ -12322,7 +12321,7 @@ export default function JogoPage() {
             aria-modal="true"
             aria-labelledby="record-title"
           >
-            <small>ARCADE GLOBAL · TEMPORADA {LEADERBOARD_SEASON}</small>
+            <small>CONECTADO - ONLINE</small>
             <h2 id="record-title">GRAVE SUAS INICIAIS</h2>
             <p>
               Seu sinal entrou no Top 10. Use exatamente três letras, como nos
@@ -12396,7 +12395,7 @@ export default function JogoPage() {
               <div>
                 <small>
                   {leaderboardStatus === "online"
-                    ? `ARCADE ONLINE · TEMPORADA ${LEADERBOARD_SEASON}`
+                    ? "CONECTADO - ONLINE"
                     : "ARQUIVO LOCAL"}
                 </small>
                 <h2>TOP 10 INFINITO</h2>
@@ -12411,7 +12410,7 @@ export default function JogoPage() {
             </div>
             {leaderboard.length === 0 ? (
               <p className="sn-ranking-empty">
-                A temporada começou. Seja o primeiro piloto no ranking.
+                O ranking está vazio. Seja o primeiro piloto a registrar um recorde.
               </p>
             ) : (
               <ol>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import VLibras from "./vlibras";
+
 type Tema = "system" | "dark" | "light";
 type TemaResolvido = "dark" | "light";
 
@@ -9,6 +10,20 @@ type SpaceNewsPayload = {
   code: string;
   message: string;
   raw: string;
+};
+
+type ApiPayload = {
+  resposta?: string;
+  erro?: string;
+  codigo?: string;
+  sugestao?: string;
+};
+
+type ApiRequestError = Error & {
+  status?: number;
+  code?: string;
+  serverMessage?: string;
+  suggestion?: string;
 };
 
 function parseSpaceNewsPayload(value: string): SpaceNewsPayload | null {
@@ -367,13 +382,22 @@ export default function Home() {
     tocarAudio("swoosh");
 
     if (!texto.trim()) {
-      setResultado("⚠️ Opa! Escreva algo antes de analisar.");
+      const mensagensVazias: Record<string, string> = {
+        pergunta:
+          "O campo de pergunta está vazio. Escreva o que você deseja confirmar antes de analisar.",
+        noticia:
+          "Ainda não há uma notícia para verificar. Cole um trecho com contexto suficiente.",
+        link: "Cole o endereço completo da página que você deseja analisar.",
+      };
+      setResultado(`⚠️ ${mensagensVazias[modo] || "Digite algo para analisar."}`);
       return;
     }
 
     if (!navigator.onLine) {
       setResultado(
-        "📡 Você está sem conexão com a internet.\n\nO Xô, falsiane! precisa acessar o serviço de análise e fontes externas. Reconecte-se e tente novamente; o texto digitado continuará salvo nesta tela.",
+        modo === "link"
+          ? "📡 Você está sem internet, então não consigo abrir esse link agora. Reconecte-se e pressione Analisar novamente."
+          : "📡 Você está sem internet, então a análise não pode ser enviada ao servidor. O conteúdo digitado continuará salvo nesta tela.",
       );
       return;
     }
@@ -397,12 +421,55 @@ export default function Home() {
         }),
       });
 
-      const dados = await resposta.json().catch(() => ({}));
+      const dados = (await resposta.json().catch(() => ({}))) as ApiPayload;
       if (!resposta.ok) {
-        throw new Error(dados?.erro || dados?.resposta || "Falha na análise.");
+        const mensagemServidor =
+          typeof dados?.erro === "string"
+            ? dados.erro
+            : typeof dados?.resposta === "string"
+              ? dados.resposta
+              : "A análise não pôde ser concluída.";
+        const codigo = typeof dados.codigo === "string" ? dados.codigo : "";
+        const sugestao =
+          typeof dados.sugestao === "string" ? dados.sugestao.trim() : "";
+        const mensagemComSugestao = [mensagemServidor, sugestao]
+          .filter(Boolean)
+          .join("\n\n");
+
+        // Erros de validação são respostas normais da interface, não falhas de execução.
+        if (resposta.status === 400 || resposta.status === 422) {
+          if (
+            codigo === "campo_link_incorreto" ||
+            codigo === "link_invalido" ||
+            codigo === "campo_pergunta_incorreto" ||
+            codigo === "campo_noticia_incorreto"
+          ) {
+            setResultado(`🧭 ${mensagemComSugestao}`);
+          } else if (
+            codigo === "texto_aleatorio" ||
+            codigo === "conteudo_sem_valor" ||
+            codigo === "conteudo_inadequado"
+          ) {
+            setResultado(`💬 ${mensagemComSugestao}`);
+          } else {
+            setResultado(
+              `⚠️ ${mensagemComSugestao || "Revise o conteúdo enviado e tente novamente."}`,
+            );
+          }
+          return;
+        }
+
+        const apiError = new Error(mensagemServidor) as ApiRequestError;
+        apiError.status = resposta.status;
+        apiError.code = codigo;
+        apiError.serverMessage = mensagemServidor;
+        apiError.suggestion = sugestao;
+        throw apiError;
       }
       const respostaFinal =
-        dados.resposta || "Não foi possível gerar uma resposta.";
+        typeof dados.resposta === "string" && dados.resposta.trim()
+          ? dados.resposta
+          : "⚠️ A análise terminou sem conteúdo. Tente novamente com mais contexto.";
 
       const respostaExibida = payload
         ? [
@@ -422,21 +489,85 @@ export default function Home() {
       const classificacao = detectarClassificacao(respostaFinal);
       tocarSom(classificacao);
     } catch (erro) {
-      console.error("Falha ao analisar conteúdo:", erro);
+      const possibleApiError = erro as ApiRequestError;
+      const possibleStatus = Number(possibleApiError?.status || 0);
+      if (!possibleStatus || possibleStatus >= 500) {
+        console.error("Falha inesperada ao analisar conteúdo:", erro);
+      }
       const foiTimeout =
         erro instanceof DOMException && erro.name === "AbortError";
+      const apiError = erro as ApiRequestError;
+      const status = Number(apiError?.status || 0);
+      const codigo = String(apiError?.code || "");
+      const sugestao = String(apiError?.suggestion || "").trim();
+      const mensagemServidor =
+        typeof apiError?.serverMessage === "string"
+          ? apiError.serverMessage.trim()
+          : erro instanceof Error
+            ? erro.message.trim()
+            : "";
+      const mensagemComSugestao = [mensagemServidor, sugestao]
+        .filter(Boolean)
+        .join("\n\n");
 
       if (!navigator.onLine) {
         setResultado(
-          "📡 A conexão caiu durante a análise.\n\nReconecte-se e pressione Analisar novamente. O conteúdo digitado não foi apagado.",
+          "📡 A conexão caiu durante a análise. Reconecte-se e tente novamente; o conteúdo digitado não foi apagado.",
         );
-      } else if (foiTimeout) {
+      } else if (foiTimeout || status === 504 || codigo === "ia_timeout") {
         setResultado(
-          "⏳ A análise demorou mais que o esperado. Sua internet ou o serviço de IA pode estar lento no momento. Aguarde alguns segundos e tente novamente.",
+          "⏳ A análise ultrapassou o tempo de espera. A conexão pode estar lenta ou o serviço pode estar congestionado. Aguarde alguns segundos e tente novamente.",
         );
+      } else if (
+        codigo === "campo_link_incorreto" ||
+        codigo === "link_invalido" ||
+        codigo === "campo_pergunta_incorreto" ||
+        codigo === "campo_noticia_incorreto"
+      ) {
+        setResultado(`🧭 ${mensagemComSugestao}`);
+      } else if (
+        codigo === "texto_aleatorio" ||
+        codigo === "conteudo_sem_valor" ||
+        codigo === "conteudo_inadequado"
+      ) {
+        setResultado(`💬 ${mensagemComSugestao}`);
+      } else if (status === 400 || status === 422) {
+        setResultado(
+          `⚠️ ${mensagemComSugestao || "Revise o conteúdo enviado e tente novamente."}`,
+        );
+      } else if (status === 429 || codigo === "ia_rate_limit") {
+        setResultado(
+          "🚦 Muitas análises chegaram ao mesmo tempo. Espere alguns segundos antes de tentar novamente.",
+        );
+      } else if (
+        codigo === "ia_invalid_response" ||
+        codigo === "ia_resposta_invalida"
+      ) {
+        setResultado(
+          "🧩 A resposta automática veio incoerente ou fora do formato e foi bloqueada para evitar uma análise confusa. Reformule a entrada ou tente novamente.",
+        );
+      } else if (status === 401 || status === 403 || codigo === "ia_auth") {
+        setResultado(
+          "🔐 O serviço de análise não conseguiu se autenticar. A configuração da OpenRouter precisa ser revisada no servidor.",
+        );
+      } else if (
+        status === 502 ||
+        status === 503 ||
+        codigo === "ia_provider" ||
+        codigo === "ia_network"
+      ) {
+        setResultado(
+          `🛠️ ${mensagemComSugestao || "O serviço de IA está temporariamente indisponível. Tente novamente em alguns segundos."}`,
+        );
+      } else if (status >= 500 || codigo === "erro_interno") {
+        setResultado(
+          `🛠️ ${mensagemComSugestao || "O servidor encontrou uma falha inesperada durante esta análise."}`,
+        );
+      } else if (mensagemComSugestao) {
+        setResultado(`⚠️ ${mensagemComSugestao}`);
       } else {
         setResultado(
-          "❌ Não foi possível concluir a análise agora. O serviço pode estar temporariamente instável. Tente novamente em alguns instantes.",
+          "❌ A análise não foi concluída. Verifique o conteúdo, a conexão e tente novamente.",
         );
       }
       tocarSom("falsa");

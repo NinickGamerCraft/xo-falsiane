@@ -46,6 +46,27 @@ type SpaceNewsPayload = {
   message: string;
 };
 
+type CodigoErroEntrada =
+  | "modo_invalido"
+  | "campo_vazio"
+  | "texto_muito_grande"
+  | "texto_aleatorio"
+  | "conteudo_sem_valor"
+  | "conteudo_inadequado"
+  | "campo_link_incorreto"
+  | "campo_pergunta_incorreto"
+  | "campo_noticia_incorreto"
+  | "link_invalido"
+  | "noticia_curta"
+  | "pergunta_curta";
+
+type ErroEntrada = {
+  codigo: CodigoErroEntrada;
+  mensagem: string;
+  sugestao?: string;
+  status: 400 | 422;
+};
+
 type OpenRouterResponse = {
   choices?: Array<{
     message?: {
@@ -56,6 +77,28 @@ type OpenRouterResponse = {
     message?: string;
   };
 };
+
+class ServicoIAError extends Error {
+  status: number;
+  codigo:
+    | "timeout"
+    | "rate_limit"
+    | "auth"
+    | "provider"
+    | "network"
+    | "invalid_response";
+
+  constructor(
+    codigo: ServicoIAError["codigo"],
+    status: number,
+    mensagem: string,
+  ) {
+    super(mensagem);
+    this.name = "ServicoIAError";
+    this.codigo = codigo;
+    this.status = status;
+  }
+}
 
 const CLASSIFICACOES: Classificacao[] = [
   "Confiável",
@@ -68,6 +111,27 @@ const CLASSIFICACOES: Classificacao[] = [
 function respostaJson(resposta: string, status = 200) {
   return Response.json(
     { resposta },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    },
+  );
+}
+
+function respostaErro(
+  codigo: string,
+  erro: string,
+  status: number,
+  sugestao?: string,
+) {
+  return Response.json(
+    {
+      erro,
+      codigo,
+      ...(sugestao ? { sugestao } : {}),
+    },
     {
       status,
       headers: {
@@ -176,70 +240,263 @@ function perguntaTemContextoMinimo(texto: string) {
   return false;
 }
 
-function precisaDeNoticiasRecentes(texto: string, modo: ModoAnalise) {
-  if (modo === "link") return false;
-  if (modo === "noticia") return true;
-
-  const normalizado = normalizarComparacao(texto);
-  const anoAtual = new Date().getFullYear();
-  const termosTemporais = [
-    "hoje",
-    "agora",
-    "atualmente",
-    "recentemente",
-    "ultima noticia",
-    "ultimas noticias",
-    "foi preso",
-    "foi solto",
-    "morreu",
-    "renunciou",
-    "eleicao",
-    "governo atual",
-    "presidente atual",
-    "aconteceu",
-    "esta acontecendo",
-    "confirmado hoje",
-    String(anoAtual),
-    String(anoAtual - 1),
-  ];
-
-  return termosTemporais.some((termo) => normalizado.includes(termo));
+function pareceUrlCompleta(texto: string) {
+  try {
+    const url = new URL(texto.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
-function validarEntradaLocal(texto: string, modo: string) {
+function parecePerguntaDireta(texto: string) {
+  const normalizado = normalizarComparacao(texto);
+  return (
+    texto.trim().endsWith("?") ||
+    /^(quem|qual|quais|quando|onde|como|por que|porque|isso e|isso é|e verdade|é verdade|sera que|será que|pode|existe|aconteceu|houve)\b/.test(
+      normalizado,
+    )
+  );
+}
+
+function pareceNoticiaLonga(texto: string) {
+  const palavras = texto.trim().split(/\s+/).filter(Boolean);
+  return texto.length >= 280 || palavras.length >= 48;
+}
+
+function precisaDeNoticiasRecentes(
+  texto: string,
+  modo: ModoAnalise,
+) {
+  if (modo === "link") return false;
+
+  const normalizado = normalizarComparacao(texto);
+
+  const termosRecentes = [
+    "hoje",
+    "ontem",
+    "agora",
+    "recentemente",
+    "atualmente",
+    "esta semana",
+    "este mes",
+    "este ano",
+    "ultimas noticias",
+    "ultima noticia",
+    "noticia recente",
+    "aconteceu agora",
+    "acabou de",
+    "foi preso",
+    "foi solto",
+    "foi condenado",
+    "foi eleito",
+    "renunciou",
+    "morreu",
+    "eleicao",
+    "eleicoes",
+    "governo atual",
+    "presidente atual",
+    "prefeito atual",
+    "governador atual",
+    "2025",
+    "2026",
+    "2027",
+  ];
+
+  if (termosRecentes.some((termo) => normalizado.includes(termo))) {
+    return true;
+  }
+
+  if (modo === "noticia") {
+    const aparentaRelatoAtual =
+      /\b(anuncia|anunciou|confirma|confirmou|afirma|afirmou|divulga|divulgou|aprova|aprovou|decide|decidiu|investiga|investigou|prende|prendeu|lanca|lancou|entra em vigor)\b/i.test(
+        normalizado,
+      );
+
+    return aparentaRelatoAtual;
+  }
+
+  return false;
+}
+
+function pareceConteudoInadequado(texto: string) {
+  const normalizado = normalizarComparacao(texto);
+  const palavras = normalizado.split(" ").filter(Boolean);
+  if (palavras.length > 6 || parecePerguntaDireta(texto)) return false;
+
+  return /\b(putaria|porno|pornografia|sexo|sex|nudes?|pelado|pelada|buceta|bct|piroca|caralho|pqp|fdp|foda se|foder|cuzao|cuzão)\b/i.test(
+    normalizado,
+  );
+}
+
+function pareceTrollagemOuMeme(texto: string) {
+  const normalizado = normalizarComparacao(texto);
+  const palavras = normalizado.split(" ").filter(Boolean);
+  if (palavras.length > 8 || parecePerguntaDireta(texto)) return false;
+
+  return /\b(skibidi|sigma|rizz|gyatt|meme|bait|troll|trollagem|pegadinha|kkk+|haha+|hehe+|lol|lmao|blablabla|asdf|qwerty|banana voadora|pombo astronauta)\b/i.test(
+    normalizado,
+  );
+}
+
+function selecionarMensagem(chave: string, opcoes: string[]) {
+  let hash = 0;
+  for (let i = 0; i < chave.length; i += 1) {
+    hash = (hash * 31 + chave.charCodeAt(i)) >>> 0;
+  }
+  const variacao = (hash + Math.floor(Date.now() / 45_000)) % opcoes.length;
+  return opcoes[variacao];
+}
+
+function validarEntradaLocal(texto: string, modo: string): ErroEntrada | null {
   if (!ehModoValido(modo)) {
-    return "O modo de análise enviado não é válido. Selecione Pergunta, Notícia ou Link.";
+    return {
+      codigo: "modo_invalido",
+      mensagem:
+        "Não reconheci o tipo de análise solicitado. Escolha Pergunta Direta, Notícia Escrita ou Link da Notícia.",
+      status: 400,
+    };
   }
 
   if (!texto) {
-    return "Ei! 😅 Você precisa enviar uma pergunta, notícia ou link para eu analisar.";
+    return {
+      codigo: "campo_vazio",
+      mensagem: selecionarMensagem("campo-vazio", [
+        "O campo está vazio. Escreva o conteúdo que você deseja verificar antes de analisar.",
+        "Ainda não há nada para checar. Envie uma pergunta, uma notícia ou um link.",
+        "Digite uma informação verificável para iniciar a análise.",
+      ]),
+      sugestao: "Inclua uma afirmação completa, com contexto suficiente.",
+      status: 400,
+    };
   }
 
   if (texto.length > MAX_INPUT_LENGTH) {
-    return `O texto está muito grande. Envie no máximo ${MAX_INPUT_LENGTH.toLocaleString("pt-BR")} caracteres por análise.`;
+    return {
+      codigo: "texto_muito_grande",
+      mensagem: `O conteúdo ultrapassa o limite de ${MAX_INPUT_LENGTH.toLocaleString("pt-BR")} caracteres.`,
+      sugestao: "Envie apenas o trecho principal ou divida o texto em partes.",
+      status: 422,
+    };
+  }
+
+  const ehUrl = pareceUrlCompleta(texto);
+
+  if (modo === "link" && !ehUrl) {
+    return {
+      codigo: "campo_link_incorreto",
+      mensagem: selecionarMensagem(texto, [
+        "Este campo espera um endereço de página, mas o conteúdo enviado não parece ser um link completo.",
+        "Você selecionou Link da Notícia, porém o texto não contém uma URL válida.",
+        "Para analisar um link, envie o endereço completo da página, começando com http:// ou https://.",
+      ]),
+      sugestao:
+        "Use Pergunta Direta para perguntas ou Notícia Escrita para textos copiados.",
+      status: 422,
+    };
+  }
+
+  if (modo !== "link" && ehUrl) {
+    return {
+      codigo: "link_invalido",
+      mensagem: selecionarMensagem(texto, [
+        "Isso parece ser um link. Para que eu tente ler a página, selecione Link da Notícia.",
+        "O endereço foi colocado no campo errado. Troque para Link da Notícia e envie novamente.",
+      ]),
+      sugestao: "Selecione a aba Link da Notícia.",
+      status: 422,
+    };
+  }
+
+  if (pareceConteudoInadequado(texto)) {
+    return {
+      codigo: "conteudo_inadequado",
+      mensagem: selecionarMensagem(texto, [
+        "Esse conteúdo não apresenta uma afirmação útil para checagem. O detector foi feito para verificar informações, notícias e alegações.",
+        "Não encontrei valor informativo suficiente nesse texto. Reformule como uma pergunta ou afirmação verificável.",
+        "Esse tipo de mensagem não pode ser analisado como notícia. Envie algo que possa ser confirmado ou refutado.",
+      ]),
+      sugestao:
+        "Exemplo: “É verdade que determinada lei foi aprovada?”",
+      status: 422,
+    };
+  }
+
+  if (pareceTrollagemOuMeme(texto)) {
+    return {
+      codigo: "conteudo_sem_valor",
+      mensagem: selecionarMensagem(texto, [
+        "Parece uma brincadeira, meme ou teste do campo. Não há uma alegação clara para verificar.",
+        "Esse texto não traz informação suficiente para uma checagem responsável.",
+        "Não consegui identificar uma pergunta factual ou uma notícia nesse conteúdo.",
+      ]),
+      sugestao:
+        "Escreva o que exatamente você quer confirmar e inclua contexto.",
+      status: 422,
+    };
   }
 
   if (pareceTextoAleatorio(texto)) {
-    return "Opa! 😅 Esse conteúdo parece aleatório ou incompleto. Escreva uma informação verificável com um pouco mais de contexto.";
+    return {
+      codigo: "texto_aleatorio",
+      mensagem: selecionarMensagem(texto, [
+        "Não consegui reconhecer uma informação completa nesse texto.",
+        "A entrada parece incompleta ou formada por caracteres sem contexto.",
+        "Esse conteúdo não contém uma afirmação verificável do jeito que está escrito.",
+      ]),
+      sugestao:
+        "Reescreva em uma frase completa, por exemplo: “É verdade que...?”",
+      status: 422,
+    };
   }
 
-  if (modo === "link") {
-    try {
-      const url = new URL(texto);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        return "O link precisa começar com http:// ou https://.";
-      }
-    } catch {
-      return "Opa! 😅 Isso não parece ser um link válido. Envie a URL completa, começando com https://.";
-    }
+  if (modo === "noticia" && parecePerguntaDireta(texto) && texto.length < 220) {
+    return {
+      codigo: "campo_pergunta_incorreto",
+      mensagem: selecionarMensagem(texto, [
+        "Isso parece uma pergunta direta, não um trecho de notícia.",
+        "A entrada combina mais com o modo Pergunta Direta.",
+      ]),
+      sugestao: "Troque para a aba Pergunta Direta.",
+      status: 422,
+    };
+  }
+
+  if (modo === "pergunta" && pareceNoticiaLonga(texto) && !parecePerguntaDireta(texto)) {
+    return {
+      codigo: "campo_noticia_incorreto",
+      mensagem: selecionarMensagem(texto, [
+        "O conteúdo parece um trecho de matéria ou publicação, não uma pergunta direta.",
+        "Você enviou um texto longo no modo Pergunta Direta. A análise ficará melhor em Notícia Escrita.",
+      ]),
+      sugestao: "Troque para a aba Notícia Escrita.",
+      status: 422,
+    };
   }
 
   if (modo === "noticia" && texto.length < 20 && !parseSpaceNewsPayload(texto)) {
-    return "Envie um trecho um pouco maior da notícia para que a análise tenha contexto suficiente.";
+    return {
+      codigo: "noticia_curta",
+      mensagem: selecionarMensagem(texto, [
+        "O trecho é curto demais para avaliar autoria, contexto e sentido.",
+        "Falta conteúdo para analisar essa notícia com segurança.",
+      ]),
+      sugestao: "Cole pelo menos uma frase completa ou o trecho principal.",
+      status: 422,
+    };
   }
 
   if (modo === "pergunta" && (texto.length < 6 || !perguntaTemContextoMinimo(texto))) {
-    return "Opa! 😅 Essa entrada não contém contexto suficiente para checagem. Escreva uma pergunta ou afirmação verificável, por exemplo: ‘Essa notícia é verdadeira?’ ou ‘A Terra é plana?’.";
+    return {
+      codigo: "pergunta_curta",
+      mensagem: selecionarMensagem(texto, [
+        "A pergunta está curta demais para eu entender o que deve ser verificado.",
+        "Preciso de um pouco mais de contexto para identificar a alegação.",
+      ]),
+      sugestao:
+        "Exemplo: “É verdade que a Terra é plana?” ou “Essa notícia sobre a lei é verdadeira?”",
+      status: 422,
+    };
   }
 
   return null;
@@ -460,6 +717,8 @@ REGRA ABSOLUTA DE IDIOMA:
 - Não traduza nomes próprios, títulos de veículos ou URLs.
 
 REGRAS DE QUALIDADE:
+- Responda com tom profissional, humano e direto; não seja infantil, condescendente ou exageradamente informal.
+- Comece pelo ponto principal da checagem e evite frases de preenchimento.
 - Não repita a entrada do usuário como resposta.
 - Não copie parágrafos inteiros do conteúdo analisado.
 - Não invente fatos, fontes, datas, especialistas ou confirmações.
@@ -470,6 +729,8 @@ REGRAS DE QUALIDADE:
 - Ausência no RSS não significa falsidade.
 - Diferencie fato, opinião, sátira, publicidade, previsão, boato e conteúdo desatualizado.
 - Se faltarem provas, explique exatamente o que precisa ser confirmado.
+- Não repita a classificação no resumo com outras palavras.
+- Cada item da análise deve acrescentar informação nova e relevante.
 - Não use Markdown dentro dos valores do JSON.
 - Não escreva nada fora do JSON.
 
@@ -595,39 +856,104 @@ async function chamarModelo(systemPrompt: string, userPrompt: string) {
   };
 
   async function enviar(estruturado: boolean) {
-    return executarComTimeout(MODEL_TIMEOUT_MS, async (signal) => {
-      const response = await fetch(OPENROUTER_URL, {
-        method: "POST",
-        signal,
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer":
-            process.env.NEXT_PUBLIC_SITE_URL || "https://xo-falsiane.vercel.app",
-          "X-Title": "Xô, falsiane!",
-        },
-        body: JSON.stringify(
-          estruturado
-            ? {
-                ...baseBody,
-                response_format: { type: "json_object" },
-                provider: { allow_fallbacks: true, require_parameters: true },
-              }
-            : {
-                ...baseBody,
-                provider: { allow_fallbacks: true },
-              },
-        ),
-      });
+    try {
+      return await executarComTimeout(MODEL_TIMEOUT_MS, async (signal) => {
+        let response: Response;
 
-      const data = (await response.json()) as OpenRouterResponse;
-      if (!response.ok) {
-        throw new Error(
-          data.error?.message || `OpenRouter respondeu com HTTP ${response.status}`,
+        try {
+          response = await fetch(OPENROUTER_URL, {
+            method: "POST",
+            signal,
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer":
+                process.env.NEXT_PUBLIC_SITE_URL || "https://xo-falsiane.vercel.app",
+              "X-Title": "Xô, falsiane!",
+            },
+            body: JSON.stringify(
+              estruturado
+                ? {
+                    ...baseBody,
+                    response_format: { type: "json_object" },
+                    provider: { allow_fallbacks: true, require_parameters: true },
+                  }
+                : {
+                    ...baseBody,
+                    provider: { allow_fallbacks: true },
+                  },
+            ),
+          });
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            throw new ServicoIAError(
+              "timeout",
+              504,
+              "A análise demorou mais que o esperado. Tente novamente em alguns segundos.",
+            );
+          }
+
+          throw new ServicoIAError(
+            "network",
+            503,
+            "Não foi possível se conectar ao provedor de IA. Verifique a conexão e tente novamente.",
+          );
+        }
+
+        let data: OpenRouterResponse = {};
+        try {
+          data = (await response.json()) as OpenRouterResponse;
+        } catch {
+          // Mantém objeto vazio para gerar uma mensagem própria abaixo.
+        }
+
+        if (!response.ok) {
+          const detalhe = data.error?.message?.trim();
+
+          if (response.status === 429) {
+            throw new ServicoIAError(
+              "rate_limit",
+              429,
+              "Muitas análises foram solicitadas ao mesmo tempo. Espere alguns segundos e tente novamente.",
+            );
+          }
+
+          if (response.status === 401 || response.status === 403) {
+            throw new ServicoIAError(
+              "auth",
+              503,
+              "O serviço de análise está com um problema de autenticação no servidor.",
+            );
+          }
+
+          if (response.status >= 500) {
+            throw new ServicoIAError(
+              "provider",
+              503,
+              "O provedor de IA está temporariamente indisponível. Tente novamente em alguns segundos.",
+            );
+          }
+
+          throw new ServicoIAError(
+            "invalid_response",
+            502,
+            detalhe || "O provedor de IA recusou a solicitação desta análise.",
+          );
+        }
+
+        return data;
+      });
+    } catch (error) {
+      if (error instanceof ServicoIAError) throw error;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ServicoIAError(
+          "timeout",
+          504,
+          "A análise demorou mais que o esperado. Tente novamente em alguns segundos.",
         );
       }
-      return data;
-    });
+      throw error;
+    }
   }
 
   let resposta: OpenRouterResponse;
@@ -850,6 +1176,8 @@ async function gerarAnaliseConfiavel(params: {
 }) {
   const systemPrompt = criarSystemPrompt(params.modo, Boolean(params.spaceNews));
   let ultimoMotivo = "resposta inválida";
+  let ultimoErroTecnico: ServicoIAError | null = null;
+  let respostasRecebidas = 0;
 
   for (let tentativa = 1; tentativa <= 3; tentativa += 1) {
     try {
@@ -862,6 +1190,7 @@ async function gerarAnaliseConfiavel(params: {
       });
 
       const content = await chamarModelo(systemPrompt, userPrompt);
+      respostasRecebidas += 1;
       const parsed = extrairJson(content);
       const validacao = validarResultado(parsed, params.textoOriginal);
 
@@ -874,20 +1203,40 @@ async function gerarAnaliseConfiavel(params: {
     } catch (error) {
       ultimoMotivo =
         error instanceof Error ? error.message : "erro desconhecido do modelo";
+
+      if (error instanceof ServicoIAError) {
+        ultimoErroTecnico = error;
+      }
+
       console.error(`Erro na IA — tentativa ${tentativa}:`, error);
     }
   }
 
+  if (respostasRecebidas === 0 && ultimoErroTecnico) {
+    throw ultimoErroTecnico;
+  }
+
   console.error("Fallback usado após falhas da IA:", ultimoMotivo);
-  return respostaSeguraDeFallback(params.spaceNews);
+
+  if (params.spaceNews) {
+    return respostaSeguraDeFallback(params.spaceNews);
+  }
+
+  throw new ServicoIAError(
+    "invalid_response",
+    502,
+    "A resposta automática veio fora do padrão esperado e foi bloqueada para evitar uma análise confusa ou inventada.",
+  );
 }
 
 export async function POST(req: Request) {
   try {
     if (!process.env.OPENROUTER_API_KEY) {
-      return respostaJson(
-        "O serviço de análise não está configurado. A chave da OpenRouter não foi encontrada no servidor.",
+      return respostaErro(
+        "ia_configuracao",
+        "O serviço de análise não está configurado corretamente no servidor.",
         503,
+        "Verifique a variável OPENROUTER_API_KEY na Vercel.",
       );
     }
 
@@ -895,7 +1244,12 @@ export async function POST(req: Request) {
     try {
       body = await req.json();
     } catch {
-      return respostaJson("A solicitação enviada não contém um JSON válido.", 400);
+      return respostaErro(
+        "requisicao_invalida",
+        "A solicitação chegou em um formato que o servidor não conseguiu interpretar.",
+        400,
+        "Recarregue a página e tente novamente.",
+      );
     }
 
     const data = body as { texto?: unknown; modo?: unknown };
@@ -905,7 +1259,14 @@ export async function POST(req: Request) {
       typeof data.modo === "string" ? data.modo.trim().toLowerCase() : "";
 
     const erroEntrada = validarEntradaLocal(textoRecebido, modoRecebido);
-    if (erroEntrada) return respostaJson(erroEntrada, 400);
+    if (erroEntrada) {
+      return respostaErro(
+        erroEntrada.codigo,
+        erroEntrada.mensagem,
+        erroEntrada.status,
+        erroEntrada.sugestao,
+      );
+    }
 
     const modo = modoRecebido as ModoAnalise;
     const spaceNews = parseSpaceNewsPayload(textoRecebido);
@@ -926,9 +1287,11 @@ export async function POST(req: Request) {
         ].join("\n");
       } catch (error) {
         console.error("Erro ao ler link:", error);
-        return respostaJson(
-          "Opa! 😅 Não consegui extrair conteúdo suficiente desse link. Verifique se ele está correto, se a página é pública e se o site permite leitura automática.",
+        return respostaErro(
+          "link_sem_conteudo",
+          "O link foi aberto, mas não encontrei texto suficiente para uma análise confiável.",
           422,
+          "Confirme se a página é pública ou copie o trecho principal e use Notícia Escrita.",
         );
       }
     } else if (!spaceNews && precisaDeNoticiasRecentes(textoAnalise, modo)) {
@@ -949,9 +1312,30 @@ export async function POST(req: Request) {
     return respostaJson(resposta);
   } catch (error) {
     console.error("Erro geral na rota /api/analisar:", error);
-    return respostaJson(
-      "Opa! 😅 A análise falhou por instabilidade interna. Tente novamente em alguns segundos.",
+
+    if (error instanceof ServicoIAError) {
+      const sugestoes: Partial<Record<ServicoIAError["codigo"], string>> = {
+        timeout: "Aguarde alguns segundos e tente novamente; sua entrada continua na tela.",
+        rate_limit: "Espere um pouco antes de iniciar outra análise.",
+        auth: "A configuração do servidor precisa ser revisada.",
+        provider: "Tente novamente em alguns segundos.",
+        network: "Verifique a conexão do servidor ou tente novamente.",
+        invalid_response: "Tente reformular a entrada com mais contexto ou repetir a análise.",
+      };
+
+      return respostaErro(
+        `ia_${error.codigo}`,
+        error.message,
+        error.status,
+        sugestoes[error.codigo],
+      );
+    }
+
+    return respostaErro(
+      "erro_interno",
+      "O servidor encontrou uma falha inesperada antes de concluir a análise.",
       500,
+      "Tente novamente. Se o problema continuar, revise os logs do deployment na Vercel.",
     );
   }
 }

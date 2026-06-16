@@ -10411,52 +10411,6 @@ body.xo-page-active div[vw-plugin-wrapper] {
   transform: scale(0.82) !important;
 }
 
-/* VLibras: garante que o botão oficial fique acessível também no mobile. */
-body.xo-page-active #xo-vlibras-root,
-body.xo-page-active [vw] {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  z-index: 2147483000 !important;
-}
-
-body.xo-page-active [vw-access-button] {
-  display: flex !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  z-index: 2147483001 !important;
-}
-
-body.xo-page-active [vw-plugin-wrapper] {
-  visibility: visible !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  z-index: 2147483002 !important;
-}
-
-@media (max-width: 900px), (pointer: coarse) {
-  body.xo-page-active [vw] {
-    position: fixed !important;
-    right: max(12px, env(safe-area-inset-right)) !important;
-    bottom: max(14px, env(safe-area-inset-bottom)) !important;
-    left: auto !important;
-    top: auto !important;
-  }
-
-  body.xo-page-active [vw-access-button] {
-    position: fixed !important;
-    right: max(12px, env(safe-area-inset-right)) !important;
-    bottom: max(14px, env(safe-area-inset-bottom)) !important;
-    left: auto !important;
-    top: auto !important;
-    min-width: 48px !important;
-    min-height: 48px !important;
-    filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.38));
-  }
-}
-
 /* Tema claro real: fundo, painéis, sidebar e textos passam para branco/azul. */
 body.light-mode {
   color-scheme: light;
@@ -10962,7 +10916,14 @@ body.light-mode .about-project-grid span {
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* VLibras: componente único da home, clicável no mobile */
+@media (prefers-reduced-motion: reduce) {
+  .sn-resume-countdown strong { animation: none !important; }
+}
+
+
+/* =========================================================
+   V26 — VLibras controlado pelo CSS oficial do widget
+   ========================================================= */
 body.xo-page-active #xo-vlibras-root {
   display: block !important;
   visibility: visible !important;
@@ -10971,58 +10932,16 @@ body.xo-page-active #xo-vlibras-root {
   z-index: 2147483000 !important;
 }
 
-body.xo-page-active #xo-vlibras-root [vw-access-button] {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
+/* Não sobrescrever tamanho, posição, transform ou hover do botão.
+   A faixa “Disponível com VLibras” depende do CSS oficial. */
+body.xo-page-active #xo-vlibras-root [vw-access-button],
+body.xo-page-active #xo-vlibras-root [vw-plugin-wrapper] {
   pointer-events: auto !important;
-  touch-action: manipulation !important;
 }
 
-@media (max-width: 760px), (pointer: coarse) {
-  .sn-ranking-columns {
-    grid-template-columns: 38px 1fr auto 42px;
-    gap: 5px;
-    padding-inline: 8px;
-    font-size: 8px;
-  }
-
-  .sn-leaderboard-modal li strong,
-  .sn-ranking-panel li strong {
-    font-size: 18px !important;
-  }
-
-  .game-setting-row {
-    grid-template-columns: 1fr !important;
-    gap: 8px !important;
-  }
-
-  .sn-setting-stepper {
-    width: 100%;
-    min-width: 0;
-    grid-template-columns: 52px minmax(0, 1fr) 52px;
-  }
-
-  .sn-setting-stepper > button {
-    width: 52px;
-    height: 48px;
-    font-size: 28px;
-  }
-
-  .sn-arcade-initials-input {
-    min-height: 92px !important;
-    font-size: clamp(52px, 18vw, 76px) !important;
-  }
-
-  body.xo-page-active #xo-vlibras-root {
-    position: fixed !important;
-    right: max(10px, env(safe-area-inset-right)) !important;
-    bottom: max(12px, env(safe-area-inset-bottom)) !important;
-    left: auto !important;
-    top: auto !important;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sn-resume-countdown strong { animation: none !important; }
+body.game-page-active #xo-vlibras-root,
+body.game-page-active #xo-vlibras-root [vw-access-button],
+body.game-page-active #xo-vlibras-root [vw-plugin-wrapper] {
+  display: none !important;
+  pointer-events: none !important;
 }
