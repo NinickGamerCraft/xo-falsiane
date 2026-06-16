@@ -9592,3 +9592,555 @@ body:not(:has(.game-fullscreen-page)) .copy-btn {
     right: 16px !important;
   }
 }
+
+/* =========================================================
+   V19 — correção do fluxo do Xô, falsiane! + iPhone/iOS
+   ========================================================= */
+
+/* A regra antiga .xo-main-page > * transformava a sidebar fixa em
+   elemento do fluxo, ocupando 100vh e empurrando o painel principal. */
+.xo-main-page {
+  display: block !important;
+  min-height: 100svh !important;
+  overflow-x: clip;
+}
+
+.xo-main-page > .xo-main-content {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.xo-main-page > .side-tab,
+.xo-main-page > .floating-menu-btn,
+.xo-main-page > .floating-game-btn {
+  position: fixed !important;
+}
+
+.xo-main-page > .side-tab {
+  top: 0 !important;
+  left: 0 !important;
+  height: 100svh !important;
+  max-height: 100dvh !important;
+  z-index: 999998 !important;
+}
+
+.xo-main-page > .floating-menu-btn,
+.xo-main-page > .floating-game-btn {
+  top: 24px !important;
+  z-index: 999999 !important;
+}
+
+.xo-main-page > .floating-menu-btn {
+  left: 24px !important;
+}
+
+.xo-main-page > .floating-game-btn {
+  right: 24px !important;
+}
+
+.xo-main-content {
+  justify-content: flex-start !important;
+  min-height: 100svh !important;
+  padding-top: clamp(24px, 4vw, 56px) !important;
+  padding-bottom: clamp(30px, 5vw, 72px) !important;
+}
+
+.xo-glass-panel {
+  margin-top: 0 !important;
+}
+
+@media (max-width: 900px) {
+  .menu-open .xo-main-content {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
+
+  .xo-main-page > .side-tab {
+    width: min(88vw, 360px) !important;
+    padding-top: 98px !important;
+  }
+
+  .xo-main-page > .floating-menu-btn,
+  .xo-main-page > .floating-game-btn {
+    top: 14px !important;
+  }
+
+  .xo-main-page > .floating-menu-btn {
+    left: 14px !important;
+  }
+
+  .xo-main-page > .floating-game-btn {
+    right: 14px !important;
+  }
+
+  .xo-main-content {
+    padding-top: 92px !important;
+  }
+}
+
+/* O jogo bloqueia o documento enquanto está montado. Isso impede que a
+   barra do Safari crie uma segunda área rolável atrás do canvas. */
+html.sn-game-mounted,
+body.sn-game-mounted {
+  margin: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+  touch-action: none !important;
+  background: #050616 !important;
+}
+
+.sn-game-mounted .game-fullscreen-page {
+  position: fixed !important;
+  inset: auto !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: var(--sn-app-width, 100vw) !important;
+  height: var(--sn-app-height, 100dvh) !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+.sn-game-mounted .game-fullscreen-canvas {
+  height: var(--sn-app-height, 100dvh);
+}
+
+.sn-game-mounted .game-bg-image {
+  width: var(--sn-app-width, 100vw) !important;
+  height: var(--sn-app-height, 100dvh) !important;
+}
+
+/* Safari/iPhone: pseudo-fullscreen baseado no visualViewport. A API de
+   fullscreen real não é confiável para páginas comuns no iOS. */
+html.sn-ios-game-active,
+body.sn-ios-game-active,
+html.sn-pseudo-fullscreen,
+body.sn-pseudo-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  -webkit-overflow-scrolling: auto !important;
+}
+
+@supports (-webkit-touch-callout: none) {
+  .sn-ios-game-active .game-fullscreen-page,
+  .sn-pseudo-fullscreen .game-fullscreen-page {
+    width: var(--sn-app-width, 100vw) !important;
+    height: var(--sn-app-height, 100svh) !important;
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    box-sizing: border-box;
+  }
+}
+
+@media (pointer: coarse) and (max-width: 1200px) {
+  .sn-game-mounted .game-fullscreen-page {
+    --sn-visible-w: var(--sn-app-width, 100vw);
+    --sn-visible-h: var(--sn-app-height, 100dvh);
+    --stage-w: min(var(--sn-visible-w), calc(var(--sn-visible-h) * 16 / 9));
+    --stage-h: min(var(--sn-visible-h), calc(var(--sn-visible-w) * 9 / 16));
+    --stage-left: calc((var(--sn-visible-w) - var(--stage-w)) / 2);
+    --stage-top: calc((var(--sn-visible-h) - var(--stage-h)) / 2);
+  }
+
+  .sn-ios-game-active .game-fullscreen-canvas,
+  .sn-ios-game-active .game-title-bg-transition,
+  .sn-ios-game-active .game-screen-fade,
+  .sn-ios-game-active .game-low-hp-vignette,
+  .sn-ios-game-active .game-screen,
+  .sn-pseudo-fullscreen .game-fullscreen-canvas,
+  .sn-pseudo-fullscreen .game-title-bg-transition,
+  .sn-pseudo-fullscreen .game-screen-fade,
+  .sn-pseudo-fullscreen .game-low-hp-vignette,
+  .sn-pseudo-fullscreen .game-screen {
+    left: var(--stage-left) !important;
+    top: var(--stage-top) !important;
+    width: var(--stage-w) !important;
+    height: var(--stage-h) !important;
+  }
+
+  .sn-ios-game-active .game-bg-image,
+  .sn-pseudo-fullscreen .game-bg-image {
+    left: var(--stage-left) !important;
+    top: var(--stage-top) !important;
+    width: var(--stage-w) !important;
+    height: var(--stage-h) !important;
+  }
+}
+
+/* iPhone em modo paisagem: aproveita a área real disponível e evita
+   controles embaixo do notch ou da barra Home. */
+@media (pointer: coarse) and (orientation: landscape) {
+  .sn-ios-game-active .game-mobile-controls,
+  .sn-pseudo-fullscreen .game-mobile-controls {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* =========================================================
+   V20 — correção definitiva do fluxo do Xô + menus compactos
+   ========================================================= */
+
+html.xo-drawer-open,
+html.xo-drawer-open body {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+.xo-main-page {
+  position: relative !important;
+  display: block !important;
+  min-height: 100dvh !important;
+}
+
+.xo-main-page > .xo-main-content {
+  position: relative !important;
+  z-index: 1 !important;
+  width: 100% !important;
+  min-height: 100dvh !important;
+  margin: 0 !important;
+  padding: clamp(96px, 7vw, 118px) clamp(16px, 3vw, 42px) 48px !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+}
+
+.xo-main-page > .xo-main-content > .xo-glass-panel {
+  margin: 0 auto !important;
+}
+
+.xo-main-page > .side-tab {
+  position: fixed !important;
+  inset: 0 auto 0 0 !important;
+  width: min(360px, 88vw) !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  padding: 108px 22px 24px !important;
+  z-index: 999998 !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  contain: layout paint style;
+}
+
+.xo-main-page > .side-tab .side-header {
+  position: absolute !important;
+  top: 24px !important;
+  left: 22px !important;
+  right: 22px !important;
+  min-height: 56px !important;
+}
+
+.xo-main-page > .side-tab .side-header h2 {
+  margin: 0 !important;
+  font-size: 22px !important;
+}
+
+.xo-main-page > .floating-menu-btn,
+.xo-main-page > .floating-game-btn {
+  position: fixed !important;
+  top: 24px !important;
+  z-index: 1000000 !important;
+}
+
+.xo-main-page > .floating-menu-btn {
+  left: 24px !important;
+}
+
+.xo-main-page > .floating-game-btn {
+  right: 24px !important;
+}
+
+.xo-main-page.menu-open > .floating-menu-btn {
+  left: min(278px, calc(88vw - 82px)) !important;
+}
+
+.xo-main-page.menu-open > .side-tab + .xo-main-content,
+.xo-main-page.menu-open > .xo-main-content {
+  margin: 0 !important;
+  width: 100% !important;
+}
+
+@media (max-width: 900px) {
+  .xo-main-page > .xo-main-content {
+    padding: 88px 12px 30px !important;
+  }
+
+  .xo-main-page > .side-tab {
+    width: min(360px, 92vw) !important;
+    padding: 92px 16px 20px !important;
+  }
+
+  .xo-main-page > .side-tab .side-header {
+    top: 16px !important;
+    left: 16px !important;
+    right: 16px !important;
+  }
+
+  .xo-main-page > .floating-menu-btn,
+  .xo-main-page > .floating-game-btn {
+    top: 14px !important;
+  }
+
+  .xo-main-page > .floating-menu-btn {
+    left: 14px !important;
+  }
+
+  .xo-main-page > .floating-game-btn {
+    right: 14px !important;
+  }
+
+  .xo-main-page.menu-open > .floating-menu-btn {
+    left: min(292px, calc(92vw - 72px)) !important;
+  }
+}
+
+/* Space News — desktop mais compacto */
+.game-main-menu-screen {
+  padding: 22px 26px !important;
+}
+
+.game-retro-panel {
+  width: min(460px, 37vw) !important;
+  min-height: min(66vh, 610px) !important;
+  max-height: calc(100dvh - 44px) !important;
+  padding: 24px 24px 20px !important;
+  gap: 14px !important;
+  overflow: auto !important;
+}
+
+.game-retro-menu-list {
+  gap: 12px !important;
+}
+
+.game-menu-option {
+  min-height: clamp(62px, 7.2vh, 82px) !important;
+  padding: 0 22px !important;
+  font-size: clamp(31px, 2.65vw, 46px) !important;
+  border-left-width: 6px !important;
+}
+
+.game-panel-label {
+  font-size: clamp(14px, 1.15vw, 18px) !important;
+}
+
+.game-menu-help {
+  padding-top: 10px !important;
+  margin-top: 2px !important;
+  font-size: 13px !important;
+}
+
+.game-menu-logo {
+  top: 24px !important;
+  right: 28px !important;
+}
+
+.game-menu-logo strong {
+  font-size: clamp(42px, 3.8vw, 68px) !important;
+}
+
+.game-settings-screen {
+  padding: 18px !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.game-settings-panel {
+  width: min(900px, 84vw) !important;
+  max-height: 86dvh !important;
+  min-height: 0 !important;
+  padding: 18px 20px !important;
+  border-radius: 24px !important;
+  overflow: hidden !important;
+}
+
+.game-settings-header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  padding-bottom: 12px !important;
+  margin: 0 !important;
+}
+
+.game-settings-header .game-panel-label {
+  margin: 0 !important;
+  font-size: clamp(22px, 2.3vw, 34px) !important;
+}
+
+.game-settings-close {
+  position: static !important;
+  width: 46px !important;
+  height: 46px !important;
+  min-width: 46px !important;
+  margin: 0 !important;
+  font-size: 20px !important;
+}
+
+.game-settings-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  padding: 10px 0 12px !important;
+  margin: 0 !important;
+}
+
+.game-settings-tabs button {
+  min-height: 48px !important;
+  padding: 8px 10px !important;
+  font-size: 12px !important;
+  border-radius: 12px !important;
+}
+
+.game-settings-list {
+  max-height: calc(86dvh - 154px) !important;
+  padding: 0 6px 0 0 !important;
+  overflow-y: auto !important;
+}
+
+.game-settings-category {
+  padding: 12px !important;
+}
+
+.game-settings-category h3 {
+  font-size: 18px !important;
+  margin: 0 0 8px !important;
+}
+
+.game-settings-category-list {
+  gap: 8px !important;
+}
+
+/* Touch / iPhone / telas baixas */
+@media (pointer: coarse), (max-width: 1000px), (max-height: 760px) {
+  .game-main-menu-screen {
+    padding: 70px 12px 12px !important;
+    justify-content: center !important;
+  }
+
+  .game-retro-panel {
+    width: min(84vw, 470px) !important;
+    min-height: 0 !important;
+    max-height: calc(var(--sn-app-height, 100dvh) - 84px) !important;
+    padding: 16px !important;
+    gap: 10px !important;
+    border-width: 3px !important;
+    border-radius: 18px !important;
+  }
+
+  .game-retro-menu-list {
+    gap: 9px !important;
+  }
+
+  .game-menu-option {
+    min-height: 52px !important;
+    padding: 0 14px !important;
+    font-size: clamp(25px, 5.8vw, 36px) !important;
+  }
+
+  .game-panel-label {
+    font-size: 14px !important;
+  }
+
+  .game-menu-help {
+    display: none !important;
+  }
+
+  .game-menu-logo {
+    top: max(8px, env(safe-area-inset-top)) !important;
+    right: max(10px, env(safe-area-inset-right)) !important;
+  }
+
+  .game-menu-logo strong {
+    font-size: clamp(28px, 7vw, 42px) !important;
+  }
+
+  .game-settings-screen {
+    padding:
+      max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left)) !important;
+  }
+
+  .game-settings-panel {
+    width: min(94vw, 760px) !important;
+    max-height: calc(var(--sn-app-height, 100dvh) - 16px) !important;
+    padding: 12px !important;
+    border-radius: 16px !important;
+    border-width: 3px !important;
+  }
+
+  .game-settings-header {
+    padding-bottom: 6px !important;
+  }
+
+  .game-settings-header .game-panel-label {
+    font-size: 18px !important;
+  }
+
+  .game-settings-close {
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px !important;
+    font-size: 16px !important;
+  }
+
+  .game-settings-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    padding: 6px 0 8px !important;
+  }
+
+  .game-settings-tabs button {
+    min-height: 38px !important;
+    padding: 5px 7px !important;
+    font-size: 10px !important;
+    border-radius: 9px !important;
+  }
+
+  .game-settings-list {
+    max-height: calc(var(--sn-app-height, 100dvh) - 116px) !important;
+    padding-right: 3px !important;
+  }
+
+  .game-settings-category {
+    padding: 8px !important;
+    border-width: 2px !important;
+  }
+
+  .game-settings-category h3 {
+    display: none !important;
+  }
+
+  .game-settings-category-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+  }
+}
+
+@media (max-width: 560px), (max-height: 560px) {
+  .game-retro-panel {
+    width: min(88vw, 420px) !important;
+    padding: 12px !important;
+  }
+
+  .game-menu-option {
+    min-height: 46px !important;
+    font-size: clamp(22px, 6vw, 31px) !important;
+  }
+
+  .game-settings-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .game-settings-list {
+    max-height: calc(var(--sn-app-height, 100dvh) - 150px) !important;
+  }
+}

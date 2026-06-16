@@ -53,6 +53,17 @@ export default function Home() {
   }, [tema, reduzirAnimacoes, textoGrande]);
 
   useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("xo-drawer-open", menuAberto);
+
+    if (menuAberto) {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+
+    return () => root.classList.remove("xo-drawer-open");
+  }, [menuAberto]);
+
+  useEffect(() => {
     try {
       const pending = window.localStorage.getItem("spaceNews.pendingFakeNews");
       if (!pending) return;
@@ -214,7 +225,7 @@ export default function Home() {
       <button
         onClick={() => {
           tocarClique();
-          setMenuAberto(!menuAberto);
+          setMenuAberto((aberto) => !aberto);
         }}
         className="floating-menu-btn floating-action"
         data-label="Menu"

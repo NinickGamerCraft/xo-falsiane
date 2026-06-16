@@ -36,6 +36,23 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
+
+function isIOSLikeDevice() {
+  if (typeof navigator === "undefined") return false;
+  return (
+    /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+type FullscreenCapableElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+type FullscreenCapableDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+};
+
 type GameState =
   | "title"
   | "mainMenu"
@@ -596,7 +613,7 @@ const CONFIG = {
   fonts: {
     title: "Pixel Game",
     prompt: "Born2BSporty",
-    menu: "Born2BSporty",
+    menu: "Pixel Game",
     ui: "Born2BSporty",
   },
 
@@ -3078,16 +3095,33 @@ export default function JogoPage() {
   }
 
   async function solicitarFullscreen() {
-    if (!CONFIG.forceFullscreen) {
-      return;
+    if (!CONFIG.forceFullscreen) return;
+
+    const doc = document as FullscreenCapableDocument;
+    const target = (
+      document.querySelector(".game-fullscreen-page") ?? document.documentElement
+    ) as FullscreenCapableElement;
+
+    if (isIOSLikeDevice()) {
+      document.documentElement.classList.add("sn-ios-game-active", "sn-pseudo-fullscreen");
+      document.body.classList.add("sn-ios-game-active", "sn-pseudo-fullscreen");
+      window.scrollTo(0, 1);
     }
 
     try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
+      if (!document.fullscreenElement && !doc.webkitFullscreenElement) {
+        if (typeof target.requestFullscreen === "function") {
+          await target.requestFullscreen();
+        } else if (typeof target.webkitRequestFullscreen === "function") {
+          await target.webkitRequestFullscreen();
+        } else {
+          document.documentElement.classList.add("sn-pseudo-fullscreen");
+          document.body.classList.add("sn-pseudo-fullscreen");
+        }
       }
     } catch {
-      // Alguns navegadores bloqueiam fullscreen fora de gesto do usuário.
+      document.documentElement.classList.add("sn-pseudo-fullscreen");
+      document.body.classList.add("sn-pseudo-fullscreen");
     }
   }
 
@@ -9761,6 +9795,63 @@ export default function JogoPage() {
     backdropFilter: `blur(${flashBlurAmount}px) brightness(${flashBrightness}) contrast(1.35) saturate(0.72)`,
     WebkitBackdropFilter: `blur(${flashBlurAmount}px) brightness(${flashBrightness}) contrast(1.35) saturate(0.72)`,
   };
+
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const ios = isIOSLikeDevice();
+
+    const atualizarViewportDoJogo = () => {
+      const viewport = window.visualViewport;
+      const width = Math.round(viewport?.width ?? window.innerWidth);
+      const height = Math.round(viewport?.height ?? window.innerHeight);
+      const top = Math.round(viewport?.offsetTop ?? 0);
+      const left = Math.round(viewport?.offsetLeft ?? 0);
+
+      root.style.setProperty("--sn-app-width", `${width}px`);
+      root.style.setProperty("--sn-app-height", `${height}px`);
+      root.style.setProperty("--sn-app-top", `${top}px`);
+      root.style.setProperty("--sn-app-left", `${left}px`);
+    };
+
+    root.classList.add("sn-game-mounted");
+    body.classList.add("sn-game-mounted");
+
+    if (ios) {
+      root.classList.add("sn-ios-game-active", "sn-pseudo-fullscreen");
+      body.classList.add("sn-ios-game-active", "sn-pseudo-fullscreen");
+    }
+
+    atualizarViewportDoJogo();
+
+    window.addEventListener("resize", atualizarViewportDoJogo, { passive: true });
+    window.addEventListener("orientationchange", atualizarViewportDoJogo, { passive: true });
+    window.visualViewport?.addEventListener("resize", atualizarViewportDoJogo, { passive: true });
+    window.visualViewport?.addEventListener("scroll", atualizarViewportDoJogo, { passive: true });
+
+    const esconderBarrasDoSafari = () => {
+      if (!ios) return;
+      window.scrollTo(0, 1);
+      window.setTimeout(atualizarViewportDoJogo, 80);
+    };
+
+    window.addEventListener("touchend", esconderBarrasDoSafari, { passive: true });
+
+    return () => {
+      root.classList.remove("sn-game-mounted", "sn-ios-game-active", "sn-pseudo-fullscreen");
+      body.classList.remove("sn-game-mounted", "sn-ios-game-active", "sn-pseudo-fullscreen");
+      root.style.removeProperty("--sn-app-width");
+      root.style.removeProperty("--sn-app-height");
+      root.style.removeProperty("--sn-app-top");
+      root.style.removeProperty("--sn-app-left");
+      window.removeEventListener("resize", atualizarViewportDoJogo);
+      window.removeEventListener("orientationchange", atualizarViewportDoJogo);
+      window.visualViewport?.removeEventListener("resize", atualizarViewportDoJogo);
+      window.visualViewport?.removeEventListener("scroll", atualizarViewportDoJogo);
+      window.removeEventListener("touchend", esconderBarrasDoSafari);
+    };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
