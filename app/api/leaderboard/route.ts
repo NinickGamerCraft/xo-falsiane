@@ -5,8 +5,51 @@ export const dynamic = "force-dynamic";
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const LEADERBOARD_KEY = "space-news:infinite:leaderboard:v1";
+
+// Chave V2 = temporada nova e ranking anterior zerado sem precisar apagar o banco.
+const LEADERBOARD_KEY = "space-news:infinite:leaderboard:v2";
+const LEADERBOARD_SEASON = 2;
 const MAX_STORED_ENTRIES = 100;
+
+const BLOCKED_INITIALS = new Set([
+  "SEX",
+  "XXX",
+  "CUM",
+  "ASS",
+  "FUK",
+  "FUC",
+  "FCK",
+  "DIC",
+  "DCK",
+  "TIT",
+  "PUS",
+  "COC",
+  "PQP",
+  "FDP",
+  "BCT",
+  "CUZ",
+  "PUT",
+  "PNC",
+  "VTC",
+  "FOD",
+  "NIG",
+  "FAG",
+  "KYS",
+  "NAZ",
+  "KKK",
+]);
+
+const RESERVED_INITIALS = new Set([
+  "ADM",
+  "DEV",
+  "MOD",
+  "BOT",
+  "SYS",
+  "API",
+  "CPU",
+  "CEO",
+  "STA",
+]);
 
 type LeaderboardEntry = {
   id: string;
@@ -40,13 +83,36 @@ async function redisCommand<T = unknown>(...command: Array<string | number>) {
   return data.result as T;
 }
 
-function cleanName(value: unknown) {
+function normalizeInitials(value: unknown) {
   return String(value ?? "")
-    .normalize("NFKC")
-    .replace(/[^\p{L}\p{N} _.-]/gu, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 16);
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[\s._-]+/g, "");
+}
+
+function validateInitials(value: unknown) {
+  const initials = normalizeInitials(value);
+
+  if (!/^[A-Z]{3}$/.test(initials)) {
+    return { initials: "", error: "Use exatamente 3 letras de A a Z." };
+  }
+
+  if (BLOCKED_INITIALS.has(initials)) {
+    return {
+      initials: "",
+      error: "Essas iniciais não são permitidas. Escolha outras 3 letras.",
+    };
+  }
+
+  if (RESERVED_INITIALS.has(initials)) {
+    return {
+      initials: "",
+      error: "Essas iniciais são reservadas pelo sistema.",
+    };
+  }
+
+  return { initials, error: "" };
 }
 
 function parseLeaderboard(raw: unknown) {
@@ -56,20 +122,24 @@ function parseLeaderboard(raw: unknown) {
   for (let index = 0; index < values.length; index += 2) {
     try {
       const parsed = JSON.parse(String(values[index])) as LeaderboardEntry;
+      const validation = validateInitials(parsed?.name);
       if (
         parsed &&
         typeof parsed.id === "string" &&
-        typeof parsed.name === "string" &&
+        validation.initials &&
         Number.isFinite(parsed.score) &&
         Number.isFinite(parsed.wave)
       ) {
-        entries.push(parsed);
+        entries.push({ ...parsed, name: validation.initials });
       }
     } catch {}
   }
 
   return entries
-    .sort((a, b) => b.score - a.score || b.wave - a.wave || a.createdAt - b.createdAt)
+    .sort(
+      (a, b) =>
+        b.score - a.score || b.wave - a.wave || a.createdAt - b.createdAt,
+    )
     .slice(0, 10);
 }
 
@@ -89,7 +159,7 @@ export async function GET() {
   try {
     const entries = await getTopEntries();
     return NextResponse.json(
-      { entries, online: true },
+      { entries, online: true, season: LEADERBOARD_SEASON },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
@@ -97,7 +167,9 @@ export async function GET() {
       {
         entries: [],
         online: false,
-        error: error instanceof Error ? error.message : "Leaderboard indisponível.",
+        season: LEADERBOARD_SEASON,
+        error:
+          error instanceof Error ? error.message : "Leaderboard indisponível.",
       },
       { status: REDIS_URL && REDIS_TOKEN ? 500 : 503 },
     );
@@ -107,29 +179,43 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    const name = cleanName(body.name);
+    const validation = validateInitials(body.name);
+    const name = validation.initials;
     const score = Math.floor(Number(body.score));
     const wave = Math.floor(Number(body.wave));
 
-    if (!name || name.length < 2) {
-      return NextResponse.json({ error: "Nome inválido." }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
     if (!Number.isFinite(score) || score < 1 || score > 50_000_000) {
-      return NextResponse.json({ error: "Pontuação inválida." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Pontuação inválida." },
+        { status: 400 },
+      );
     }
     if (!Number.isFinite(wave) || wave < 1 || wave > 10_000) {
       return NextResponse.json({ error: "Wave inválida." }, { status: 400 });
     }
 
-    const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-    const clientId = (forwardedFor || request.headers.get("x-real-ip") || "unknown")
+    const forwardedFor = request.headers
+      .get("x-forwarded-for")
+      ?.split(",")[0]
+      ?.trim();
+    const clientId = (
+      forwardedFor ||
+      request.headers.get("x-real-ip") ||
+      "unknown"
+    )
       .replace(/[^a-zA-Z0-9:._-]/g, "")
       .slice(0, 80);
-    const rateKey = `space-news:leaderboard:rate:${clientId}`;
+    const rateKey = `space-news:leaderboard:v2:rate:${clientId}`;
     const attempts = Number(await redisCommand<number>("INCR", rateKey));
     if (attempts === 1) await redisCommand("EXPIRE", rateKey, 60);
     if (attempts > 8) {
-      return NextResponse.json({ error: "Muitas tentativas. Aguarde um minuto." }, { status: 429 });
+      return NextResponse.json(
+        { error: "Muitas tentativas. Aguarde um minuto." },
+        { status: 429 },
+      );
     }
 
     const entry: LeaderboardEntry = {
@@ -140,22 +226,40 @@ export async function POST(request: NextRequest) {
       createdAt: Date.now(),
     };
 
-    // A pontuação composta mantém score como prioridade e usa wave como desempate.
+    // Pontuação é prioridade; wave funciona como desempate.
     const redisScore = score * 100_000 + Math.min(wave, 99_999);
-    await redisCommand("ZADD", LEADERBOARD_KEY, redisScore, JSON.stringify(entry));
-    const storedCount = Number(await redisCommand<number>("ZCARD", LEADERBOARD_KEY));
+    await redisCommand(
+      "ZADD",
+      LEADERBOARD_KEY,
+      redisScore,
+      JSON.stringify(entry),
+    );
+
+    const storedCount = Number(
+      await redisCommand<number>("ZCARD", LEADERBOARD_KEY),
+    );
     if (storedCount > MAX_STORED_ENTRIES) {
-      await redisCommand("ZREMRANGEBYRANK", LEADERBOARD_KEY, 0, storedCount - MAX_STORED_ENTRIES - 1);
+      await redisCommand(
+        "ZREMRANGEBYRANK",
+        LEADERBOARD_KEY,
+        0,
+        storedCount - MAX_STORED_ENTRIES - 1,
+      );
     }
 
     const entries = await getTopEntries();
     return NextResponse.json(
-      { entries, online: true },
+      { entries, online: true, season: LEADERBOARD_SEASON },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao registrar pontuação." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Falha ao registrar pontuação.",
+      },
       { status: REDIS_URL && REDIS_TOKEN ? 500 : 503 },
     );
   }

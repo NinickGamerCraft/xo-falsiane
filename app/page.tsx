@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-type Tema = "dark" | "light";
+import VLibras from "./vlibras";
+type Tema = "system" | "dark" | "light";
+type TemaResolvido = "dark" | "light";
 
 type SpaceNewsPayload = {
   code: string;
@@ -22,67 +23,125 @@ function parseSpaceNewsPayload(value: string): SpaceNewsPayload | null {
 }
 
 const PORTAIS_PARA_CHECAGEM = [
-  { nome: "Agência Brasil", descricao: "Noticiário público nacional", url: "https://agenciabrasil.ebc.com.br/" },
-  { nome: "G1", descricao: "Notícias nacionais e regionais", url: "https://g1.globo.com/" },
-  { nome: "BBC News Brasil", descricao: "Notícias e contexto internacional", url: "https://www.bbc.com/portuguese" },
-  { nome: "Diário do Nordeste", descricao: "Cobertura do Ceará e do Nordeste", url: "https://diariodonordeste.verdesmares.com.br/" },
-  { nome: "CNN Brasil", descricao: "Noticiário nacional e internacional", url: "https://www.cnnbrasil.com.br/" },
-  { nome: "Folha de S.Paulo", descricao: "Notícias, política e sociedade", url: "https://www.folha.uol.com.br/" },
-  { nome: "Estadão", descricao: "Notícias, economia e política", url: "https://www.estadao.com.br/" },
-  { nome: "UOL Notícias", descricao: "Notícias e cobertura em tempo real", url: "https://noticias.uol.com.br/" },
-  { nome: "Aos Fatos", descricao: "Checagem de declarações e boatos", url: "https://www.aosfatos.org/" },
-  { nome: "Agência Lupa", descricao: "Verificação de informações", url: "https://lupa.uol.com.br/" },
-  { nome: "Projeto Comprova", descricao: "Coalizão de veículos de checagem", url: "https://projetocomprova.com.br/" },
+  {
+    nome: "Agência Brasil",
+    descricao: "Noticiário público nacional",
+    url: "https://agenciabrasil.ebc.com.br/",
+  },
+  {
+    nome: "G1",
+    descricao: "Notícias nacionais e regionais",
+    url: "https://g1.globo.com/",
+  },
+  {
+    nome: "BBC News Brasil",
+    descricao: "Notícias e contexto internacional",
+    url: "https://www.bbc.com/portuguese",
+  },
+  {
+    nome: "Diário do Nordeste",
+    descricao: "Cobertura do Ceará e do Nordeste",
+    url: "https://diariodonordeste.verdesmares.com.br/",
+  },
+  {
+    nome: "CNN Brasil",
+    descricao: "Noticiário nacional e internacional",
+    url: "https://www.cnnbrasil.com.br/",
+  },
+  {
+    nome: "Folha de S.Paulo",
+    descricao: "Notícias, política e sociedade",
+    url: "https://www.folha.uol.com.br/",
+  },
+  {
+    nome: "Estadão",
+    descricao: "Notícias, economia e política",
+    url: "https://www.estadao.com.br/",
+  },
+  {
+    nome: "UOL Notícias",
+    descricao: "Notícias e cobertura em tempo real",
+    url: "https://noticias.uol.com.br/",
+  },
+  {
+    nome: "Aos Fatos",
+    descricao: "Checagem de declarações e boatos",
+    url: "https://www.aosfatos.org/",
+  },
+  {
+    nome: "Agência Lupa",
+    descricao: "Verificação de informações",
+    url: "https://lupa.uol.com.br/",
+  },
+  {
+    nome: "Projeto Comprova",
+    descricao: "Coalizão de veículos de checagem",
+    url: "https://projetocomprova.com.br/",
+  },
 ];
 
 const FAQ_ITEMS = [
   {
     pergunta: "O site detecta fake news com 100% de certeza?",
-    resposta: "Não. Ele ajuda a encontrar sinais de alerta e organizar uma checagem, mas nenhuma IA substitui documentos oficiais, especialistas e a comparação entre fontes confiáveis.",
+    resposta:
+      "Não. Ele ajuda a encontrar sinais de alerta e organizar uma checagem, mas nenhuma IA substitui documentos oficiais, especialistas e a comparação entre fontes confiáveis.",
   },
   {
     pergunta: "Então eu posso confiar no resultado?",
-    resposta: "Use o resultado como ponto de partida. Leia a explicação, confira as fontes citadas e procure confirmar as informações mais importantes antes de compartilhar.",
+    resposta:
+      "Use o resultado como ponto de partida. Leia a explicação, confira as fontes citadas e procure confirmar as informações mais importantes antes de compartilhar.",
   },
   {
-    pergunta: "Por que a mesma pergunta pode receber respostas um pouco diferentes?",
-    resposta: "A análise é gerada por inteligência artificial e pode variar na forma de explicar. O veredito deve continuar baseado nas evidências disponíveis, mas a redação pode mudar.",
+    pergunta:
+      "Por que a mesma pergunta pode receber respostas um pouco diferentes?",
+    resposta:
+      "A análise é gerada por inteligência artificial e pode variar na forma de explicar. O veredito deve continuar baseado nas evidências disponíveis, mas a redação pode mudar.",
   },
   {
     pergunta: "O que significa “Não confirmado”?",
-    resposta: "Significa que ainda não há evidências suficientes para confirmar ou negar a informação. Isso não quer dizer automaticamente que ela seja falsa.",
+    resposta:
+      "Significa que ainda não há evidências suficientes para confirmar ou negar a informação. Isso não quer dizer automaticamente que ela seja falsa.",
   },
   {
     pergunta: "O site consegue analisar qualquer link?",
-    resposta: "Nem sempre. Alguns sites bloqueiam leitura automática, exigem login ou carregam o texto de uma forma que impede a extração. Nesses casos, copie o trecho principal e use o modo Notícia Escrita.",
+    resposta:
+      "Nem sempre. Alguns sites bloqueiam leitura automática, exigem login ou carregam o texto de uma forma que impede a extração. Nesses casos, copie o trecho principal e use o modo Notícia Escrita.",
   },
   {
-    pergunta: "Posso verificar mensagens recebidas no WhatsApp ou nas redes sociais?",
-    resposta: "Sim. Copie o texto da mensagem e cole em Notícia Escrita. Remova dados pessoais antes de enviar e tente incluir contexto, data e origem.",
+    pergunta:
+      "Posso verificar mensagens recebidas no WhatsApp ou nas redes sociais?",
+    resposta:
+      "Sim. Copie o texto da mensagem e cole em Notícia Escrita. Remova dados pessoais antes de enviar e tente incluir contexto, data e origem.",
   },
   {
     pergunta: "Como saber se uma fonte é confiável?",
-    resposta: "Observe autoria, data, transparência, correções públicas e referências. Compare a mesma informação em mais de um veículo e procure a fonte original do dado.",
+    resposta:
+      "Observe autoria, data, transparência, correções públicas e referências. Compare a mesma informação em mais de um veículo e procure a fonte original do dado.",
   },
   {
     pergunta: "Uma notícia com muitos compartilhamentos é verdadeira?",
-    resposta: "Não necessariamente. Popularidade não é prova. Conteúdos falsos também podem viralizar, principalmente quando provocam medo, raiva ou urgência.",
+    resposta:
+      "Não necessariamente. Popularidade não é prova. Conteúdos falsos também podem viralizar, principalmente quando provocam medo, raiva ou urgência.",
   },
   {
     pergunta: "O Xô, falsiane! substitui uma pesquisa escolar?",
-    resposta: "Não. Ele pode ajudar a começar a pesquisa e entender o tema, mas trabalhos escolares devem usar livros, artigos, documentos e fontes indicadas pelo professor.",
+    resposta:
+      "Não. Ele pode ajudar a começar a pesquisa e entender o tema, mas trabalhos escolares devem usar livros, artigos, documentos e fontes indicadas pelo professor.",
   },
   {
     pergunta: "O site é gratuito?",
-    resposta: "Sim. O projeto foi desenvolvido com finalidade educativa para ajudar no combate à desinformação.",
+    resposta:
+      "Sim. O projeto foi desenvolvido com finalidade educativa para ajudar no combate à desinformação.",
   },
   {
     pergunta: "O que é o Space News?",
-    resposta: "É o jogo bônus do projeto. Ele transforma o combate à desinformação em uma aventura espacial e envia mensagens suspeitas diretamente para o detector.",
+    resposta:
+      "É o jogo bônus do projeto. Ele transforma o combate à desinformação em uma aventura espacial e envia mensagens suspeitas diretamente para o detector.",
   },
   {
     pergunta: "Por que eu não devo enviar dados pessoais?",
-    resposta: "Porque nomes completos, documentos, senhas, endereços e informações privadas não são necessários para verificar uma notícia. Envie somente o conteúdo relevante para a análise.",
+    resposta:
+      "Porque nomes completos, documentos, senhas, endereços e informações privadas não são necessários para verificar uma notícia. Envie somente o conteúdo relevante para a análise.",
   },
 ];
 
@@ -93,7 +152,9 @@ export default function Home() {
   const [carregando, setCarregando] = useState(false);
   const [mostrarCreditos, setMostrarCreditos] = useState(false);
   const [somAtivo, setSomAtivo] = useState(true);
-  const [tema, setTema] = useState<Tema>("dark");
+  const [tema, setTema] = useState<Tema>("system");
+  const [temaResolvido, setTemaResolvido] = useState<TemaResolvido>("dark");
+  const [online, setOnline] = useState(true);
   const [textoGrande, setTextoGrande] = useState(false);
   const [reduzirAnimacoes, setReduzirAnimacoes] = useState(false);
   const [animacaoModo, setAnimacaoModo] = useState(false);
@@ -103,150 +164,97 @@ export default function Home() {
   const [spaceSignal, setSpaceSignal] = useState<SpaceNewsPayload | null>(null);
 
   const equipe = [
-    { nome: "Nicolas", cargo: "Programador / Compositor", img: "/team/nicolas.png", som: "nicolas" },
-    { nome: "Antônio William", cargo: "Marketing / Sugestões", img: "/team/antonio.png", som: "antonio" },
-    { nome: "Pedro Kaiki", cargo: "Arte / Direção de Arte", img: "/team/pedro.png", som: "pedro" },
-    { nome: "Kaleb Anthony", cargo: "Designer", img: "/team/kaleb.png", som: "kaleb" },
-    { nome: "Pablo Enzo", cargo: "Pesquisador / Produtor", img: "/team/pablo.png", som: "pablo" },
-    { nome: "Magno", cargo: "Testador / Pesquisador", img: "/team/magno.png", som: "magno" },
+    {
+      nome: "Nicolas",
+      cargo: "Programador / Compositor",
+      img: "/team/nicolas.png",
+      som: "nicolas",
+    },
+    {
+      nome: "Antônio William",
+      cargo: "Marketing / Sugestões",
+      img: "/team/antonio.png",
+      som: "antonio",
+    },
+    {
+      nome: "Pedro Kaiki",
+      cargo: "Arte / Direção de Arte",
+      img: "/team/pedro.png",
+      som: "pedro",
+    },
+    {
+      nome: "Kaleb Anthony",
+      cargo: "Designer",
+      img: "/team/kaleb.png",
+      som: "kaleb",
+    },
+    {
+      nome: "Pablo Enzo",
+      cargo: "Pesquisador / Produtor",
+      img: "/team/pablo.png",
+      som: "pablo",
+    },
+    {
+      nome: "Magno",
+      cargo: "Testador / Pesquisador",
+      img: "/team/magno.png",
+      som: "magno",
+    },
   ];
 
   useEffect(() => {
-    document.body.classList.toggle("light-mode", tema === "light");
+    try {
+      const salvo = window.localStorage.getItem("xo-falsiane.theme");
+      if (salvo === "system" || salvo === "dark" || salvo === "light") {
+        setTema(salvo);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+
+    const aplicarTema = () => {
+      const resolvido: TemaResolvido =
+        tema === "system" ? (media.matches ? "dark" : "light") : tema;
+
+      setTemaResolvido(resolvido);
+      document.body.classList.toggle("light-mode", resolvido === "light");
+      document.body.classList.toggle("dark-mode", resolvido === "dark");
+      document.documentElement.style.colorScheme = resolvido;
+    };
+
+    aplicarTema();
+    if (tema === "system") media.addEventListener("change", aplicarTema);
+
+    try {
+      window.localStorage.setItem("xo-falsiane.theme", tema);
+    } catch {}
+
+    return () => media.removeEventListener("change", aplicarTema);
+  }, [tema]);
+
+  useEffect(() => {
     document.body.classList.toggle("reduce-motion", reduzirAnimacoes);
     document.body.classList.toggle("large-text", textoGrande);
-  }, [tema, reduzirAnimacoes, textoGrande]);
+  }, [reduzirAnimacoes, textoGrande]);
+
+  useEffect(() => {
+    const atualizarConexao = () => setOnline(navigator.onLine);
+    atualizarConexao();
+    window.addEventListener("online", atualizarConexao);
+    window.addEventListener("offline", atualizarConexao);
+    return () => {
+      window.removeEventListener("online", atualizarConexao);
+      window.removeEventListener("offline", atualizarConexao);
+    };
+  }, []);
 
   useEffect(() => {
     const body = document.body;
     body.classList.remove("game-page-active");
     body.classList.add("xo-page-active");
-
-    const ensureMarkup = () => {
-      let root = document.querySelector<HTMLElement>("#xo-vlibras-root [vw]")
-        ?? document.querySelector<HTMLElement>("[vw]");
-
-      if (!root) {
-        const container = document.createElement("div");
-        container.id = "xo-vlibras-root";
-        container.innerHTML = `
-          <div vw class="enabled">
-            <div vw-access-button class="active"></div>
-            <div vw-plugin-wrapper>
-              <div class="vw-plugin-top-wrapper"></div>
-            </div>
-          </div>
-        `;
-        document.body.appendChild(container);
-        root = container.querySelector<HTMLElement>("[vw]");
-      }
-
-      return root;
-    };
-
-    const revealWidget = () => {
-      document
-        .querySelectorAll<HTMLElement>(
-          "[vw], [vw-access-button], [vw-plugin-wrapper], .vlibras-container",
-        )
-        .forEach((element) => {
-          element.style.removeProperty("display");
-          element.style.removeProperty("visibility");
-          element.style.removeProperty("opacity");
-          element.style.removeProperty("pointer-events");
-          element.removeAttribute("aria-hidden");
-        });
-    };
-
-    const initializeWidget = () => {
-      ensureMarkup();
-      revealWidget();
-
-      const win = window as any;
-      if (!win.VLibras?.Widget) return false;
-
-      try {
-        if (!win.__xoVLibrasWidgetInstance) {
-          win.__xoVLibrasWidgetInstance = new win.VLibras.Widget(
-            "https://vlibras.gov.br/app",
-          );
-        }
-      } catch (error) {
-        console.warn("Falha ao inicializar o VLibras:", error);
-        return false;
-      }
-
-      revealWidget();
-      const button = document.querySelector<HTMLElement>("[vw-access-button]");
-      if (button) {
-        button.setAttribute("aria-label", "Abrir tradutor VLibras");
-        button.setAttribute("title", "Abrir VLibras");
-      }
-      return Boolean(button);
-    };
-
-    ensureMarkup();
-
-    let script = document.querySelector<HTMLScriptElement>(
-      "script[data-xo-vlibras], script[src*='vlibras-plugin.js']",
-    );
-
-    const handleScriptReady = () => initializeWidget();
-
-    if (!script) {
-      script = document.createElement("script");
-      script.src = "https://vlibras.gov.br/app/vlibras-plugin.js";
-      script.async = true;
-      script.defer = true;
-      script.dataset.xoVlibras = "true";
-      script.addEventListener("load", handleScriptReady);
-      document.body.appendChild(script);
-    } else {
-      script.addEventListener("load", handleScriptReady);
-      if ((window as any).VLibras?.Widget) initializeWidget();
-    }
-
-    let attempts = 0;
-    const retryTimer = window.setInterval(() => {
-      attempts += 1;
-      const ready = initializeWidget();
-      if (ready || attempts >= 40) window.clearInterval(retryTimer);
-    }, 250);
-
-    const observer = new MutationObserver(() => {
-      revealWidget();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    (window as any).abrirVLibras = () => {
-      let openAttempts = 0;
-      const tryOpen = () => {
-        initializeWidget();
-        revealWidget();
-        const button = document.querySelector<HTMLElement>("[vw-access-button]");
-        if (button && button.getBoundingClientRect().width > 0) {
-          button.click();
-          return;
-        }
-        openAttempts += 1;
-        if (openAttempts < 32) {
-          window.setTimeout(tryOpen, 180);
-        } else {
-          alert(
-            "O VLibras não conseguiu abrir neste navegador. Verifique a conexão, desative bloqueadores de conteúdo e tente novamente.",
-          );
-        }
-      };
-      tryOpen();
-    };
-
-    return () => {
-      window.clearInterval(retryTimer);
-      observer.disconnect();
-      script?.removeEventListener("load", handleScriptReady);
-      body.classList.remove("xo-page-active");
-      delete (window as any).abrirVLibras;
-    };
+    return () => body.classList.remove("xo-page-active");
   }, []);
 
   useEffect(() => {
@@ -274,7 +282,10 @@ export default function Home() {
     } catch {}
   }, []);
 
-  const spaceSignalInTextbox = useMemo(() => parseSpaceNewsPayload(texto), [texto]);
+  const spaceSignalInTextbox = useMemo(
+    () => parseSpaceNewsPayload(texto),
+    [texto],
+  );
   const isSpaceNewsInput = !!spaceSignalInTextbox;
 
   function tocarAudio(nome: string) {
@@ -287,7 +298,8 @@ export default function Home() {
   function tocarSom(classificacao: string) {
     const tipo = classificacao.toLowerCase();
 
-    if (tipo.includes("confiável") && !tipo.includes("parcial")) tocarAudio("confiavel");
+    if (tipo.includes("confiável") && !tipo.includes("parcial"))
+      tocarAudio("confiavel");
     else if (tipo.includes("parcial")) tocarAudio("parcial");
     else if (tipo.includes("não confirmado")) tocarAudio("nao-confirmado");
     else if (tipo.includes("suspeita")) tocarAudio("suspeita");
@@ -303,19 +315,41 @@ export default function Home() {
 
     const linhaClassificacao = textoBase
       .split("\n")
-      .find((linha) => linha.includes("classificação") || linha.includes("classificacao"));
+      .find(
+        (linha) =>
+          linha.includes("classificação") || linha.includes("classificacao"),
+      );
 
     if (!linhaClassificacao) return "neutra";
 
-    if (linhaClassificacao.includes("❌") || linhaClassificacao.includes("falsa")) return "falsa";
-    if (linhaClassificacao.includes("⚠️") || linhaClassificacao.includes("suspeita")) return "suspeita";
-    if (linhaClassificacao.includes("❔") || linhaClassificacao.includes("não confirmado") || linhaClassificacao.includes("nao confirmado")) {
+    if (
+      linhaClassificacao.includes("❌") ||
+      linhaClassificacao.includes("falsa")
+    )
+      return "falsa";
+    if (
+      linhaClassificacao.includes("⚠️") ||
+      linhaClassificacao.includes("suspeita")
+    )
+      return "suspeita";
+    if (
+      linhaClassificacao.includes("❔") ||
+      linhaClassificacao.includes("não confirmado") ||
+      linhaClassificacao.includes("nao confirmado")
+    ) {
       return "não confirmado";
     }
-    if (linhaClassificacao.includes("🟡") || linhaClassificacao.includes("parcialmente")) {
+    if (
+      linhaClassificacao.includes("🟡") ||
+      linhaClassificacao.includes("parcialmente")
+    ) {
       return "parcialmente confiável";
     }
-    if (linhaClassificacao.includes("✅") || linhaClassificacao.includes("confiável") || linhaClassificacao.includes("confiavel")) {
+    if (
+      linhaClassificacao.includes("✅") ||
+      linhaClassificacao.includes("confiável") ||
+      linhaClassificacao.includes("confiavel")
+    ) {
       return "confiável";
     }
     return "neutra";
@@ -337,14 +371,24 @@ export default function Home() {
       return;
     }
 
+    if (!navigator.onLine) {
+      setResultado(
+        "📡 Você está sem conexão com a internet.\n\nO Xô, falsiane! precisa acessar o serviço de análise e fontes externas. Reconecte-se e tente novamente; o texto digitado continuará salvo nesta tela.",
+      );
+      return;
+    }
+
     setCarregando(true);
     setResultado("");
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 50000);
 
     try {
       const payload = parseSpaceNewsPayload(texto);
       const resposta = await fetch("/api/analisar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           texto,
           modo,
@@ -357,7 +401,8 @@ export default function Home() {
       if (!resposta.ok) {
         throw new Error(dados?.erro || dados?.resposta || "Falha na análise.");
       }
-      const respostaFinal = dados.resposta || "Não foi possível gerar uma resposta.";
+      const respostaFinal =
+        dados.resposta || "Não foi possível gerar uma resposta.";
 
       const respostaExibida = payload
         ? [
@@ -378,11 +423,25 @@ export default function Home() {
       tocarSom(classificacao);
     } catch (erro) {
       console.error("Falha ao analisar conteúdo:", erro);
-      setResultado(
-        "❌ Não foi possível concluir a análise agora. Confira sua conexão e tente novamente em alguns instantes.",
-      );
+      const foiTimeout =
+        erro instanceof DOMException && erro.name === "AbortError";
+
+      if (!navigator.onLine) {
+        setResultado(
+          "📡 A conexão caiu durante a análise.\n\nReconecte-se e pressione Analisar novamente. O conteúdo digitado não foi apagado.",
+        );
+      } else if (foiTimeout) {
+        setResultado(
+          "⏳ A análise demorou mais que o esperado. Sua internet ou o serviço de IA pode estar lento no momento. Aguarde alguns segundos e tente novamente.",
+        );
+      } else {
+        setResultado(
+          "❌ Não foi possível concluir a análise agora. O serviço pode estar temporariamente instável. Tente novamente em alguns instantes.",
+        );
+      }
       tocarSom("falsa");
     } finally {
+      window.clearTimeout(timeoutId);
       setCarregando(false);
     }
   }
@@ -407,18 +466,20 @@ export default function Home() {
     modo === "pergunta"
       ? "Pergunta direta"
       : modo === "noticia"
-      ? "Notícia escrita"
-      : "Link da notícia";
+        ? "Notícia escrita"
+        : "Link da notícia";
 
   const dicaModo =
     modo === "pergunta"
       ? "Faça uma pergunta objetiva sobre uma informação que você quer verificar."
       : modo === "noticia"
-      ? "Cole o texto completo ou trecho da notícia para análise."
-      : "Cole o link de uma matéria ou portal de notícias.";
+        ? "Cole o texto completo ou trecho da notícia para análise."
+        : "Cole o link de uma matéria ou portal de notícias.";
 
   return (
-    <main className={`checker-bg xo-main-page min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}>
+    <main
+      className={`checker-bg xo-main-page min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}
+    >
       {!menuAberto && (
         <button
           onClick={() => {
@@ -493,15 +554,30 @@ export default function Home() {
             <option value="falsa">❌ Falsa</option>
           </select>
 
-          <button
-            onClick={() => {
-              tocarClique();
-              setTema(tema === "dark" ? "light" : "dark");
-            }}
-            className="settings-row"
-          >
-            {tema === "dark" ? "☀️ Ativar modo claro" : "🌙 Ativar modo escuro"}
-          </button>
+          <label className="settings-select-label">
+            <span>🎨 Tema</span>
+            <select
+              className="settings-row theme-select"
+              value={tema}
+              onChange={(event) => {
+                tocarClique();
+                setTema(event.target.value as Tema);
+              }}
+              aria-label="Selecionar tema visual"
+            >
+              <option value="system">Automático — dispositivo</option>
+              <option value="light">Claro — branco e azul</option>
+              <option value="dark">Escuro — preto e azul</option>
+            </select>
+            <small>
+              Atual:{" "}
+              {tema === "system"
+                ? `automático (${temaResolvido === "dark" ? "escuro" : "claro"})`
+                : tema === "dark"
+                  ? "escuro"
+                  : "claro"}
+            </small>
+          </label>
         </div>
 
         <div className="settings-section">
@@ -549,10 +625,52 @@ export default function Home() {
             <span>Jogue nosso bônus: Space News</span>
           </a>
 
+          <details className="faq-item about-project">
+            <summary>ℹ️ Sobre o projeto</summary>
+            <div className="about-project-content">
+              <p>
+                O <strong>Xô, falsiane!</strong> é uma ferramenta educativa
+                criada para ajudar pessoas a analisar perguntas, notícias
+                escritas e links suspeitos com apoio de inteligência artificial.
+              </p>
+              <div className="about-project-grid">
+                <article>
+                  <strong>Objetivo</strong>
+                  <span>
+                    Estimular a checagem antes do compartilhamento e explicar
+                    sinais comuns de desinformação.
+                  </span>
+                </article>
+                <article>
+                  <strong>Como funciona</strong>
+                  <span>
+                    O usuário envia um conteúdo, recebe uma análise organizada e
+                    pode comparar o resultado com portais e fontes oficiais.
+                  </span>
+                </article>
+                <article>
+                  <strong>Space News</strong>
+                  <span>
+                    O jogo bônus transforma o combate à desinformação em uma
+                    aventura espacial integrada ao detector.
+                  </span>
+                </article>
+                <article>
+                  <strong>Uso responsável</strong>
+                  <span>
+                    A IA auxilia, mas não substitui documentos oficiais,
+                    especialistas ou uma pesquisa completa.
+                  </span>
+                </article>
+              </div>
+            </div>
+          </details>
+
           <details className="faq-item trusted-portals">
             <summary>📰 Fontes para comparar informações</summary>
             <p>
-              Nenhum portal é infalível. Compare a mesma informação em mais de uma fonte e procure documentos oficiais.
+              Nenhum portal é infalível. Compare a mesma informação em mais de
+              uma fonte e procure documentos oficiais.
             </p>
             <div className="trusted-portals-list">
               {PORTAIS_PARA_CHECAGEM.map((portal) => (
@@ -589,8 +707,9 @@ export default function Home() {
             <p className="xo-hero-kicker">VERIFIQUE.AI apresenta</p>
             <h1 className="xo-hero-title">Xô, falsiane!</h1>
             <p className="xo-hero-description">
-              Verifique perguntas, notícias escritas e links suspeitos com ajuda de IA. Um detector educativo com visual moderno,
-              leitura clara e análise rápida.
+              Verifique perguntas, notícias escritas e links suspeitos com ajuda
+              de IA. Um detector educativo com visual moderno, leitura clara e
+              análise rápida.
             </p>
 
             <div className="xo-feature-row">
@@ -601,33 +720,56 @@ export default function Home() {
             </div>
           </header>
 
+          {!online && (
+            <div className="xo-offline-banner" role="status">
+              <strong>📡 Você está offline</strong>
+              <span>
+                A análise por IA ficará disponível quando a conexão voltar.
+              </span>
+            </div>
+          )}
+
           {spaceSignal && (
             <section className="xo-space-card result-enter">
               <div className="xo-space-card-top">
-                <span className="xo-space-card-tag">TRANSMISSÃO INTERCEPTADA</span>
+                <span className="xo-space-card-tag">
+                  TRANSMISSÃO INTERCEPTADA
+                </span>
                 <span className="xo-space-card-code">#{spaceSignal.code}</span>
               </div>
               <h2>Mensagem recebida da Space News</h2>
               <p>{spaceSignal.message}</p>
               <small>
-                O detector entrou em modo temático. Você pode analisar essa transmissão ou editar o texto antes de enviar.
+                O detector entrou em modo temático. Você pode analisar essa
+                transmissão ou editar o texto antes de enviar.
               </small>
             </section>
           )}
 
           <div className="xo-mode-grid">
-            <button onClick={() => trocarModo("pergunta")} className={`mode-btn ${modo === "pergunta" ? "mode-active" : ""}`}>
+            <button
+              onClick={() => trocarModo("pergunta")}
+              className={`mode-btn ${modo === "pergunta" ? "mode-active" : ""}`}
+            >
               ❓ Pergunta Direta
             </button>
-            <button onClick={() => trocarModo("noticia")} className={`mode-btn ${modo === "noticia" ? "mode-active" : ""}`}>
+            <button
+              onClick={() => trocarModo("noticia")}
+              className={`mode-btn ${modo === "noticia" ? "mode-active" : ""}`}
+            >
               📰 Notícia Escrita
             </button>
-            <button onClick={() => trocarModo("link")} className={`mode-btn ${modo === "link" ? "mode-active" : ""}`}>
+            <button
+              onClick={() => trocarModo("link")}
+              className={`mode-btn ${modo === "link" ? "mode-active" : ""}`}
+            >
               🔗 Link da Notícia
             </button>
           </div>
 
-          <section className={`work-card xo-work-card ${animacaoModo ? "mode-switch" : ""}`}>
+          <section
+            className={`work-card xo-work-card ${animacaoModo ? "mode-switch" : ""}`}
+          >
             <div className="mb-4">
               <h2 className="text-xl font-bold">{tituloModo}</h2>
               <p className="text-zinc-400 text-sm mt-1">{dicaModo}</p>
@@ -637,7 +779,10 @@ export default function Home() {
               <div className="xo-signal-banner">
                 <div>
                   <strong>SINAL DA SPACE NEWS</strong>
-                  <p>O código #{spaceSignalInTextbox.code} será tratado com uma resposta temática exclusiva.</p>
+                  <p>
+                    O código #{spaceSignalInTextbox.code} será tratado com uma
+                    resposta temática exclusiva.
+                  </p>
                 </div>
                 <span>PROTOCOLO ATIVO</span>
               </div>
@@ -652,16 +797,22 @@ export default function Home() {
                 modo === "pergunta"
                   ? "Faça sua pergunta aqui..."
                   : modo === "noticia"
-                  ? "Cole a notícia aqui..."
-                  : "Cole o link da notícia..."
+                    ? "Cole a notícia aqui..."
+                    : "Cole o link da notícia..."
               }
             />
 
             <div className="flex flex-wrap gap-3 justify-center mt-6">
-              <button onClick={analisar} disabled={carregando} className="primary-btn">
+              <button
+                onClick={analisar}
+                disabled={carregando}
+                className="primary-btn"
+              >
                 {carregando ? "Analisando..." : "Analisar"}
               </button>
-              <button onClick={limpar} className="secondary-btn">Limpar</button>
+              <button onClick={limpar} className="secondary-btn">
+                Limpar
+              </button>
             </div>
 
             {carregando && (
@@ -679,23 +830,33 @@ export default function Home() {
               <div className="flex items-center justify-between gap-4 mb-4">
                 <div className="flex items-center gap-2">
                   <span className="text-2xl">🧠</span>
-                  <h2 className="text-xl font-bold text-blue-400">Resultado da análise</h2>
+                  <h2 className="text-xl font-bold text-blue-400">
+                    Resultado da análise
+                  </h2>
                 </div>
-                <button onClick={copiarResultado} className="copy-btn">{copiado ? "Copiado!" : "Copiar"}</button>
+                <button onClick={copiarResultado} className="copy-btn">
+                  {copiado ? "Copiado!" : "Copiar"}
+                </button>
               </div>
-              <div className="whitespace-pre-wrap leading-relaxed text-zinc-100">{resultado}</div>
+              <div className="whitespace-pre-wrap leading-relaxed text-zinc-100">
+                {resultado}
+              </div>
             </section>
           )}
 
           <p className="xo-footer-note mt-8 text-xs text-zinc-500 text-center">
-            Esta ferramenta auxilia na análise, mas não substitui checagem em fontes oficiais.
+            Esta ferramenta auxilia na análise, mas não substitui checagem em
+            fontes oficiais.
           </p>
 
           <footer className="mt-10 text-center text-zinc-400 text-sm xo-footer-box">
             <p>
-              Criado por <span className="text-blue-400">VERIFIQUE.AI</span> • Projeto Xô, falsiane!
+              Criado por <span className="text-blue-400">VERIFIQUE.AI</span> •
+              Projeto Xô, falsiane!
             </p>
-            <p className="mt-1">Ferramenta educativa de combate à desinformação.</p>
+            <p className="mt-1">
+              Ferramenta educativa de combate à desinformação.
+            </p>
             <button
               onClick={() => {
                 tocarClique();
@@ -735,6 +896,7 @@ export default function Home() {
           </section>
         )}
       </div>
+      <VLibras />
     </main>
   );
 }
