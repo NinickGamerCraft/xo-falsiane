@@ -595,9 +595,9 @@ const CONFIG = {
 
   fonts: {
     title: "Pixel Game",
-    prompt: "ByteBounce",
-    menu: "Pixel Game",
-    ui: "ByteBounce",
+    prompt: "Born2BSporty",
+    menu: "Born2BSporty",
+    ui: "Born2BSporty",
   },
 
   transitions: {
@@ -1091,6 +1091,8 @@ const CONFIG = {
     chocadoDefeatBurst: "/sounds/chocado-defeat-burst.mp3",
     chocadoFinalExplosion: "/sounds/chocado-final-explosion.mp3",
     victoryFanfare: "/sounds/victory-fanfare.mp3",
+    fakeNewsIntercepted: "/sounds/fake-news-intercepted.mp3",
+    fakeNewsTransmit: "/sounds/fake-news-transmit.mp3",
     gameOverFinalExplosion: "/sounds/game-over-final-explosion.mp3",
   },
 
@@ -1140,8 +1142,8 @@ const CONFIG = {
     showMobileStartHint: true,
     mobileControls: "joystick",
     mobileLayout: "compact",
-    mobileScale: 0.90,
-    mobileOpacity: 0.86,
+    mobileScale: 1.02,
+    mobileOpacity: 0.92,
     mobileButtonGap: 10,
     mobileMirror: false,
     pcMoveLayout: "both",
@@ -1226,6 +1228,20 @@ const GAME_OVER_TAUNTS = [
   "NA PROXIMA, TENTE NAO VIRAR ESTATISTICA.",
   "PARABENS: VOCE ACHOU UM JEITO NOVO DE EXPLODIR.",
 ];
+
+const CHOCADO_FINAL_FAKE_NEWS = [
+  "URGENTE: cientistas confirmam que a Lua transmite pensamentos humanos durante eclipses.",
+  "Governo anuncia chip obrigatório capaz de apagar memórias durante o sono.",
+  "Estudo secreto prova que beber refrigerante aumenta a inteligência em 300%.",
+  "Robôs escolares substituirão professores em todas as escolas já na próxima semana.",
+  "Novo aplicativo consegue prever o futuro com 99% de precisão usando apenas uma selfie.",
+  "Satélite desconhecido estaria controlando o clima e escolhendo onde vai chover.",
+  "Cientistas descobrem cidade invisível escondida no fundo do oceano Atlântico.",
+  "Especialistas afirmam que desligar o Wi-Fi por 10 segundos elimina qualquer vírus do celular.",
+  "Mensagem viral diz que uma nova lei proibirá jogos eletrônicos depois das 22 horas.",
+  "Vídeo afirma que uma bebida caseira cura qualquer doença em menos de cinco minutos.",
+];
+
 
 const HOLD_VARIANT_MS = 1500;
 const BOOST_HOLD_MAX_MS = 2400;
@@ -1375,6 +1391,10 @@ const MOBILE_CONTROL_LABELS: Record<MobileControlId, string> = {
   pause: "PAUSE",
   fullscreen: "TELA CHEIA",
 };
+
+
+// Controle de videogame pode ser adicionado futuramente com navigator.getGamepads().
+// A arquitetura de ações (tiro, forte, boost e dodge) já permite mapear botões sem reescrever o gameplay.
 
 const SETTINGS_SECTIONS = [
   "ÁUDIO",
@@ -2240,6 +2260,8 @@ export default function JogoPage() {
   });
   const [bossDefeatStage, setBossDefeatStage] = useState<BossDefeatStage>("idle");
   const [victoryStep, setVictoryStep] = useState(0);
+  const [victoryFakeNews, setVictoryFakeNews] = useState(CHOCADO_FINAL_FAKE_NEWS[0]);
+  const [victoryFakeNewsCopied, setVictoryFakeNewsCopied] = useState(false);
 
   const assetsRef = useRef(new AssetManager());
   const enemyIdRef = useRef(0);
@@ -4870,6 +4892,38 @@ export default function JogoPage() {
     }
   }
 
+  function prepararFakeNewsFinal() {
+    const current = victoryFakeNews;
+    const pool = CHOCADO_FINAL_FAKE_NEWS.filter((item) => item !== current);
+    const selected = pool[Math.floor(Math.random() * pool.length)] ?? CHOCADO_FINAL_FAKE_NEWS[0];
+    setVictoryFakeNews(selected);
+    setVictoryFakeNewsCopied(false);
+    try {
+      window.localStorage.setItem("spaceNews.pendingFakeNews", selected);
+    } catch {}
+    return selected;
+  }
+
+  async function copiarFakeNewsFinal() {
+    try {
+      await navigator.clipboard.writeText(victoryFakeNews);
+      setVictoryFakeNewsCopied(true);
+      tocarSom(CONFIG.sounds.menuConfirm, 0.28, "menu");
+      window.setTimeout(() => setVictoryFakeNewsCopied(false), 1800);
+    } catch {
+      setVictoryFakeNewsCopied(false);
+    }
+  }
+
+  function enviarFakeNewsAoSite() {
+    try {
+      window.localStorage.setItem("spaceNews.pendingFakeNews", victoryFakeNews);
+      window.localStorage.setItem("spaceNews.pendingFakeNewsAt", String(Date.now()));
+    } catch {}
+    tocarSom(CONFIG.sounds.fakeNewsTransmit || CONFIG.sounds.menuConfirm, 0.48, "sfx");
+    window.location.href = "/?spaceNews=1";
+  }
+
   function concluirModoHistoria() {
     const now = performance.now();
     shotsRef.current = [];
@@ -4892,7 +4946,8 @@ export default function JogoPage() {
       bossWave: false,
       message: "SINAL HOSTIL ELIMINADO",
     });
-    tocarSom(CONFIG.sounds.victoryFanfare || CONFIG.sounds.menuConfirm, 0.84, "sfx");
+    prepararFakeNewsFinal();
+    tocarSom(CONFIG.sounds.fakeNewsIntercepted || CONFIG.sounds.victoryFanfare || CONFIG.sounds.menuConfirm, 0.84, "sfx");
     mostrarDanielBoss({
       expression: "happy",
       text: "Conseguimos, Cleber. O sinal do Chocado caiu — segura a formação, estou confirmando a limpeza da rede.",
@@ -5573,13 +5628,20 @@ export default function JogoPage() {
         const parsed = JSON.parse(savedSettings) as Partial<typeof CONFIG.settings>;
         Object.assign(CONFIG.settings, parsed);
       }
-      if (settingsVersion !== "v14") {
-        CONFIG.settings.mobileScale = Math.max(0.90, Number(CONFIG.settings.mobileScale) || 0.90);
-        CONFIG.settings.performanceMode = "auto";
+      if (settingsVersion !== "v16") {
+        const coarsePointer = window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
+        CONFIG.settings.mobileScale = Math.max(coarsePointer ? 1.02 : 0.94, Number(CONFIG.settings.mobileScale) || (coarsePointer ? 1.02 : 0.94));
+        CONFIG.settings.mobileOpacity = Math.max(0.9, Number(CONFIG.settings.mobileOpacity) || 0.92);
+        CONFIG.settings.performanceMode = coarsePointer ? "performance" : "auto";
+        CONFIG.settings.enableParticles = !coarsePointer;
+        CONFIG.settings.enableScreenShake = !coarsePointer;
+        CONFIG.settings.enableBoostFireSprite = !coarsePointer;
+        CONFIG.settings.enableFlashingLights = !coarsePointer;
+        CONFIG.settings.particleQuality = coarsePointer ? 0.45 : 1;
         CONFIG.settings.showFps = false;
         CONFIG.settings.fpsLimit = String(CONFIG.settings.fpsLimit || "unlimited");
         window.localStorage.setItem("spaceNews.settings", JSON.stringify(CONFIG.settings));
-        window.localStorage.setItem("spaceNews.settingsVersion", "v14");
+        window.localStorage.setItem("spaceNews.settingsVersion", "v16");
       }
       setSettingsSnapshot({ ...CONFIG.settings });
 
@@ -5848,15 +5910,16 @@ export default function JogoPage() {
 
     function limitarObjetosPesados() {
       const reduced = usarEfeitosReduzidos();
-      const projectileCap = reduced ? 34 : 105;
+      const projectileCap = reduced ? 18 : 105;
       if (bossProjectilesRef.current.length > projectileCap) {
         const beams = bossProjectilesRef.current.filter((projectile) => projectile.kind === "laser" || projectile.kind === "aimLaser");
         const others = bossProjectilesRef.current.filter((projectile) => projectile.kind !== "laser" && projectile.kind !== "aimLaser");
-        bossProjectilesRef.current = [...beams, ...others.slice(-Math.max(0, projectileCap - beams.length))];
+        const beamCap = reduced ? 2 : beams.length;
+        bossProjectilesRef.current = [...beams.slice(-beamCap), ...others.slice(-Math.max(0, projectileCap - Math.min(beams.length, beamCap)))];
       }
-      const particleCap = reduced ? 54 : 175;
+      const particleCap = reduced ? 10 : 175;
       if (particlesRef.current.length > particleCap) particlesRef.current = particlesRef.current.slice(-particleCap);
-      const shockwaveCap = reduced ? 5 : 18;
+      const shockwaveCap = reduced ? 1 : 18;
       if (shockwavesRef.current.length > shockwaveCap) shockwavesRef.current = shockwavesRef.current.slice(-shockwaveCap);
     }
 
@@ -9351,9 +9414,9 @@ export default function JogoPage() {
       for (const projectile of bossProjectilesRef.current)
         desenharBossProjectile(renderCtx, projectile);
       desenharPowerUps(renderCtx);
-      desenharShockwaves(renderCtx);
+      if (!reducedNow || CONFIG.settings.enableParticles) desenharShockwaves(renderCtx);
       desenharIndicadorMira(renderCtx);
-      desenharParticulas(renderCtx);
+      if (CONFIG.settings.enableParticles || !reducedNow) desenharParticulas(renderCtx);
 
       if (
         gameStateRef.current === "playing" ||
@@ -10317,7 +10380,26 @@ export default function JogoPage() {
                       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
                     }}
                   >
-                    {MOBILE_CONTROL_LABELS[id]}
+                    {id !== "joystick" && (
+                      <img
+                        src={assetUrl(
+                          id === "shot"
+                            ? CONFIG.uiImages.mobileShot
+                            : id === "strong"
+                              ? CONFIG.uiImages.mobileStrong
+                              : id === "boost"
+                                ? CONFIG.uiImages.mobileBoost
+                                : id === "dodge"
+                                  ? CONFIG.uiImages.mobileDodge
+                                  : id === "pause"
+                                    ? CONFIG.uiImages.mobilePause
+                                    : CONFIG.uiImages.mobileFullscreen,
+                        )}
+                        alt={MOBILE_CONTROL_LABELS[id]}
+                        draggable={false}
+                      />
+                    )}
+                    <span className="sn-editor-control-label">{MOBILE_CONTROL_LABELS[id]}</span>
                   </button>
                 );
               })}
@@ -10481,7 +10563,8 @@ export default function JogoPage() {
           <section className="sn-record-modal" role="dialog" aria-modal="true" aria-labelledby="record-title">
             <small>NOVO REGISTRO DETECTADO</small>
             <h2 id="record-title">ENTRAR NO RANKING?</h2>
-            <p>Sua transmissão alcançou <b>{score.toString().padStart(6, "0")}</b> pontos na Wave <b>{gameOverWave}</b>.</p>
+            <p>Seu sinal ficou entre os melhores da transmissão infinita.</p>
+            <div className="sn-record-stats"><span><b>{score.toString().padStart(6, "0")}</b><small>PONTOS</small></span><span><b>W{gameOverWave}</b><small>WAVE</small></span></div>
             <label>CODINOME DO PILOTO
               <input value={recordName} onChange={(event) => setRecordName(event.target.value)} maxLength={16} autoFocus placeholder="Digite seu nome" />
             </label>
@@ -10530,11 +10613,25 @@ export default function JogoPage() {
                 <p>
                   {victoryStep === 0 && "Cleber... os sensores estão voltando. Mantém a nave estável."}
                   {victoryStep === 1 && "Confirmado! O núcleo do Chocado foi destruído. Os portais estão fechando."}
-                  {victoryStep === 2 && "O sinal da Terra voltou ao ar. Conseguimos, parceiro!"}
-                  {victoryStep >= 3 && "Missão encerrada. Pode trazer a Space News para casa."}
+                  {victoryStep === 2 && "Espera. Um último pacote de desinformação escapou do núcleo."}
+                  {victoryStep >= 3 && "Interceptamos a mensagem. Agora termina o trabalho no Xô, falsiane!."}
                 </p>
               </div>
             </div>
+            {victoryStep >= 2 && (
+              <article className="sn-victory-fake-news">
+                <header>
+                  <span>SINAL RESIDUAL INTERCEPTADO</span>
+                  <b>ARQUIVO #{String(Math.abs(victoryFakeNews.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)) % 9999).padStart(4, "0")}</b>
+                </header>
+                <blockquote>{victoryFakeNews}</blockquote>
+                <p>Envie esta mensagem para o detector e descubra por que ela não é confiável.</p>
+                <div>
+                  <button type="button" onClick={enviarFakeNewsAoSite}>ANALISAR NO XÔ, FALSIANE!</button>
+                  <button type="button" onClick={copiarFakeNewsFinal}>{victoryFakeNewsCopied ? "COPIADO!" : "COPIAR MENSAGEM"}</button>
+                </div>
+              </article>
+            )}
             {victoryStep >= 3 && (
               <div className="sn-victory-actions">
                 <button onClick={() => iniciarJogo("story")}>JOGAR NOVAMENTE</button>
