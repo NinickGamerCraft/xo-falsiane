@@ -1230,16 +1230,16 @@ const GAME_OVER_TAUNTS = [
 ];
 
 const CHOCADO_FINAL_FAKE_NEWS = [
-  "URGENTE: cientistas confirmam que a Lua transmite pensamentos humanos durante eclipses.",
-  "Governo anuncia chip obrigatório capaz de apagar memórias durante o sono.",
-  "Estudo secreto prova que beber refrigerante aumenta a inteligência em 300%.",
-  "Robôs escolares substituirão professores em todas as escolas já na próxima semana.",
-  "Novo aplicativo consegue prever o futuro com 99% de precisão usando apenas uma selfie.",
-  "Satélite desconhecido estaria controlando o clima e escolhendo onde vai chover.",
-  "Cientistas descobrem cidade invisível escondida no fundo do oceano Atlântico.",
-  "Especialistas afirmam que desligar o Wi-Fi por 10 segundos elimina qualquer vírus do celular.",
-  "Mensagem viral diz que uma nova lei proibirá jogos eletrônicos depois das 22 horas.",
-  "Vídeo afirma que uma bebida caseira cura qualquer doença em menos de cinco minutos.",
+  "ALERTA FALSO: cientistas juram que pombos foram treinados para comandar satélites com telepatia.",
+  "BOATO ABSURDO: uma nova lei obrigaria todo mundo a entregar a senha do Wi-Fi para provar cidadania digital.",
+  "FAKE NEWS CLÁSSICA: refrigerante de cola teria sido aprovado como remédio oficial para aumentar QI em 300%.",
+  "MENTIRA INTERGALÁCTICA: robôs professores chegariam amanhã e cancelariam todas as aulas humanas do planeta.",
+  "ENGANAÇÃO TOTAL: aplicativo misterioso prometeria prever o futuro com 99% de precisão usando apenas selfie borrada.",
+  "RUMOR INVENTADO: satélite secreto estaria escolhendo manualmente onde vai chover para sabotar cidades rivais.",
+  "FICÇÃO VIRAL: cidade invisível teria sido encontrada no Atlântico e já cobraria IPTU dos visitantes.",
+  "DISPARATE DIGITAL: desligar o Wi-Fi por 10 segundos supostamente removeria vírus, azar e boleto atrasado.",
+  "BOATO DE PÂNICO: videogames seriam proibidos depois das 22h por uma superportaria assinada na Lua.",
+  "FAKE MÉDICA: bebida caseira feita com alho, café e glitter curaria qualquer doença em menos de cinco minutos.",
 ];
 
 
@@ -2261,6 +2261,7 @@ export default function JogoPage() {
   const [bossDefeatStage, setBossDefeatStage] = useState<BossDefeatStage>("idle");
   const [victoryStep, setVictoryStep] = useState(0);
   const [victoryFakeNews, setVictoryFakeNews] = useState(CHOCADO_FINAL_FAKE_NEWS[0]);
+  const [victoryFakeNewsCode, setVictoryFakeNewsCode] = useState("1706261");
   const [victoryFakeNewsCopied, setVictoryFakeNewsCopied] = useState(false);
 
   const assetsRef = useRef(new AssetManager());
@@ -4892,21 +4893,31 @@ export default function JogoPage() {
     }
   }
 
+  function gerarCodigoFakeNews() {
+    return String(Math.floor(1000000 + Math.random() * 9000000));
+  }
+
+  function montarFakeNewsTransmitida(fake: string, code: string) {
+    return `#${code} SPACE NEWS - ${fake}`;
+  }
+
   function prepararFakeNewsFinal() {
     const current = victoryFakeNews;
     const pool = CHOCADO_FINAL_FAKE_NEWS.filter((item) => item !== current);
     const selected = pool[Math.floor(Math.random() * pool.length)] ?? CHOCADO_FINAL_FAKE_NEWS[0];
+    const newCode = gerarCodigoFakeNews();
     setVictoryFakeNews(selected);
+    setVictoryFakeNewsCode(newCode);
     setVictoryFakeNewsCopied(false);
     try {
-      window.localStorage.setItem("spaceNews.pendingFakeNews", selected);
+      window.localStorage.setItem("spaceNews.pendingFakeNews", montarFakeNewsTransmitida(selected, newCode));
     } catch {}
     return selected;
   }
 
   async function copiarFakeNewsFinal() {
     try {
-      await navigator.clipboard.writeText(victoryFakeNews);
+      await navigator.clipboard.writeText(montarFakeNewsTransmitida(victoryFakeNews, victoryFakeNewsCode));
       setVictoryFakeNewsCopied(true);
       tocarSom(CONFIG.sounds.menuConfirm, 0.28, "menu");
       window.setTimeout(() => setVictoryFakeNewsCopied(false), 1800);
@@ -4917,7 +4928,7 @@ export default function JogoPage() {
 
   function enviarFakeNewsAoSite() {
     try {
-      window.localStorage.setItem("spaceNews.pendingFakeNews", victoryFakeNews);
+      window.localStorage.setItem("spaceNews.pendingFakeNews", montarFakeNewsTransmitida(victoryFakeNews, victoryFakeNewsCode));
       window.localStorage.setItem("spaceNews.pendingFakeNewsAt", String(Date.now()));
     } catch {}
     tocarSom(CONFIG.sounds.fakeNewsTransmit || CONFIG.sounds.menuConfirm, 0.48, "sfx");
@@ -10057,7 +10068,6 @@ export default function JogoPage() {
             className={`game-retro-panel ${menuOpen ? "is-open" : "is-closed"}`}
           >
             <p className="game-panel-label">MENU PRINCIPAL</p>
-
             <div className="game-retro-menu-list">
               {MAIN_MENU_OPTIONS.map((option, index) => {
                 const selected = menuIndex === index;
@@ -10106,7 +10116,6 @@ export default function JogoPage() {
 
           <div className="game-menu-logo">
             <strong>SPACE NEWS</strong>
-            <span>DICA: Daniel vai te avisar quando o perigo estiver perto.</span>
           </div>
         </section>
       )}

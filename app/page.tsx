@@ -1,15 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Tema = "dark" | "light";
+
+type SpaceNewsPayload = {
+  code: string;
+  message: string;
+  raw: string;
+};
+
+function parseSpaceNewsPayload(value: string): SpaceNewsPayload | null {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^#(\d{6,})\s+SPACE\s+NEWS\s*-\s*(.+)$/i);
+  if (!match) return null;
+  return {
+    code: match[1],
+    message: match[2].trim(),
+    raw: trimmed,
+  };
+}
 
 export default function Home() {
   const [modo, setModo] = useState("pergunta");
   const [texto, setTexto] = useState("");
   const [resultado, setResultado] = useState("");
   const [carregando, setCarregando] = useState(false);
-const [mostrarCreditos, setMostrarCreditos] = useState(false);
+  const [mostrarCreditos, setMostrarCreditos] = useState(false);
   const [somAtivo, setSomAtivo] = useState(true);
   const [tema, setTema] = useState<Tema>("dark");
   const [textoGrande, setTextoGrande] = useState(false);
@@ -18,14 +35,15 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
   const [creditoAnimando, setCreditoAnimando] = useState("");
+  const [spaceSignal, setSpaceSignal] = useState<SpaceNewsPayload | null>(null);
 
   const equipe = [
-    { nome: "Nicolas", cargo: "Programador", img: "/team/nicolas.png", som: "nicolas" },
-    { nome: "Antônio William", cargo: "Marketing", img: "/team/antonio.png", som: "antonio" },
+    { nome: "Nicolas", cargo: "Programador / Compositor", img: "/team/nicolas.png", som: "nicolas" },
+    { nome: "Antônio William", cargo: "Marketing / Sugestões", img: "/team/antonio.png", som: "antonio" },
     { nome: "Pedro Kaiki", cargo: "Arte / Direção de Arte", img: "/team/pedro.png", som: "pedro" },
-    { nome: "Kaleb Anthony", cargo: "Design", img: "/team/kaleb.png", som: "kaleb" },
-    { nome: "Pablo Enzo", cargo: "Sugestões", img: "/team/pablo.png", som: "pablo" },
-    { nome: "Magno", cargo: "inserir texto..", img: "/team/magno.png", som: "magno" },
+    { nome: "Kaleb Anthony", cargo: "Designer", img: "/team/kaleb.png", som: "kaleb" },
+    { nome: "Pablo Enzo", cargo: "Pesquisador / Produtor", img: "/team/pablo.png", som: "pablo" },
+    { nome: "Magno", cargo: "Testador / Pesquisador", img: "/team/magno.png", som: "magno" },
   ];
 
   useEffect(() => {
@@ -34,9 +52,25 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
     document.body.classList.toggle("large-text", textoGrande);
   }, [tema, reduzirAnimacoes, textoGrande]);
 
+  useEffect(() => {
+    try {
+      const pending = window.localStorage.getItem("spaceNews.pendingFakeNews");
+      if (!pending) return;
+      const parsed = parseSpaceNewsPayload(pending);
+      if (!parsed) return;
+      setModo("noticia");
+      setTexto(parsed.raw);
+      setSpaceSignal(parsed);
+      window.localStorage.removeItem("spaceNews.pendingFakeNews");
+      window.localStorage.removeItem("spaceNews.pendingFakeNewsAt");
+    } catch {}
+  }, []);
+
+  const spaceSignalInTextbox = useMemo(() => parseSpaceNewsPayload(texto), [texto]);
+  const isSpaceNewsInput = !!spaceSignalInTextbox;
+
   function tocarAudio(nome: string) {
     if (!somAtivo) return;
-
     const audio = new Audio(`/sounds/${nome}.mp3`);
     audio.volume = 0.55;
     audio.play().catch(() => {});
@@ -57,37 +91,25 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
   }
 
   function detectarClassificacao(textoResposta: string) {
-    const texto = textoResposta.toLowerCase();
+    const textoBase = textoResposta.toLowerCase();
 
-    const linhaClassificacao = texto
+    const linhaClassificacao = textoBase
       .split("\n")
-      .find((linha) => linha.includes("classificação"));
+      .find((linha) => linha.includes("classificação") || linha.includes("classificacao"));
 
     if (!linhaClassificacao) return "neutra";
 
     if (linhaClassificacao.includes("❌") || linhaClassificacao.includes("falsa")) return "falsa";
     if (linhaClassificacao.includes("⚠️") || linhaClassificacao.includes("suspeita")) return "suspeita";
-
-    if (
-      linhaClassificacao.includes("❔") ||
-      linhaClassificacao.includes("não confirmado") ||
-      linhaClassificacao.includes("nao confirmado")
-    ) {
+    if (linhaClassificacao.includes("❔") || linhaClassificacao.includes("não confirmado") || linhaClassificacao.includes("nao confirmado")) {
       return "não confirmado";
     }
-
     if (linhaClassificacao.includes("🟡") || linhaClassificacao.includes("parcialmente")) {
       return "parcialmente confiável";
     }
-
-    if (
-      linhaClassificacao.includes("✅") ||
-      linhaClassificacao.includes("confiável") ||
-      linhaClassificacao.includes("confiavel")
-    ) {
+    if (linhaClassificacao.includes("✅") || linhaClassificacao.includes("confiável") || linhaClassificacao.includes("confiavel")) {
       return "confiável";
     }
-
     return "neutra";
   }
 
@@ -96,7 +118,6 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
     setModo(novoModo);
     setResultado("");
     setAnimacaoModo(true);
-
     setTimeout(() => setAnimacaoModo(false), 350);
   }
 
@@ -112,21 +133,46 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
     setResultado("");
 
     try {
+      const payload = parseSpaceNewsPayload(texto);
       const resposta = await fetch("/api/analisar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texto, modo }),
+        body: JSON.stringify({
+          texto,
+          modo,
+          origem: payload ? "space-news" : "site",
+          spaceNewsCode: payload?.code ?? null,
+        }),
       });
 
-      const dados = await resposta.json();
+      const dados = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        throw new Error(dados?.erro || dados?.resposta || "Falha na análise.");
+      }
       const respostaFinal = dados.resposta || "Não foi possível gerar uma resposta.";
 
-      setResultado(respostaFinal);
+      const respostaExibida = payload
+        ? [
+            "📡 TRANSMISSÃO INTERCEPTADA DA SPACE NEWS",
+            `Código do sinal: #${payload.code}`,
+            `Conteúdo analisado: ${payload.message}`,
+            "",
+            "PROTOCOLO XÔ, FALSIANE! ACIONADO",
+            "Este texto foi sinalizado como transmissão narrativa enviada pelo jogo Space News para checagem especial.",
+            "",
+            respostaFinal,
+          ].join("\n")
+        : respostaFinal;
+
+      setResultado(respostaExibida);
 
       const classificacao = detectarClassificacao(respostaFinal);
       tocarSom(classificacao);
-    } catch {
-      setResultado("❌ Opa! Algo deu errado na análise. Tente novamente.");
+    } catch (erro) {
+      console.error("Falha ao analisar conteúdo:", erro);
+      setResultado(
+        "❌ Não foi possível concluir a análise agora. Confira sua conexão e tente novamente em alguns instantes.",
+      );
       tocarSom("falsa");
     } finally {
       setCarregando(false);
@@ -137,6 +183,7 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
     tocarClique();
     setTexto("");
     setResultado("");
+    setSpaceSignal(null);
   }
 
   async function copiarResultado() {
@@ -150,10 +197,10 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
 
   const tituloModo =
     modo === "pergunta"
-      ? "❓ Pergunta direta"
+      ? "Pergunta direta"
       : modo === "noticia"
-      ? "📰 Notícia escrita"
-      : "🔗 Link da notícia";
+      ? "Notícia escrita"
+      : "Link da notícia";
 
   const dicaModo =
     modo === "pergunta"
@@ -163,32 +210,32 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
       : "Cole o link de uma matéria ou portal de notícias.";
 
   return (
-    <main className={`checker-bg min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}>
-   <button
-  onClick={() => {
-    tocarClique();
-    setMenuAberto(!menuAberto);
-  }}
-  className="floating-menu-btn floating-action"
-  data-label="Menu"
-  aria-label="Abrir menu"
->
-  ☰
-</button>
+    <main className={`checker-bg xo-main-page min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}>
+      <button
+        onClick={() => {
+          tocarClique();
+          setMenuAberto(!menuAberto);
+        }}
+        className="floating-menu-btn floating-action"
+        data-label="Menu"
+        aria-label="Abrir menu"
+      >
+        ☰
+      </button>
+
       <a
-  href="/jogo"
-  onClick={() => tocarClique()}
-  className="floating-game-btn floating-action"
-  data-label="Space News (Jogo!)"
-  aria-label="Abrir jogo"
->
-  <img src="/game-icon.png" alt="Jogo" />
-</a>
+        href="/jogo"
+        onClick={() => tocarClique()}
+        className="floating-game-btn floating-action"
+        data-label="Space News (Jogo!)"
+        aria-label="Abrir jogo"
+      >
+        <img src="/game-icon.png" alt="Jogo" />
+      </a>
 
       <aside className={`side-tab ${menuAberto ? "side-tab-open" : ""}`}>
         <div className="side-header">
           <h2>☰ MENU</h2>
-
           <button
             onClick={() => {
               tocarClique();
@@ -269,28 +316,27 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
           >
             {reduzirAnimacoes ? "✨ Ativar animações" : "🧘 Reduzir animações"}
           </button>
-<button
-  onClick={() => {
-    tocarClique();
 
-    if ((window as any).abrirVLibras) {
-      (window as any).abrirVLibras();
-    } else {
-      alert("VLibras ainda não carregou. Aguarde alguns segundos.");
-    }
-  }}
-  className="settings-row"
->
-  🙇 Libras
-</button>
+          <button
+            onClick={() => {
+              tocarClique();
+              if ((window as any).abrirVLibras) {
+                (window as any).abrirVLibras();
+              } else {
+                alert("VLibras ainda não carregou. Aguarde alguns segundos.");
+              }
+            }}
+            className="settings-row"
+          >
+            🙇 Libras
+          </button>
         </div>
 
         <div className="settings-section">
           <h3 className="settings-subtitle">EXTRA</h3>
-
           <a href="/jogo" onClick={() => tocarClique()} className="game-row">
             <img src="/game-icon.png" alt="Space News" />
-            <span>Jogue Nosso Jogo! - Space News</span>
+            <span>Jogue nosso bônus: Space News</span>
           </a>
         </div>
 
@@ -314,50 +360,65 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
         </div>
       </aside>
 
-      <div className="main-content">
-        <section className="glass-panel w-full max-w-5xl rounded-3xl p-6 md:p-10 border-2 border-blue-500/40 shadow-2xl shadow-blue-500/20">
-          <header className="text-center mb-10 header-enter">
-            <p className="text-blue-400 font-semibold mb-2">
-              VERIFIQUE.AI apresenta
+      <div className="main-content xo-main-content">
+        <section className="glass-panel xo-glass-panel w-full max-w-6xl rounded-3xl p-6 md:p-10 border-2 border-blue-500/40 shadow-2xl shadow-blue-500/20">
+          <header className="text-center mb-10 header-enter xo-hero">
+            <p className="xo-hero-kicker">VERIFIQUE.AI apresenta</p>
+            <h1 className="xo-hero-title">Xô, falsiane!</h1>
+            <p className="xo-hero-description">
+              Verifique perguntas, notícias escritas e links suspeitos com ajuda de IA. Um detector educativo com visual moderno,
+              leitura clara e análise rápida.
             </p>
 
-            <h1 className="text-5xl md:text-6xl font-black mb-4">
-              Xô, falsiane!
-            </h1>
-
-            <p className="text-zinc-400 max-w-2xl mx-auto">
-              Verifique perguntas, notícias escritas e links suspeitos com ajuda de IA.
-            </p>
+            <div className="xo-feature-row">
+              <span className="xo-feature-pill">IA de apoio</span>
+              <span className="xo-feature-pill">Leitura de links</span>
+              <span className="xo-feature-pill">Acessibilidade</span>
+              <span className="xo-feature-pill">Integração com Space News</span>
+            </div>
           </header>
 
-          <div className="flex gap-4 mb-8 flex-wrap justify-center">
-            <button
-              onClick={() => trocarModo("pergunta")}
-              className={`mode-btn ${modo === "pergunta" ? "mode-active" : ""}`}
-            >
+          {spaceSignal && (
+            <section className="xo-space-card result-enter">
+              <div className="xo-space-card-top">
+                <span className="xo-space-card-tag">TRANSMISSÃO INTERCEPTADA</span>
+                <span className="xo-space-card-code">#{spaceSignal.code}</span>
+              </div>
+              <h2>Mensagem recebida da Space News</h2>
+              <p>{spaceSignal.message}</p>
+              <small>
+                O detector entrou em modo temático. Você pode analisar essa transmissão ou editar o texto antes de enviar.
+              </small>
+            </section>
+          )}
+
+          <div className="xo-mode-grid">
+            <button onClick={() => trocarModo("pergunta")} className={`mode-btn ${modo === "pergunta" ? "mode-active" : ""}`}>
               ❓ Pergunta Direta
             </button>
-
-            <button
-              onClick={() => trocarModo("noticia")}
-              className={`mode-btn ${modo === "noticia" ? "mode-active" : ""}`}
-            >
+            <button onClick={() => trocarModo("noticia")} className={`mode-btn ${modo === "noticia" ? "mode-active" : ""}`}>
               📰 Notícia Escrita
             </button>
-
-            <button
-              onClick={() => trocarModo("link")}
-              className={`mode-btn ${modo === "link" ? "mode-active" : ""}`}
-            >
+            <button onClick={() => trocarModo("link")} className={`mode-btn ${modo === "link" ? "mode-active" : ""}`}>
               🔗 Link da Notícia
             </button>
           </div>
 
-          <section className={`work-card ${animacaoModo ? "mode-switch" : ""}`}>
+          <section className={`work-card xo-work-card ${animacaoModo ? "mode-switch" : ""}`}>
             <div className="mb-4">
               <h2 className="text-xl font-bold">{tituloModo}</h2>
               <p className="text-zinc-400 text-sm mt-1">{dicaModo}</p>
             </div>
+
+            {isSpaceNewsInput && spaceSignalInTextbox && (
+              <div className="xo-signal-banner">
+                <div>
+                  <strong>SINAL DA SPACE NEWS</strong>
+                  <p>O código #{spaceSignalInTextbox.code} será tratado com uma resposta temática exclusiva.</p>
+                </div>
+                <span>PROTOCOLO ATIVO</span>
+              </div>
+            )}
 
             <textarea
               value={texto}
@@ -374,17 +435,10 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
             />
 
             <div className="flex flex-wrap gap-3 justify-center mt-6">
-              <button
-                onClick={analisar}
-                disabled={carregando}
-                className="primary-btn"
-              >
+              <button onClick={analisar} disabled={carregando} className="primary-btn">
                 {carregando ? "Analisando..." : "Analisar"}
               </button>
-
-              <button onClick={limpar} className="secondary-btn">
-                Limpar
-              </button>
+              <button onClick={limpar} className="secondary-btn">Limpar</button>
             </div>
 
             {carregando && (
@@ -402,76 +456,52 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
               <div className="flex items-center justify-between gap-4 mb-4">
                 <div className="flex items-center gap-2">
                   <span className="text-2xl">🧠</span>
-                  <h2 className="text-xl font-bold text-blue-400">
-                    Resultado da análise
-                  </h2>
+                  <h2 className="text-xl font-bold text-blue-400">Resultado da análise</h2>
                 </div>
-
-                <button onClick={copiarResultado} className="copy-btn">
-                  {copiado ? "Copiado!" : "Copiar"}
-                </button>
+                <button onClick={copiarResultado} className="copy-btn">{copiado ? "Copiado!" : "Copiar"}</button>
               </div>
-
-              <div className="whitespace-pre-wrap leading-relaxed text-zinc-100">
-                {resultado}
-              </div>
+              <div className="whitespace-pre-wrap leading-relaxed text-zinc-100">{resultado}</div>
             </section>
           )}
 
-          <p className="mt-8 text-xs text-zinc-500 text-center">
+          <p className="xo-footer-note mt-8 text-xs text-zinc-500 text-center">
             Esta ferramenta auxilia na análise, mas não substitui checagem em fontes oficiais.
           </p>
 
-          <footer className="mt-10 text-center text-zinc-500 text-sm">
+          <footer className="mt-10 text-center text-zinc-400 text-sm xo-footer-box">
             <p>
               Criado por <span className="text-blue-400">VERIFIQUE.AI</span> • Projeto Xô, falsiane!
             </p>
-            <p className="mt-1">
-              Ferramenta educativa de combate à desinformação.
-            </p>
+            <p className="mt-1">Ferramenta educativa de combate à desinformação.</p>
             <button
-  onClick={() => {
-    tocarClique();
-    setMostrarCreditos(!mostrarCreditos);
-  }}
-  className="credits-toggle"
->
-  {mostrarCreditos ? "Ocultar créditos" : "Ver créditos"}
-</button>
+              onClick={() => {
+                tocarClique();
+                setMostrarCreditos(!mostrarCreditos);
+              }}
+              className="credits-toggle"
+            >
+              {mostrarCreditos ? "Ocultar créditos" : "Ver créditos"}
+            </button>
           </footer>
         </section>
 
         {mostrarCreditos && (
-          <section className="credits-section">
+          <section className="credits-section xo-credits-section">
             <h2>CRÉDITOS</h2>
             <p className="credits-subtitle">Equipe VERIFIQUE.AI</p>
-
             <div className="credits-list">
               {equipe.map((pessoa) => (
                 <button
-                    key={pessoa.nome}
-  className={`credit-row ${
-    creditoAnimando === pessoa.nome
-      ? "credit-jump-play"
-      : ""
-  }`}
-  onClick={() => {
-    tocarAudio(pessoa.som);
-
-    setCreditoAnimando("");
-
-    setTimeout(() => {
-      setCreditoAnimando(pessoa.nome);
-    }, 10);
-
-    setTimeout(() => {
-      setCreditoAnimando("");
-    }, 500);
-  }}
-
+                  key={pessoa.nome}
+                  className={`${creditoAnimando === pessoa.nome ? "credit-jump-play" : ""} credit-row`}
+                  onClick={() => {
+                    tocarAudio(pessoa.som);
+                    setCreditoAnimando("");
+                    setTimeout(() => setCreditoAnimando(pessoa.nome), 10);
+                    setTimeout(() => setCreditoAnimando(""), 500);
+                  }}
                 >
                   <img src={pessoa.img} alt={pessoa.nome} />
-
                   <div>
                     <strong>{pessoa.nome}</strong>
                     <span>{pessoa.cargo}</span>
@@ -484,4 +514,4 @@ const [mostrarCreditos, setMostrarCreditos] = useState(false);
       </div>
     </main>
   );
-}          
+}
