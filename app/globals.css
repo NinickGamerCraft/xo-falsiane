@@ -5391,15 +5391,6 @@ body.reduce-motion *::after {
 
 
 /* ===== PATCH FINAL: Space News /jogo ===== */
-/* No /jogo, VLibras nao deve aparecer por cima do canvas. */
-body.game-page-active [vw],
-body.game-page-active [vw-access-button],
-body.game-page-active .vlibras-container,
-body.game-page-active div[vw-plugin-wrapper] {
-  display: none !important;
-  pointer-events: none !important;
-  visibility: hidden !important;
-}
 
 /* Mobile: restaura o xadrez dourado nas sobras fora do palco 16:9. */
 @media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
@@ -5461,16 +5452,6 @@ a,
   cursor: url("/cursors/pointer.png") 6 2, pointer;
 }
 
-body:has(.game-fullscreen-page) [vw],
-body:has(.game-fullscreen-page) [vw-access-button],
-body:has(.game-fullscreen-page) .vlibras-container,
-body:has(.game-fullscreen-page) .vw-plugin-wrapper,
-body:has(.game-fullscreen-page) div[vw-plugin-wrapper] {
-  display: none !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-  opacity: 0 !important;
-}
 
 /* Mobile: mantém o stage 16:9 e devolve o xadrez dourado nas sobras */
 @media (pointer: coarse) and (max-width: 1200px) and (orientation: landscape) {
@@ -7985,4 +7966,396 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
   }
   .sn-victory-dialog img { width: 68px !important; height: 68px !important; }
   .sn-victory-dialog p { font-size: clamp(13px, 2.1vw, 18px) !important; }
+}
+
+
+/* =========================================================
+   SPACE NEWS V13 — EXTRAS, RANKING, VITÓRIA E PERFORMANCE
+   ========================================================= */
+
+/* VLibras permanece disponível no site e no jogo. */
+[vw], [vw-access-button], .vlibras-container, div[vw-plugin-wrapper] {
+  pointer-events: auto;
+}
+
+.sn-debug-notice {
+  position: fixed;
+  left: 50%;
+  top: 92px;
+  z-index: 130;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border: 2px solid #ffcf55;
+  border-radius: 8px;
+  background: rgba(12, 7, 16, .92);
+  color: #fff0a8;
+  font-size: 15px;
+  letter-spacing: .08em;
+  box-shadow: 0 0 22px rgba(255, 190, 58, .32);
+}
+
+/* EXTRA */
+.sn-extras-screen { z-index: 66; background: rgba(4, 3, 10, .34); }
+.sn-extras-panel {
+  width: min(1120px, 94vw);
+  height: min(760px, 88dvh);
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  overflow: hidden;
+  border: 3px solid rgba(255, 232, 151, .88);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(17, 9, 23, .96), rgba(4, 3, 10, .98));
+  box-shadow: 0 0 60px rgba(194, 75, 255, .18), inset 0 0 50px rgba(255,255,255,.025);
+}
+.sn-extras-header { display:flex; align-items:center; justify-content:space-between; padding:22px 26px 16px; border-bottom:1px solid rgba(255,232,151,.24); }
+.sn-extras-header span { color:#ffd76a; font-size:12px; letter-spacing:.25em; }
+.sn-extras-header h2 { margin:5px 0 0; color:#fff3c4; font-size:42px; line-height:1; }
+.sn-extras-header button, .sn-leaderboard-modal header button { width:52px; height:52px; border:2px solid #d7bb7b; border-radius:10px; background:#1a0c20; color:#fff3c4; font-size:22px; }
+.sn-extras-tabs { display:flex; gap:8px; padding:12px 22px; border-bottom:1px solid rgba(255,232,151,.18); overflow-x:auto; }
+.sn-extras-tabs button { min-width:138px; padding:11px 14px; border:1px solid rgba(255,232,151,.34); border-radius:8px; background:rgba(18,9,24,.8); color:#d7caa5; }
+.sn-extras-tabs button.is-active { color:#160b1b; background:#ffe391; box-shadow:0 0 18px rgba(255,216,100,.24); }
+.sn-extras-content { min-height:0; overflow:auto; padding:24px; }
+.sn-extra-home { display:grid; grid-template-columns:1.15fr 1fr; gap:22px; height:100%; }
+.sn-extra-feature, .sn-extra-shortcuts button, .sn-credits-grid article, .sn-wiki-grid article, .sn-ranking-panel { border:1px solid rgba(255,232,151,.28); border-radius:12px; background:rgba(10,6,15,.76); box-shadow:inset 0 0 24px rgba(255,255,255,.018); }
+.sn-extra-feature { padding:34px; display:flex; flex-direction:column; justify-content:center; }
+.sn-extra-feature small, .sn-wiki-grid small { color:#66d7ff; letter-spacing:.16em; }
+.sn-extra-feature h3 { margin:14px 0; color:#fff1ba; font-size:36px; }
+.sn-extra-feature p, .sn-wiki-grid p, .sn-credits-grid p { color:#d5ccdc; line-height:1.55; }
+.sn-extra-shortcuts { display:grid; gap:12px; }
+.sn-extra-shortcuts button { padding:22px; text-align:left; color:#fff1ba; }
+.sn-extra-shortcuts b { display:block; font-size:23px; margin-bottom:8px; }
+.sn-extra-shortcuts span { color:#bcb1c5; line-height:1.4; }
+.sn-credits-grid, .sn-wiki-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.sn-credits-grid article { display:flex; gap:16px; align-items:center; padding:18px; }
+.sn-credit-avatar { width:58px; height:58px; display:grid; place-items:center; flex:0 0 auto; border:2px solid #ffe391; border-radius:10px; background:linear-gradient(135deg,#5d2172,#101c38); color:#fff5c6; font-size:18px; }
+.sn-credits-grid strong { color:#fff2bc; font-size:20px; }
+.sn-credits-grid p { margin:6px 0 0; }
+.sn-wiki-grid article { padding:20px; }
+.sn-wiki-grid h3 { margin:8px 0 10px; color:#fff1ba; font-size:25px; }
+.sn-ranking-panel { padding:18px; }
+.sn-ranking-panel header { display:flex; justify-content:space-between; align-items:end; margin-bottom:14px; color:#fff0b0; }
+.sn-ranking-panel header small { color:#9d93a6; }
+.sn-ranking-panel ol, .sn-leaderboard-modal ol { list-style:none; margin:0; padding:0; display:grid; gap:7px; }
+.sn-ranking-panel li, .sn-leaderboard-modal li { display:grid; grid-template-columns:50px 1fr auto 55px; gap:12px; align-items:center; padding:12px 14px; border:1px solid rgba(255,232,151,.18); border-radius:8px; background:rgba(2,2,7,.62); color:#e9e0ed; }
+.sn-ranking-panel li b, .sn-leaderboard-modal li b { color:#ffd869; }
+.sn-ranking-panel li span, .sn-leaderboard-modal li span { color:#73ddff; }
+.sn-ranking-panel li em, .sn-leaderboard-modal li em { color:#c57cff; font-style:normal; }
+.sn-ranking-empty { padding:30px; text-align:center; color:#a99faf; }
+
+/* Ranking / prompt */
+.sn-modal-backdrop { position:fixed; inset:0; z-index:180; display:grid; place-items:center; padding:20px; background:rgba(0,0,0,.72); backdrop-filter:blur(5px); }
+.sn-record-modal, .sn-leaderboard-modal { width:min(620px,92vw); max-height:84dvh; overflow:auto; padding:26px; border:3px solid #f2d57e; border-radius:16px; background:linear-gradient(180deg,#160b1d,#05030a); box-shadow:0 0 55px rgba(201,80,255,.24); }
+.sn-record-modal > small, .sn-leaderboard-modal small { color:#68d9ff; letter-spacing:.18em; }
+.sn-record-modal h2, .sn-leaderboard-modal h2 { color:#fff0b1; font-size:36px; margin:10px 0; }
+.sn-record-modal p { color:#d7cddd; line-height:1.5; }
+.sn-record-modal label { display:grid; gap:8px; color:#ffd86c; margin:20px 0; }
+.sn-record-modal input { width:100%; padding:14px 16px; border:2px solid rgba(255,225,137,.55); border-radius:8px; background:#030207; color:#fff; font:inherit; text-transform:uppercase; outline:none; }
+.sn-record-modal input:focus { border-color:#6cddff; box-shadow:0 0 16px rgba(71,206,255,.24); }
+.sn-record-modal > div { display:flex; gap:10px; }
+.sn-record-modal button, .sn-game-over-card button { padding:13px 18px; }
+.sn-leaderboard-modal header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.sn-run-status { margin:8px auto 12px; color:#74dbff; font-size:14px; }
+.sn-run-status.is-debug { color:#ffbd5b; }
+
+/* Vitória — composição mais fechada e cinematográfica */
+.sn-victory-screen { overflow:hidden; background:radial-gradient(circle at 50% 35%,rgba(82,42,110,.28),transparent 48%),#04030a; }
+.sn-victory-shell { position:relative; z-index:8; width:min(900px,88vw); min-height:min(690px,86dvh); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:34px 42px; border:1px solid rgba(255,229,145,.16); border-radius:22px; background:linear-gradient(180deg,rgba(14,8,21,.42),rgba(4,3,10,.20)); }
+.sn-victory-broadcast { position:static !important; transform:none !important; display:flex; flex-direction:column; align-items:center; gap:7px; color:#ffe18b; }
+.sn-victory-broadcast span { font-size:12px; letter-spacing:.22em; }
+.sn-victory-broadcast strong { font-size:18px; color:#70dfff; }
+.sn-victory-title { position:static !important; transform:none !important; text-align:center; }
+.sn-victory-title small { color:#68dcff; letter-spacing:.2em; }
+.sn-victory-title h1 { margin:8px 0 4px !important; font-size:clamp(74px,10vw,140px) !important; line-height:.9; }
+.sn-victory-title span { font-size:17px; color:#fff4d5; }
+.sn-victory-dialog { position:static !important; transform:none !important; width:min(720px,100%) !important; min-height:118px; display:grid; grid-template-columns:86px 1fr; gap:18px; align-items:center; padding:16px 20px; }
+.sn-victory-dialog img { width:78px; height:78px; }
+.sn-victory-dialog p { margin:7px 0 0; font-size:20px; line-height:1.35; }
+.sn-victory-actions { position:static !important; transform:none !important; display:flex; gap:12px; }
+.sn-victory-actions button { min-width:190px; padding:14px 18px; }
+.sn-victory-earth { opacity:.48 !important; transform:scale(.82); transform-origin:bottom right; }
+
+/* Barras de vida inimigas ficam integradas ao sprite; sem CSS extra. */
+
+@media (pointer: coarse) {
+  .sn-modal-backdrop { backdrop-filter:none; }
+  .sn-extras-panel { width:96vw; height:92dvh; border-radius:12px; }
+  .sn-extras-header { padding:14px 16px 10px; }
+  .sn-extras-header h2 { font-size:30px; }
+  .sn-extras-tabs { padding:8px 12px; }
+  .sn-extras-tabs button { min-width:112px; padding:9px 10px; font-size:12px; }
+  .sn-extras-content { padding:14px; }
+  .sn-extra-home { grid-template-columns:1fr; }
+  .sn-extra-feature { padding:20px; }
+  .sn-extra-feature h3 { font-size:27px; }
+  .sn-credits-grid, .sn-wiki-grid { grid-template-columns:1fr; }
+  .sn-ranking-panel li, .sn-leaderboard-modal li { grid-template-columns:38px 1fr auto 42px; gap:6px; padding:10px 8px; font-size:12px; }
+  .sn-victory-shell { width:94vw; min-height:88dvh; padding:22px 18px; gap:12px; }
+  .sn-victory-title h1 { font-size:clamp(58px,14vw,94px) !important; }
+  .sn-victory-title span { font-size:13px; }
+  .sn-victory-dialog { grid-template-columns:66px 1fr; padding:12px 14px; }
+  .sn-victory-dialog img { width:58px; height:58px; }
+  .sn-victory-dialog p { font-size:15px; }
+  .sn-victory-actions button { min-width:0; padding:11px 13px; font-size:12px; }
+}
+
+/* Performance mobile: reduz custo de composição da interface sem remover o estilo. */
+@media (pointer: coarse), (hover: none) {
+  .game-fullscreen-page .sn-player-hud,
+  .game-fullscreen-page .sn-life-panel,
+  .game-fullscreen-page .sn-ability-stack,
+  .game-fullscreen-page .sn-powerup-row,
+  .game-fullscreen-page .sn-boss-tip,
+  .game-fullscreen-page .sn-dialog,
+  .game-fullscreen-page .game-settings-panel,
+  .game-fullscreen-page .sn-extras-panel {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .game-state-playing .sn-ability.is-ready,
+  .game-state-paused .sn-ability.is-ready {
+    animation: none !important;
+    filter: brightness(1.08);
+  }
+
+  .game-state-playing .game-low-hp-vignette,
+  .game-state-tutorial .game-tutorial-task::after {
+    animation-duration: 1.8s !important;
+  }
+
+  .sn-debug-notice {
+    top: 58px;
+    max-width: 78vw;
+    padding: 8px 11px;
+    font-size: 11px;
+    text-align: center;
+  }
+}
+
+/* =========================================================
+   SPACE NEWS V14 — DESEMPENHO / EXTRA / RANKING ONLINE
+   ========================================================= */
+
+/* Seis abas de configuração sem estourar o painel. */
+.game-settings-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  overflow: visible !important;
+}
+
+.game-settings-tabs button {
+  min-width: 0 !important;
+  white-space: nowrap;
+}
+
+/* Créditos com fotos reais da pasta public/team. */
+.sn-credit-avatar {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.sn-credit-avatar > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 0;
+}
+
+.sn-credit-avatar img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: auto;
+}
+
+.sn-credits-grid article {
+  min-height: 94px;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.sn-credits-grid article:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 228, 132, .72);
+  background: linear-gradient(135deg, rgba(45, 17, 55, .78), rgba(8, 16, 34, .82));
+}
+
+/* Wiki clicável com painel de imagem. */
+.sn-wiki-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, .9fr) minmax(360px, 1.1fr);
+  gap: 18px;
+  min-height: 100%;
+}
+
+.sn-wiki-grid {
+  display: grid;
+  grid-template-columns: 1fr !important;
+  align-content: start;
+  gap: 10px;
+}
+
+.sn-wiki-grid button {
+  appearance: none;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 232, 151, .24);
+  border-radius: 11px;
+  background: rgba(8, 5, 14, .72);
+  color: inherit;
+  text-align: left;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.sn-wiki-grid button:hover,
+.sn-wiki-grid button.is-active {
+  transform: translateX(5px);
+  border-color: rgba(105, 218, 255, .72);
+  background: linear-gradient(90deg, rgba(50, 20, 66, .86), rgba(7, 21, 38, .8));
+  box-shadow: 0 0 18px rgba(81, 201, 255, .12);
+}
+
+.sn-wiki-grid button small,
+.sn-wiki-preview small {
+  color: #6ee7ff;
+  letter-spacing: .14em;
+}
+
+.sn-wiki-grid button h3,
+.sn-wiki-preview h3 {
+  margin: 7px 0 8px;
+  color: #fff0b5;
+  font-size: 24px;
+}
+
+.sn-wiki-grid button p,
+.sn-wiki-preview p {
+  margin: 0;
+  color: #cfc5d7;
+  line-height: 1.48;
+}
+
+.sn-wiki-preview {
+  min-height: 440px;
+  display: grid;
+  grid-template-rows: minmax(260px, 1fr) auto;
+  overflow: hidden;
+  border: 2px solid rgba(255, 225, 132, .48);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(167, 75, 255, .2), transparent 42%),
+    linear-gradient(180deg, rgba(12, 7, 19, .92), rgba(3, 4, 11, .92));
+  box-shadow: inset 0 0 36px rgba(255,255,255,.02), 0 0 28px rgba(0,0,0,.28);
+}
+
+.sn-wiki-image-wrap {
+  position: relative;
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(87, 216, 255, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(87, 216, 255, .035) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+.sn-wiki-image-wrap::after {
+  content: "ARQUIVO VISUAL";
+  position: absolute;
+  right: 14px;
+  top: 12px;
+  color: rgba(110, 231, 255, .54);
+  font-size: 10px;
+  letter-spacing: .18em;
+}
+
+.sn-wiki-image-wrap img {
+  max-width: 84%;
+  max-height: 300px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 18px rgba(170, 86, 255, .28));
+}
+
+.sn-wiki-preview > div:last-child {
+  padding: 19px 22px 22px;
+  border-top: 1px solid rgba(255, 232, 151, .18);
+}
+
+/* Ranking online: indicador visual de conexão. */
+.sn-ranking-panel header small,
+.sn-leaderboard-modal header small {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sn-ranking-panel header small::before,
+.sn-leaderboard-modal header small::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #60e6a8;
+  box-shadow: 0 0 9px rgba(96, 230, 168, .7);
+}
+
+/* Mobile / telas menores. */
+@media (max-width: 980px), (pointer: coarse) {
+  .game-settings-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+  }
+
+  .game-settings-tabs button {
+    min-height: 32px !important;
+    padding: 5px 7px !important;
+    font-size: 9px !important;
+  }
+
+  .sn-wiki-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sn-wiki-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .sn-wiki-grid button {
+    padding: 10px 11px;
+  }
+
+  .sn-wiki-grid button h3 {
+    font-size: 16px;
+  }
+
+  .sn-wiki-grid button p {
+    display: none;
+  }
+
+  .sn-wiki-preview {
+    min-height: 260px;
+    grid-template-columns: .8fr 1.2fr;
+    grid-template-rows: 1fr;
+  }
+
+  .sn-wiki-image-wrap {
+    min-height: 220px;
+  }
+
+  .sn-wiki-preview > div:last-child {
+    border-top: 0;
+    border-left: 1px solid rgba(255, 232, 151, .18);
+    padding: 15px;
+  }
+
+  .sn-credit-avatar {
+    width: 52px;
+    height: 52px;
+  }
 }

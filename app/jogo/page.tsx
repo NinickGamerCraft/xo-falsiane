@@ -40,6 +40,7 @@ type GameState =
   | "title"
   | "mainMenu"
   | "settings"
+  | "extras"
   | "storyCutscene"
   | "tutorialChoice"
   | "tutorial"
@@ -50,6 +51,16 @@ type GameState =
   | "victory";
 
 type GameMode = "story" | "infinite";
+
+type ExtraSection = "home" | "credits" | "wiki" | "records";
+
+type LeaderboardEntry = {
+  id: string;
+  name: string;
+  score: number;
+  wave: number;
+  createdAt: number;
+};
 
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
 
@@ -394,7 +405,7 @@ type GameCssVars = CSSProperties & {
 type MenuOption = {
   label: string;
   mode?: GameMode;
-  action?: "settings" | "credits";
+  action?: "settings" | "extras";
   disabled?: boolean;
 };
 
@@ -847,12 +858,12 @@ const CONFIG = {
       chocado: {
         width: 360,
         height: 650,
-        hp: 1000,
-        introBarMs: 2600,
-        introRoarMs: 1500,
+        hp: 500,
+        introBarMs: 650,
+        introRoarMs: 420,
         floatAmplitude: 16,
         floatSpeed: 0.0022,
-        attackDelayMs: 1750,
+        attackDelayMs: 1850,
         servoCountMin: 4,
         servoCountMax: 7,
         servoSpeed: 3.05,
@@ -921,8 +932,8 @@ const CONFIG = {
 
         cannonOrbSpeed: 3.55,
         cannonOrbDamage: 1,
-        enragedHp: 400,
-        enragedAttackRate: 1.08,
+        enragedHp: 250,
+        enragedAttackRate: 1.0,
       },
     },
 
@@ -1156,6 +1167,7 @@ const CONFIG = {
     enableBoostFireSprite: true,
     showFps: false,
     performanceMode: "auto",
+    fpsLimit: "unlimited",
     autoPauseOnBlur: true,
   },
 
@@ -1223,7 +1235,26 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
   { label: "HISTÓRIA", mode: "story" },
   { label: "INFINITO", mode: "infinite" },
   { label: "CONFIGURAÇÕES", action: "settings" },
-  { label: "CRÉDITOS", disabled: true },
+  { label: "EXTRA", action: "extras" },
+];
+
+const LEADERBOARD_KEY = "spaceNews.infiniteLeaderboard.v1";
+const DEBUG_SEQUENCE = "170626";
+
+const EXTRA_CREATORS = [
+  { name: "Nicolas", role: "Programador / Compositor", initials: "NI", image: "/team/nicolas.png" },
+  { name: "Antônio William", role: "Marketing / Sugestões", initials: "AW", image: "/team/antonio.png" },
+  { name: "Kaleb", role: "Designer", initials: "KA", image: "/team/kaleb.png" },
+  { name: "Kaiki", role: "Artista / Diretor de Arte", initials: "PK", image: "/team/pedro.png" },
+  { name: "Pablo", role: "Pesquisador e produtor", initials: "PA", image: "/team/pablo.png" },
+  { name: "Magno", role: "Testador e pesquisador", initials: "MA", image: "/team/magno.png" },
+];
+
+const EXTRA_WIKI = [
+  { name: "CLEBER", tag: "PILOTO", image: "/game/wiki/cleber.png", text: "Estudante e piloto da Space News. Enfrenta o exército da desinformação em campo." },
+  { name: "DANIEL", tag: "COMUNICAÇÃO", image: "/game/wiki/daniel.png", text: "Analista e operador de missão. Monitora ameaças, rotas e padrões inimigos." },
+  { name: "CHOCADO", tag: "AMEAÇA PRINCIPAL", image: "/game/wiki/chocado.png", text: "Comandante dos portais e das máquinas de desinformação. Seu núcleo muda de padrão em combate." },
+  { name: "SPACE NEWS", tag: "NAVE", image: "/game/wiki/space-news.png", text: "Nave experimental equipada com tiros, boost, esquiva e módulos temporários." },
 ];
 
 const TUTORIAL_ORDER: TutorialStep[] = ["move", "shot", "strong", "boost", "dodge", "done"];
@@ -1316,7 +1347,7 @@ type GameSettingKey = keyof typeof CONFIG.settings;
 type GameSettingOption = {
   key: GameSettingKey;
   label: string;
-  category: "ÁUDIO" | "VISUAL" | "ACESSIBILIDADE" | "MOBILE" | "CONTROLES";
+  category: "ÁUDIO" | "VISUAL" | "DESEMPENHO" | "ACESSIBILIDADE" | "MOBILE" | "CONTROLES";
   kind: "toggle" | "range" | "select" | "keybind";
   min?: number;
   max?: number;
@@ -1348,6 +1379,7 @@ const MOBILE_CONTROL_LABELS: Record<MobileControlId, string> = {
 const SETTINGS_SECTIONS = [
   "ÁUDIO",
   "VISUAL",
+  "DESEMPENHO",
   "ACESSIBILIDADE",
   "MOBILE",
   "CONTROLES",
@@ -1435,16 +1467,24 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
   {
     key: "performanceMode" as GameSettingKey,
-    label: "Modo de desempenho",
-    category: "VISUAL",
+    label: "Perfil gráfico",
+    category: "DESEMPENHO",
     kind: "select",
     values: ["auto", "performance", "quality"],
     formatter: (v) => String(v) === "performance" ? "DESEMPENHO" : String(v) === "quality" ? "QUALIDADE" : "AUTOMÁTICO",
   },
   {
+    key: "fpsLimit" as GameSettingKey,
+    label: "Limite de FPS",
+    category: "DESEMPENHO",
+    kind: "select",
+    values: ["5", "10", "20", "30", "50", "60", "90", "120", "144", "240", "unlimited"],
+    formatter: (v) => String(v) === "unlimited" ? "SEM LIMITE" : `${String(v)} FPS`,
+  },
+  {
     key: "showFps" as GameSettingKey,
     label: "Mostrar contador de FPS",
-    category: "VISUAL",
+    category: "DESEMPENHO",
     kind: "toggle",
   },
 
@@ -1561,7 +1601,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260614-v12-performance-mobile-boss";
+const ASSET_VERSION = "space-news-20260615-v14-online-fps-infinite-audio";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -2055,6 +2095,18 @@ export default function JogoPage() {
 
   const menuIndexRef = useRef(0);
   const [menuIndex, setMenuIndex] = useState(0);
+  const [extrasSection, setExtrasSection] = useState<ExtraSection>("home");
+  const [selectedWikiCharacter, setSelectedWikiCharacter] = useState(0);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardStatus, setLeaderboardStatus] = useState<"loading" | "online" | "offline">("loading");
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [recordPromptOpen, setRecordPromptOpen] = useState(false);
+  const [recordName, setRecordName] = useState("");
+  const recordPromptShownRef = useRef(false);
+  const debugSequenceRef = useRef("");
+  const debugUnlockedRef = useRef(false);
+  const debugUsedRef = useRef(false);
+  const [debugNotice, setDebugNotice] = useState("");
 
   const settingsIndexRef = useRef(0);
   const [settingsIndex, setSettingsIndex] = useState(0);
@@ -2224,6 +2276,10 @@ export default function JogoPage() {
   const [, setShieldActive] = useState(false);
   const powerGlowRef = useRef({ color: "", endAt: 0 });
   const audioPoolRef = useRef(new Map<string, HTMLAudioElement[]>());
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioBufferCacheRef = useRef(new Map<string, AudioBuffer>());
+  const audioBufferLoadingRef = useRef(new Map<string, Promise<AudioBuffer | null>>());
+  const lastSoundPlayedAtRef = useRef(new Map<string, number>());
   const powerUpTrailAudiosRef = useRef(new Map<number, HTMLAudioElement>());
   const audioPoolIndexRef = useRef(new Map<string, number>());
   const slowPlayerUntilRef = useRef(0);
@@ -2529,6 +2585,100 @@ export default function JogoPage() {
     setStoryIndex(index);
   }
 
+  function abrirExtras(section: ExtraSection = "home") {
+    tocarSom(CONFIG.sounds.menuConfirm, 0.42, "menu");
+    setExtrasSection(section);
+    if (section === "records") carregarLeaderboardOnline().catch(() => {});
+    setLeaderboardOpen(false);
+    setEstado("extras");
+  }
+
+  function voltarDosExtras() {
+    tocarSom(CONFIG.sounds.menuBack, 0.36, "menu");
+    setLeaderboardOpen(false);
+    setExtrasSection("home");
+    setEstado("mainMenu");
+  }
+
+  function ordenarLeaderboard(entries: LeaderboardEntry[]) {
+    return [...entries]
+      .sort((a, b) => b.score - a.score || b.wave - a.wave || a.createdAt - b.createdAt)
+      .slice(0, 10);
+  }
+
+  function salvarLeaderboardLocal(entries: LeaderboardEntry[]) {
+    const ordered = ordenarLeaderboard(entries);
+    setLeaderboard(ordered);
+    try {
+      window.localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(ordered));
+    } catch {}
+    return ordered;
+  }
+
+  async function carregarLeaderboardOnline() {
+    setLeaderboardStatus("loading");
+    try {
+      const response = await fetch("/api/leaderboard", { cache: "no-store" });
+      if (!response.ok) throw new Error(`Leaderboard HTTP ${response.status}`);
+      const data = (await response.json()) as { entries?: LeaderboardEntry[] };
+      const entries = ordenarLeaderboard(Array.isArray(data.entries) ? data.entries : []);
+      salvarLeaderboardLocal(entries);
+      setLeaderboardStatus("online");
+      return entries;
+    } catch {
+      setLeaderboardStatus("offline");
+      try {
+        const raw = window.localStorage.getItem(LEADERBOARD_KEY);
+        const parsed = raw ? JSON.parse(raw) as LeaderboardEntry[] : [];
+        const entries = ordenarLeaderboard(Array.isArray(parsed) ? parsed : []);
+        setLeaderboard(entries);
+        return entries;
+      } catch {
+        setLeaderboard([]);
+        return [];
+      }
+    }
+  }
+
+  function pontuacaoQualifica(scoreValue: number, waveValue: number) {
+    if (scoreValue <= 0) return false;
+    if (leaderboard.length < 10) return true;
+    const last = leaderboard[leaderboard.length - 1];
+    return scoreValue > last.score || (scoreValue === last.score && waveValue > last.wave);
+  }
+
+  async function registrarRecordeAtual() {
+    const cleanName = recordName.trim().replace(/\s+/g, " ").slice(0, 16);
+    if (!cleanName || debugUsedRef.current || currentModeRef.current !== "infinite") return;
+
+    const entry: LeaderboardEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: cleanName,
+      score: scoreRef.current,
+      wave: Math.max(1, gameOverWave),
+      createdAt: Date.now(),
+    };
+
+    try {
+      const response = await fetch("/api/leaderboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: entry.name, score: entry.score, wave: entry.wave }),
+      });
+      if (!response.ok) throw new Error(`Leaderboard HTTP ${response.status}`);
+      const data = (await response.json()) as { entries?: LeaderboardEntry[] };
+      salvarLeaderboardLocal(Array.isArray(data.entries) ? data.entries : [entry, ...leaderboard]);
+      setLeaderboardStatus("online");
+    } catch {
+      salvarLeaderboardLocal([entry, ...leaderboard]);
+      setLeaderboardStatus("offline");
+    }
+
+    setRecordPromptOpen(false);
+    setLeaderboardOpen(true);
+    tocarSom(CONFIG.sounds.menuConfirm, 0.5, "menu");
+  }
+
 
   function criarAlvoTutorial(step: TutorialStep) {
     const baseX = CONFIG.canvasWidth - 300;
@@ -2737,14 +2887,66 @@ export default function JogoPage() {
     return allowed;
   }
 
+  function obterAudioContext() {
+    if (typeof window === "undefined") return null;
+    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return null;
+    if (!audioContextRef.current) audioContextRef.current = new AudioContextCtor();
+    if (audioContextRef.current.state === "suspended") audioContextRef.current.resume().catch(() => {});
+    return audioContextRef.current;
+  }
+
+  function carregarBufferAudio(src: string) {
+    const cached = audioBufferCacheRef.current.get(src);
+    if (cached) return Promise.resolve(cached);
+    const existing = audioBufferLoadingRef.current.get(src);
+    if (existing) return existing;
+
+    const promise = (async () => {
+      try {
+        const context = obterAudioContext();
+        if (!context) return null;
+        const response = await fetch(assetUrl(src));
+        if (!response.ok) return null;
+        const buffer = await response.arrayBuffer();
+        const decoded = await context.decodeAudioData(buffer.slice(0));
+        audioBufferCacheRef.current.set(src, decoded);
+        return decoded;
+      } catch {
+        return null;
+      } finally {
+        audioBufferLoadingRef.current.delete(src);
+      }
+    })();
+
+    audioBufferLoadingRef.current.set(src, promise);
+    return promise;
+  }
+
+  function tocarSomWebAudio(src: string, volume: number) {
+    const context = obterAudioContext();
+    if (!context) return false;
+    const buffer = audioBufferCacheRef.current.get(src);
+    if (!buffer) {
+      carregarBufferAudio(src).catch(() => {});
+      return false;
+    }
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = buffer;
+    gain.gain.value = volume;
+    source.connect(gain);
+    gain.connect(context.destination);
+    source.start(0);
+    return true;
+  }
+
   function tocarSom(
     src: string,
     volume = 0.45,
     category: "menu" | "hit" | "ability" | "sfx" = "sfx",
   ) {
-    if (!CONFIG.useSounds || !src || CONFIG.settings.masterVolume <= 0) {
-      return;
-    }
+    if (!CONFIG.useSounds || !src || CONFIG.settings.masterVolume <= 0) return;
 
     const categoryVolume =
       category === "menu"
@@ -2755,17 +2957,25 @@ export default function JogoPage() {
             ? CONFIG.settings.abilityVolume
             : CONFIG.settings.sfxVolume;
 
-    const finalVolume = clamp(
-      volume * CONFIG.settings.masterVolume * categoryVolume,
-      0,
-      1,
-    );
+    const finalVolume = clamp(volume * CONFIG.settings.masterVolume * categoryVolume, 0, 1);
+    const frequent = src.includes("game-shot") || src.includes("enemy-hit") || src.includes("enemy-shot");
+
+    if (frequent) {
+      const now = performance.now();
+      const minGap = src.includes("game-shot") ? 24 : 18;
+      const lastAt = lastSoundPlayedAtRef.current.get(src) ?? -Infinity;
+      if (now - lastAt < minGap) return;
+      lastSoundPlayedAtRef.current.set(src, now);
+      if (tocarSomWebAudio(src, finalVolume)) return;
+    }
 
     let pool = audioPoolRef.current.get(src);
     if (!pool) {
-      pool = Array.from({ length: 14 }, () => {
-        const audio = new Audio(src);
+      const poolSize = frequent ? 10 : 3;
+      pool = Array.from({ length: poolSize }, () => {
+        const audio = new Audio(assetUrl(src));
         audio.preload = "auto";
+        audio.load();
         return audio;
       });
       audioPoolRef.current.set(src, pool);
@@ -2777,16 +2987,14 @@ export default function JogoPage() {
     audioPoolIndexRef.current.set(src, (nextIndex + 1) % pool.length);
 
     try {
+      audio.pause();
       audio.currentTime = 0;
+      audio.playbackRate = 0.98 + Math.random() * 0.04;
       audio.volume = finalVolume;
       audio.play().catch(() => {});
-    } catch {
-      const fallback = new Audio(src);
-      fallback.preload = "auto";
-      fallback.volume = finalVolume;
-      fallback.play().catch(() => {});
-    }
+    } catch {}
   }
+
 
   function tocarLoopPowerUpTrail(id: number) {
     if (
@@ -2798,6 +3006,10 @@ export default function JogoPage() {
     }
 
     if (powerUpTrailAudiosRef.current.has(id)) return;
+    const reducedAudio =
+      window.matchMedia("(pointer: coarse)").matches ||
+      String(CONFIG.settings.performanceMode) === "performance";
+    if (reducedAudio || powerUpTrailAudiosRef.current.size >= 2) return;
 
     const audio = new Audio(CONFIG.sounds.powerUpTrail);
     audio.loop = true;
@@ -3087,6 +3299,13 @@ export default function JogoPage() {
     setFlashSnapshot("");
     setGameOverTaunt(GAME_OVER_TAUNTS[0]);
     setGameOverWave(0);
+    debugSequenceRef.current = "";
+    debugUnlockedRef.current = false;
+    debugUsedRef.current = false;
+    recordPromptShownRef.current = false;
+    setRecordPromptOpen(false);
+    setLeaderboardOpen(false);
+    setDebugNotice("");
 
     setEstado("playing");
   }
@@ -3577,6 +3796,11 @@ export default function JogoPage() {
 
     if (option.action === "settings") {
       abrirConfiguracoes();
+      return;
+    }
+
+    if (option.action === "extras") {
+      abrirExtras();
       return;
     }
 
@@ -4198,13 +4422,13 @@ export default function JogoPage() {
     const targetX = sequence.bossTargetX;
 
     let stage: BossIntroStage = "falseClear";
-    if (elapsed >= 2500) stage = "sensor";
-    if (elapsed >= 5000) stage = "approach";
-    if (elapsed >= 6800) stage = "grab";
-    if (elapsed >= 8200) stage = "drag";
-    if (elapsed >= 10400) stage = "throw";
-    if (elapsed >= 11600) stage = "impact";
-    if (elapsed >= 13200) stage = "battle";
+    if (elapsed >= 1900) stage = "sensor";
+    if (elapsed >= 3500) stage = "approach";
+    if (elapsed >= 4350) stage = "grab";
+    if (elapsed >= 5350) stage = "drag";
+    if (elapsed >= 7600) stage = "throw";
+    if (elapsed >= 9000) stage = "impact";
+    if (elapsed >= 10250) stage = "battle";
 
     if (stage !== sequence.stage) {
       sequence.lastStage = sequence.stage;
@@ -4212,9 +4436,8 @@ export default function JogoPage() {
       setBossCinematicStage(stage);
 
       if (stage === "sensor") {
-        mostrarDanielBoss(BOSS_DANIEL_LINES.sensor, 2500);
-        tocarSom(CONFIG.sounds.danielRadioStatic || CONFIG.sounds.tutorialWarning, 0.42, "sfx");
-        shakeRef.current = { intensity: 2.5, endAt: now + 650 };
+        mostrarDanielBoss(BOSS_DANIEL_LINES.sensor, 1700);
+        tocarSom(CONFIG.sounds.danielRadioStatic || CONFIG.sounds.tutorialWarning, 0.38, "sfx");
       }
 
       if (stage === "approach") {
@@ -4230,134 +4453,130 @@ export default function JogoPage() {
         };
         setWaveUi({ mode: "story", wave: CONFIG.gameplay.storyWaves.bossWave, active: true, bossWave: true, message: "" });
         spawnBossChocado(true);
-        bossRef.current.x = CONFIG.canvasWidth + 180;
+        bossRef.current.x = CONFIG.canvasWidth + 80;
         bossRef.current.intro = true;
         bossRef.current.nextAttackAt = now + 999999;
-        mostrarDanielBoss(BOSS_DANIEL_LINES.warning, 3000);
-        tocarSom(CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoRoar, 0.62, "sfx");
+        mostrarDanielBoss(BOSS_DANIEL_LINES.warning, 2200);
+        tocarSom(CONFIG.sounds.chocadoWarning || CONFIG.sounds.chocadoRoar, 0.68, "sfx");
       }
 
       if (stage === "grab") {
         tocarMusicaChocado();
-        tocarSom(CONFIG.sounds.chocadoGrab || CONFIG.sounds.chocadoRoar, 0.86, "sfx");
-        player.stretchUntil = now + 1200;
-        player.stretchVx = -13;
+        tocarSom(CONFIG.sounds.chocadoGrab || CONFIG.sounds.chocadoRoar, 0.90, "sfx");
+        player.stretchUntil = now + 900;
+        player.stretchVx = -15;
         player.stretchVy = 0;
-        shakeRef.current = { intensity: 10, endAt: now + 950 };
+        shakeRef.current = { intensity: 10, endAt: now + 800 };
       }
 
       if (stage === "drag") {
-        tocarSom(CONFIG.sounds.chocadoDash || CONFIG.sounds.chocadoGrab, 0.78, "sfx");
-        shakeRef.current = { intensity: 16, endAt: now + 2100 };
+        tocarSom(CONFIG.sounds.chocadoDash || CONFIG.sounds.chocadoGrab, 0.82, "sfx");
+        shakeRef.current = { intensity: 15, endAt: now + 2100 };
       }
 
       if (stage === "throw") {
-        tocarSom(CONFIG.sounds.chocadoRelease || CONFIG.sounds.chocadoDash, 0.78, "sfx");
-        criarExplosao(player.x + player.w * 0.5, player.y + player.h * 0.5, "#fff1a8", 52);
-        shockwavesRef.current.push({
-          id: enemyIdRef.current++,
-          x: player.x + player.w * 0.5,
-          y: player.y + player.h * 0.5,
-          radius: 520,
-          life: 900,
-          maxLife: 900,
-        });
+        tocarSom(CONFIG.sounds.chocadoRelease || CONFIG.sounds.chocadoDash, 0.75, "sfx");
+        criarExplosao(player.x + player.w * 0.5, player.y + player.h * 0.5, "#fff1a8", 28);
       }
 
       if (stage === "impact" && !sequence.impactTriggered) {
         sequence.impactTriggered = true;
-        tocarSom(CONFIG.sounds.explosion, 0.82, "sfx");
-        criarExplosao(76, player.y + player.h * 0.5, "#60eaff", 72);
-        criarExplosao(90, player.y + player.h * 0.5, "#fff1a8", 54);
         shockwavesRef.current.push({
           id: enemyIdRef.current++,
-          x: 72,
-          y: player.y + player.h * 0.5,
-          radius: 860,
-          life: 1200,
-          maxLife: 1200,
+          x: CONFIG.canvasWidth * 0.42,
+          y: CONFIG.canvasHeight * 0.50,
+          radius: 480,
+          life: 760,
+          maxLife: 760,
         });
-        shakeRef.current = { intensity: 22, endAt: now + 1200 };
+        shakeRef.current = { intensity: 8, endAt: now + 620 };
       }
     }
 
     boss.age += delta;
 
     if (stage === "approach") {
-      const p = clamp((elapsed - 5000) / 1800, 0, 1);
-      const eased = 1 - Math.pow(1 - p, 3);
-      boss.x = CONFIG.canvasWidth + 180 + (targetX - (CONFIG.canvasWidth + 180)) * eased;
-      boss.y = (CONFIG.canvasHeight - boss.h) / 2 + Math.sin(now * 0.008) * 10;
-      backgroundOffsetRef.current -= delta * (0.20 + p * 0.35);
+      // O Chocado entra rápido e, assim que fica visível, já inicia o agarrão.
+      const p = clamp((elapsed - 3500) / 850, 0, 1);
+      const eased = 1 - Math.pow(1 - p, 4);
+      boss.x = CONFIG.canvasWidth + 80 + (targetX - (CONFIG.canvasWidth + 80)) * eased;
+      boss.y = (CONFIG.canvasHeight - boss.h) / 2;
+      backgroundOffsetRef.current -= delta * (0.30 + p * 0.75);
     } else if (stage === "grab") {
-      const p = clamp((elapsed - 6800) / 1400, 0, 1);
+      const p = clamp((elapsed - 4350) / 1000, 0, 1);
       const eased = 1 - Math.pow(1 - p, 3);
       boss.x = targetX;
       const gripX = boss.x + boss.w * 0.08 - player.w * 0.55;
       const gripY = boss.y + boss.h * 0.50 - player.h * 0.5;
       player.x = sequence.playerStartX + (gripX - sequence.playerStartX) * eased;
       player.y = sequence.playerStartY + (gripY - sequence.playerStartY) * eased;
-      backgroundOffsetRef.current -= delta * 0.65;
+      backgroundOffsetRef.current -= delta * 1.05;
     } else if (stage === "drag") {
-      const p = clamp((elapsed - 8200) / 2200, 0, 1);
-      boss.x = targetX - Math.sin(p * Math.PI) * 160;
-      boss.y = (CONFIG.canvasHeight - boss.h) / 2 + Math.sin(p * Math.PI * 2) * 18;
+      const p = clamp((elapsed - 5350) / 2250, 0, 1);
+      boss.x = targetX - Math.sin(p * Math.PI) * 120;
+      boss.y = (CONFIG.canvasHeight - boss.h) / 2 + Math.sin(p * Math.PI * 2) * 14;
       player.x = boss.x + boss.w * 0.08 - player.w * 0.55;
       player.y = boss.y + boss.h * 0.50 - player.h * 0.5;
-      player.tilt = -0.22;
-      backgroundOffsetRef.current -= delta * (1.85 + Math.sin(p * Math.PI) * 1.1);
-      if (CONFIG.settings.enableParticles && Math.random() < 0.48) {
+      player.tilt = -0.20;
+      backgroundOffsetRef.current -= delta * (2.25 + Math.sin(p * Math.PI) * 1.15);
+      if (CONFIG.settings.enableParticles && Math.random() < (window.matchMedia("(pointer: coarse)").matches ? 0.12 : 0.32)) {
         particlesRef.current.push({
           id: enemyIdRef.current++,
           x: player.x + player.w * 0.35,
-          y: player.y + player.h * rand(0.2, 0.8),
-          vx: rand(5, 10),
-          vy: rand(-1.8, 1.8),
-          size: rand(3, 8),
-          life: 420,
-          maxLife: 420,
+          y: player.y + player.h * rand(0.25, 0.75),
+          vx: rand(5, 9),
+          vy: rand(-1.5, 1.5),
+          size: rand(3, 7),
+          life: 360,
+          maxLife: 360,
           color: Math.random() < 0.5 ? "#ff4fd8" : "#60eaff",
         });
       }
     } else if (stage === "throw") {
-      const p = clamp((elapsed - 10400) / 1200, 0, 1);
-      const startX = targetX - 60;
-      const endX = 48;
-      const arc = Math.sin(p * Math.PI) * 95;
-      player.x = startX + (endX - startX) * p;
-      player.y = clamp(sequence.playerStartY - arc, 48, CONFIG.canvasHeight - player.h - 48);
-      player.tilt = -0.45 + p * 0.18;
-      boss.x = targetX + p * 72;
-      backgroundOffsetRef.current -= delta * 0.9;
+      // Em vez de parecer uma troca de cenário, o jogador volta suavemente ao centro-esquerda.
+      const p = clamp((elapsed - 7600) / 1400, 0, 1);
+      const eased = p * p * (3 - 2 * p);
+      const startX = targetX - 65;
+      const startY = boss.y + boss.h * 0.50 - player.h * 0.5;
+      const endX = CONFIG.canvasWidth * 0.36 - player.w * 0.5;
+      const endY = CONFIG.canvasHeight * 0.52 - player.h * 0.5;
+      player.x = startX + (endX - startX) * eased;
+      player.y = startY + (endY - startY) * eased - Math.sin(p * Math.PI) * 54;
+      player.tilt = -0.30 * (1 - p);
+      boss.x = targetX + p * 42;
+      backgroundOffsetRef.current -= delta * 0.55;
     } else if (stage === "impact") {
-      player.x = 48 + Math.sin(now * 0.05) * 3;
-      player.vx = 0;
-      player.vy = 0;
-      player.tilt *= 0.82;
+      const p = clamp((elapsed - 9000) / 1250, 0, 1);
+      const endX = 150;
+      const endY = CONFIG.canvasHeight / 2 - player.h / 2;
+      player.x += (endX - player.x) * Math.min(1, 0.045 + p * 0.06);
+      player.y += (endY - player.y) * Math.min(1, 0.045 + p * 0.06);
+      player.tilt *= 0.85;
       boss.x += (targetX - boss.x) * 0.08;
     } else if (stage === "battle") {
       sequence.active = false;
       setBossCinematicStage("idle");
-      player.x = 118;
+      player.x = 150;
       player.y = CONFIG.canvasHeight / 2 - player.h / 2;
-      player.vx = 5.5;
+      player.vx = 2.4;
       player.vy = 0;
       player.tilt = 0;
-      player.invincibleUntil = now + 1900;
+      player.invincibleUntil = now + 1500;
       boss.x = targetX;
-      boss.intro = true;
-      boss.introStartedAt = now;
-      boss.roarDone = false;
-      boss.nextAttackAt = now + CONFIG.gameplay.boss.chocado.introBarMs + CONFIG.gameplay.boss.chocado.introRoarMs + CONFIG.gameplay.boss.chocado.attackDelayMs;
+      // Na história a barra já entra praticamente cheia: sem uma segunda espera longa.
+      boss.intro = false;
+      boss.battleStartedAt = now;
+      boss.roarDone = true;
+      boss.nextAttackAt = now + CONFIG.gameplay.boss.chocado.attackDelayMs;
       mostrarBossTipInicial();
-      mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 4400);
-      tocarSom(CONFIG.sounds.bossIntro, 0.66, "sfx");
+      mostrarDanielBoss(BOSS_DANIEL_LINES.bossIntro, 3900);
+      tocarSom(CONFIG.sounds.bossIntro, 0.62, "sfx");
       return false;
     }
 
     player.vx = 0;
     player.vy = 0;
-    player.invincibleUntil = now + 2000;
+    player.invincibleUntil = now + 1600;
     return true;
   }
 
@@ -4452,10 +4671,28 @@ export default function JogoPage() {
       const mirror = mirrorLane(lane);
       const roll = Math.random();
       const earlyWave = waveNumber <= 3;
+      const evolutionTier = Math.min(6, Math.floor(Math.max(0, waveNumber) / 50));
 
+      // A cada 50 waves surgem formações novas. O número de inimigos continua controlado,
+      // então a evolução muda o padrão sem transformar a tela em uma parede impossível.
+      if (evolutionTier >= 1 && i % Math.max(3, 7 - evolutionTier) === 1) {
+        if (evolutionTier % 3 === 1) {
+          events.push({ at: time, kind: "purple", y: lane });
+          events.push({ at: time + 420, kind: "red" });
+          events.push({ at: time + 860, kind: "purple", y: mirror });
+        } else if (evolutionTier % 3 === 2 && waveNumber >= cfg.blackFromWave) {
+          events.push({ at: time, kind: "black", y: lane });
+          events.push({ at: time + 760, kind: "purple", y: mirror });
+        } else if (waveNumber >= cfg.alienFromWave) {
+          events.push({ at: time, kind: "alien", y: lane });
+          events.push({ at: time + 820, kind: "red" });
+        } else {
+          events.push({ at: time, kind: "purple", y: lane });
+          events.push({ at: time + 540, kind: "purple", y: mirror });
+        }
       // No começo, o jogo favorece roxos, mas ainda varia.
-      // Depois, mistura formações simétricas e threats especiais.
-      if (earlyWave) {
+      // Depois, mistura formações simétricas e ameaças especiais.
+      } else if (earlyWave) {
         if (roll < 0.68) {
           events.push({ at: time, kind: "purple", y: lane });
           if (Math.random() < 0.28) {
@@ -4667,10 +4904,17 @@ export default function JogoPage() {
     }, 4400);
   }
 
+  function bonusDanoInfinito() {
+    if (currentModeRef.current !== "infinite") return 0;
+    return Math.min(8, Math.floor(Math.max(0, waveStateRef.current.wave) / 75));
+  }
+
   function aplicarDificuldadeWave(inicio: number, difficulty: number) {
     const waveNumber = waveStateRef.current.wave;
-    const hpBonus = Math.floor(waveNumber / 32);
-    const speedScale = Math.min(1.55, 1 + Math.max(0, difficulty - 1) * 0.18);
+    const hpBonus = currentModeRef.current === "infinite"
+      ? Math.min(6, Math.floor(Math.max(0, waveNumber) / 50))
+      : 0;
+    const speedScale = Math.min(1.48, 1 + Math.max(0, difficulty - 1) * 0.16);
 
     for (const enemy of enemiesRef.current.slice(inicio)) {
       if (enemy.kind !== "fragment") {
@@ -5161,7 +5405,9 @@ export default function JogoPage() {
     };
 
     tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.abilityReady, 0.5, "ability");
-    criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, glowColor, 18);
+    const pickupParticles =
+      typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches ? 7 : 14;
+    criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, glowColor, pickupParticles);
 
     if (kind === "randomBox") {
       aplicarPowerUpAleatorio();
@@ -5327,12 +5573,13 @@ export default function JogoPage() {
         const parsed = JSON.parse(savedSettings) as Partial<typeof CONFIG.settings>;
         Object.assign(CONFIG.settings, parsed);
       }
-      if (settingsVersion !== "v12") {
+      if (settingsVersion !== "v14") {
         CONFIG.settings.mobileScale = Math.max(0.90, Number(CONFIG.settings.mobileScale) || 0.90);
         CONFIG.settings.performanceMode = "auto";
         CONFIG.settings.showFps = false;
+        CONFIG.settings.fpsLimit = String(CONFIG.settings.fpsLimit || "unlimited");
         window.localStorage.setItem("spaceNews.settings", JSON.stringify(CONFIG.settings));
-        window.localStorage.setItem("spaceNews.settingsVersion", "v12");
+        window.localStorage.setItem("spaceNews.settingsVersion", "v14");
       }
       setSettingsSnapshot({ ...CONFIG.settings });
 
@@ -5351,6 +5598,24 @@ export default function JogoPage() {
       }
     } catch {}
   }, []);
+
+  useEffect(() => {
+    carregarLeaderboardOnline().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (gameState !== "gameOver") return;
+    if (recordPromptShownRef.current) return;
+    recordPromptShownRef.current = true;
+    const eligible =
+      currentModeRef.current === "infinite" &&
+      !debugUsedRef.current &&
+      pontuacaoQualifica(scoreRef.current, Math.max(1, gameOverWave));
+    if (eligible) {
+      setRecordName("");
+      setRecordPromptOpen(true);
+    }
+  }, [gameState, gameOverWave, leaderboard]);
 
   useEffect(() => {
     if (gameState !== "victory") {
@@ -5384,43 +5649,64 @@ export default function JogoPage() {
 
   useEffect(() => {
     assetsRef.current.loadAll();
+
+    const warmSounds = [
+      CONFIG.sounds.normalShot,
+      CONFIG.sounds.enemyShot,
+      CONFIG.sounds.enemyHit,
+      CONFIG.sounds.powerUpPickup,
+      CONFIG.sounds.powerUpSpawn,
+      CONFIG.sounds.goldenHeart,
+      CONFIG.sounds.randomPowerUp,
+      CONFIG.sounds.badPowerUp,
+      CONFIG.sounds.flamesStart,
+      CONFIG.sounds.chocadoLaser,
+      CONFIG.sounds.chocadoLaserCharge,
+      CONFIG.sounds.chocadoLaserFire,
+      CONFIG.sounds.chocadoOrb,
+    ].filter(Boolean);
+
+    for (const src of warmSounds) {
+      const frequent = src === CONFIG.sounds.normalShot || src === CONFIG.sounds.enemyShot || src === CONFIG.sounds.enemyHit;
+      if (frequent) {
+        carregarBufferAudio(src).catch(() => {});
+        continue;
+      }
+      if (audioPoolRef.current.has(src)) continue;
+      const audio = new Audio(assetUrl(src));
+      audio.preload = "auto";
+      audio.load();
+      audioPoolRef.current.set(src, [audio]);
+      audioPoolIndexRef.current.set(src, 0);
+    }
+
+    const warmImages = [
+      CONFIG.uiImages.powerRegen,
+      CONFIG.uiImages.powerFireRate,
+      CONFIG.uiImages.powerTripleRegen,
+      CONFIG.uiImages.powerShield,
+      CONFIG.uiImages.powerPowerShot,
+      CONFIG.uiImages.powerHomingShot,
+      CONFIG.uiImages.powerFlames,
+      CONFIG.uiImages.powerGoldenHeart,
+      CONFIG.uiImages.powerRandomBox,
+    ];
+    for (const src of warmImages) {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = assetUrl(src);
+      void image.decode?.().catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
-    // Evita que o VLibras do site principal apareça dentro do jogo.
-    // Ele continua funcionando normalmente em /, mas fica oculto em /jogo.
-    document.body.classList.add("game-page-active");
-
-    const hideVlibras = () => {
-      const selectors = [
-        "[vw]",
-        "[vw-access-button]",
-        ".vlibras-container",
-        "div[vw-plugin-wrapper]",
-      ];
-
-      for (const selector of selectors) {
-        document.querySelectorAll<HTMLElement>(selector).forEach((element) => {
-          element.dataset.spaceNewsHidden = "true";
-          element.style.setProperty("display", "none", "important");
-          element.style.setProperty("pointer-events", "none", "important");
-        });
-      }
-    };
-
-    hideVlibras();
-    const timer = window.setInterval(hideVlibras, 700);
-
-    return () => {
-      document.body.classList.remove("game-page-active");
-      window.clearInterval(timer);
-
-      document.querySelectorAll<HTMLElement>("[data-space-news-hidden='true']").forEach((element) => {
-        element.style.removeProperty("display");
-        element.style.removeProperty("pointer-events");
-        delete element.dataset.spaceNewsHidden;
-      });
-    };
+    // O VLibras deve continuar disponível tanto no site quanto no jogo.
+    document.body.classList.remove("game-page-active");
+    document.querySelectorAll<HTMLElement>("[data-space-news-hidden='true']").forEach((element) => {
+      element.style.removeProperty("display");
+      element.style.removeProperty("pointer-events");
+      delete element.dataset.spaceNewsHidden;
+    });
   }, []);
 
   useEffect(() => {
@@ -5549,6 +5835,7 @@ export default function JogoPage() {
 
     let animationFrame = 0;
     let lastTime = performance.now();
+    let lastRenderedAt = 0;
     const mobileLike = window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
     const lowHardware = (navigator.hardwareConcurrency || 8) <= 4;
 
@@ -5561,15 +5848,15 @@ export default function JogoPage() {
 
     function limitarObjetosPesados() {
       const reduced = usarEfeitosReduzidos();
-      const projectileCap = reduced ? 54 : 110;
+      const projectileCap = reduced ? 34 : 105;
       if (bossProjectilesRef.current.length > projectileCap) {
         const beams = bossProjectilesRef.current.filter((projectile) => projectile.kind === "laser" || projectile.kind === "aimLaser");
         const others = bossProjectilesRef.current.filter((projectile) => projectile.kind !== "laser" && projectile.kind !== "aimLaser");
         bossProjectilesRef.current = [...beams, ...others.slice(-Math.max(0, projectileCap - beams.length))];
       }
-      const particleCap = reduced ? 82 : 190;
+      const particleCap = reduced ? 54 : 175;
       if (particlesRef.current.length > particleCap) particlesRef.current = particlesRef.current.slice(-particleCap);
-      const shockwaveCap = reduced ? 10 : 20;
+      const shockwaveCap = reduced ? 5 : 18;
       if (shockwavesRef.current.length > shockwaveCap) shockwavesRef.current = shockwavesRef.current.slice(-shockwaveCap);
     }
 
@@ -5622,7 +5909,7 @@ export default function JogoPage() {
 
       const range = cfg.flamesRange * (powerActive ? 1.18 : 1);
       const cone = cfg.flamesConeWidth * (powerActive ? 1.45 : 1);
-      const damage = (cfg.flamesDamagePerSecond / 30) * (powerActive ? 3 : 1);
+      const damage = ((cfg.flamesDamagePerSecond + bonusDanoInfinito()) / 30) * (powerActive ? 3 : 1);
       const killed = new Set<number>();
 
       const damageEnemy = (enemy: Enemy) => {
@@ -5794,7 +6081,8 @@ export default function JogoPage() {
         speed: shotSpeed,
         damage:
           CONFIG.gameplay.shots.normal.damage *
-          (powerActive ? CONFIG.gameplay.powerups.powerShotDamageMultiplier : 1),
+          (powerActive ? CONFIG.gameplay.powerups.powerShotDamageMultiplier : 1) +
+          bonusDanoInfinito(),
         type: "normal",
         variant: powerActive && homingActive ? "powerHoming" : powerActive ? "power" : homingActive ? "homing" : "normal",
         vx: shotSpeed,
@@ -5829,7 +6117,7 @@ export default function JogoPage() {
         w: CONFIG.gameplay.shots.strong.width,
         h: CONFIG.gameplay.shots.strong.height,
         speed: CONFIG.gameplay.shots.strong.speed,
-        damage: CONFIG.gameplay.shots.strong.damage,
+        damage: CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito(),
         type: "strong",
         vx: dir.x * CONFIG.gameplay.shots.strong.speed,
         vy: dir.y * CONFIG.gameplay.shots.strong.speed,
@@ -6245,17 +6533,29 @@ export default function JogoPage() {
         getStretchPulse(enemy.stretchUntil, "enemy"),
       );
 
-      ctx.save();
-      ctx.fillStyle = "rgba(0,0,0,0.72)";
-      ctx.fillRect(enemy.x, enemy.y - 10, enemy.w, 5);
-      ctx.fillStyle = "#f8e7b0";
-      ctx.fillRect(
-        enemy.x,
-        enemy.y - 10,
-        enemy.w * (enemy.hp / enemy.maxHp),
-        5,
-      );
-      ctx.restore();
+      if (enemy.kind !== "fragment") {
+        const hpRatio = clamp(enemy.hp / Math.max(1, enemy.maxHp), 0, 1);
+        const barW = Math.max(34, Math.min(enemy.w * 0.72, 108));
+        const barH = enemy.kind === "black" || enemy.kind === "alien" ? 7 : 5;
+        const barX = enemy.x + (enemy.w - barW) / 2;
+        const barY = enemy.y - 13;
+        ctx.save();
+        ctx.globalAlpha = hpRatio < 0.999 ? 1 : 0.72;
+        ctx.fillStyle = "rgba(5,3,10,0.88)";
+        roundRect(ctx, barX - 3, barY - 3, barW + 6, barH + 6, 3);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,236,161,0.72)";
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, barX - 3, barY - 3, barW + 6, barH + 6, 3);
+        ctx.stroke();
+        const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+        gradient.addColorStop(0, hpRatio < 0.35 ? "#ff365f" : "#ff8a3d");
+        gradient.addColorStop(1, hpRatio < 0.35 ? "#ffb15c" : "#ffe78a");
+        ctx.fillStyle = gradient;
+        roundRect(ctx, barX, barY, barW * hpRatio, barH, 2);
+        ctx.fill();
+        ctx.restore();
+      }
 
       if (enemy.kind === "black" && enemy.age < enemy.windUpMs) {
         ctx.save();
@@ -6366,14 +6666,17 @@ export default function JogoPage() {
     function spawnBossLaser(pattern: "x" | "triple") {
       const cfg = CONFIG.gameplay.boss.chocado;
       const now = performance.now();
-      const life = cfg.laserTelegraphMs + cfg.laserActiveMs;
+      const reduced = usarEfeitosReduzidos();
+      const activeMs = reduced ? Math.min(900, cfg.laserActiveMs) : cfg.laserActiveMs;
+      const life = cfg.laserTelegraphMs + activeMs;
 
       const boss = bossRef.current;
       if (pattern === "x") {
         const offsets = cfg.attackOffsets.laserX;
         const originX = boss.x + boss.w * 0.26 + offsets.x;
         const originY = boss.y + boss.h * 0.5 + offsets.y;
-        for (const spreadAngle of [0.43, -0.43]) {
+        const angles = reduced ? [0.34] : [0.43, -0.43];
+        for (const spreadAngle of angles) {
           const angle = Math.PI + spreadAngle;
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
@@ -6394,7 +6697,8 @@ export default function JogoPage() {
       } else {
         const offsets = cfg.attackOffsets.tripleLaser;
         const originX = boss.x + boss.w * 0.24 + offsets.x;
-        const lanes = offsets.lanesY.map((laneY) => laneY + offsets.y);
+        const allLanes = offsets.lanesY.map((laneY) => laneY + offsets.y);
+        const lanes = reduced ? [allLanes[Math.floor(allLanes.length / 2)]] : allLanes;
         for (const y of lanes) {
           bossProjectilesRef.current.push({
             id: bossProjectileIdRef.current++,
@@ -6783,15 +7087,15 @@ export default function JogoPage() {
       const boss = bossRef.current;
       const cfg = CONFIG.gameplay.boss.chocado;
       const enraged = boss.hp <= cfg.enragedHp;
-      const advanced = boss.hp <= Math.max(cfg.enragedHp + 300, 700);
+      const advanced = boss.hp <= 390;
       const now = performance.now();
       const recent = bossAttackHistoryRef.current.slice(-2);
 
       const pool = enraged
         ? [3, 4, 5, 6, 7, 8, 9, 6, 7]
         : advanced
-          ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-          : [0, 1, 2, 3, 4, 5, 9];
+          ? [0, 1, 2, 3, 4, 5, 6, 7, 9, 6]
+          : [0, 1, 2, 3, 4, 5, 9, 4];
       const possible = pool.filter((attackId) => !recent.includes(attackId));
       const usable = possible.length > 0 ? possible : pool.filter((attackId) => attackId !== boss.attackIndex);
       const attack = usable[Math.floor(Math.random() * usable.length)];
@@ -7301,6 +7605,16 @@ export default function JogoPage() {
         ctx.translate(projectile.x, projectile.y);
         ctx.rotate(projectile.angle ?? Math.PI);
         ctx.globalCompositeOperation = reduced ? "source-over" : "lighter";
+        if (!reduced && String(CONFIG.settings.performanceMode) === "quality") {
+          ctx.save();
+          ctx.globalAlpha = 0.22;
+          ctx.shadowColor = beamColor;
+          ctx.shadowBlur = 30;
+          ctx.fillStyle = beamColor;
+          ctx.fillRect(0, -drawHeight * 0.78, projectile.w, drawHeight * 1.56);
+          ctx.restore();
+          ctx.globalCompositeOperation = "lighter";
+        }
         ctx.globalAlpha = 0.94;
         ctx.fillStyle = beamColor;
         ctx.fillRect(0, -drawHeight / 2, projectile.w, drawHeight);
@@ -8295,8 +8609,9 @@ export default function JogoPage() {
 
         if (boosting && !boostHitEnemiesRef.current.has(-9999)) {
           boostHitEnemiesRef.current.add(-9999);
-          const danoBoostBoss = Math.min(CONFIG.gameplay.boost.damage, Math.max(0, boss.hp));
-          boss.hp -= CONFIG.gameplay.boost.damage;
+          const boostDamage = CONFIG.gameplay.boost.damage + bonusDanoInfinito();
+          const danoBoostBoss = Math.min(boostDamage, Math.max(0, boss.hp));
+          boss.hp -= boostDamage;
           carregarBoostPorDano(danoBoostBoss);
           tentarSpawnPowerUp(bossHitbox.x, hitCenterY, true);
           criarExplosao(bossHitbox.x, hitCenterY, "#fb8500", 18);
@@ -8343,10 +8658,10 @@ export default function JogoPage() {
 
             boostHitEnemiesRef.current.add(enemy.id);
             const danoBoostAplicado = Math.min(
-              CONFIG.gameplay.boost.damage,
+              CONFIG.gameplay.boost.damage + bonusDanoInfinito(),
               Math.max(0, enemy.hp),
             );
-            enemy.hp -= CONFIG.gameplay.boost.damage;
+            enemy.hp -= CONFIG.gameplay.boost.damage + bonusDanoInfinito();
             carregarBoostPorDano(danoBoostAplicado);
             criarExplosao(
               enemy.x + enemy.w / 2,
@@ -8984,7 +9299,16 @@ export default function JogoPage() {
     }
 
     function loop(time: number) {
-      const delta = Math.min(32, time - lastTime);
+      const reducedNow = usarEfeitosReduzidos();
+      const fpsLimitSetting = String(CONFIG.settings.fpsLimit ?? "unlimited");
+      const fpsLimitValue = fpsLimitSetting === "unlimited" ? 0 : Math.max(5, Number(fpsLimitSetting) || 0);
+      const targetFrameMs = fpsLimitValue > 0 ? 1000 / fpsLimitValue : 0;
+      if (targetFrameMs > 0 && time - lastRenderedAt < targetFrameMs) {
+        animationFrame = window.requestAnimationFrame(loop);
+        return;
+      }
+      lastRenderedAt = time;
+      const elapsedSinceRender = Math.min(250, Math.max(0, time - lastTime));
       lastTime = time;
 
       const fpsCounter = fpsCounterRef.current;
@@ -8993,12 +9317,17 @@ export default function JogoPage() {
         fpsCounter.value = Math.max(1, Math.round((fpsCounter.frames * 1000) / Math.max(1, time - fpsCounter.lastAt)));
         fpsCounter.frames = 0;
         fpsCounter.lastAt = time;
-        setFpsUi(fpsCounter.value);
+        if (CONFIG.settings.showFps) setFpsUi(fpsCounter.value);
       }
 
       limitarObjetosPesados();
       aplicarPixelArt(renderCtx);
-      atualizar(delta, renderCanvas);
+      let simulationRemaining = elapsedSinceRender;
+      do {
+        const simulationStep = Math.min(32, simulationRemaining || 16.67);
+        atualizar(simulationStep, renderCanvas);
+        simulationRemaining -= simulationStep;
+      } while (simulationRemaining > 0.5);
       atualizarGameOverCutscene();
 
       const shake = shakeRef.current;
@@ -9012,7 +9341,7 @@ export default function JogoPage() {
         renderCtx.translate(x, y);
       }
 
-      desenharFundo(renderCtx, renderCanvas, delta);
+      desenharFundo(renderCtx, renderCanvas, elapsedSinceRender);
 
       for (const shot of shotsRef.current) desenharTiro(renderCtx, shot);
       for (const enemy of enemiesRef.current) desenharEnemy(renderCtx, enemy);
@@ -9032,7 +9361,7 @@ export default function JogoPage() {
         gameStateRef.current === "paused" ||
         gameStateRef.current === "gameOverCutscene"
       ) {
-        desenharPlayer(renderCtx, delta);
+        desenharPlayer(renderCtx, elapsedSinceRender);
       }
 
       renderCtx.restore();
@@ -9043,6 +9372,10 @@ export default function JogoPage() {
 
     function keyDown(e: KeyboardEvent) {
       const key = e.key.toLowerCase();
+
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
 
       if (keyBindCaptureRef.current) {
         e.preventDefault();
@@ -9120,6 +9453,13 @@ export default function JogoPage() {
         }
       }
 
+      if (gameStateRef.current === "extras") {
+        if (key === "escape" || key === "q") {
+          voltarDosExtras();
+          return;
+        }
+      }
+
       if (gameStateRef.current === "settings") {
         if (key === "escape" || key === "q") {
           voltarDasConfiguracoes();
@@ -9168,6 +9508,19 @@ export default function JogoPage() {
           return;
         }
 
+        if (/^[0-9]$/.test(key)) {
+          debugSequenceRef.current = `${debugSequenceRef.current}${key}`.slice(-DEBUG_SEQUENCE.length);
+          if (debugSequenceRef.current === DEBUG_SEQUENCE && !debugUnlockedRef.current) {
+            debugUnlockedRef.current = true;
+            debugUsedRef.current = true;
+            setDebugNotice("MODO DE TESTE ATIVADO — RANKING DESABILITADO");
+            tocarSom(CONFIG.sounds.abilityReady || CONFIG.sounds.menuConfirm, 0.72, "ability");
+            window.setTimeout(() => setDebugNotice(""), 4200);
+            return;
+          }
+        }
+
+        if (debugUnlockedRef.current) {
         if (key === "7") {
           const wave = waveStateRef.current;
           enemiesRef.current = [];
@@ -9240,6 +9593,7 @@ export default function JogoPage() {
         if (key === "-") spawnEnemy("asteroid");
         if (key === "1") spawnPowerUp("goldenHeart", playerRef.current.x + playerRef.current.w, playerRef.current.y + playerRef.current.h / 2);
         if (key === "2") spawnPowerUp("randomBox", playerRef.current.x + playerRef.current.w, playerRef.current.y + playerRef.current.h / 2);
+        }
       }
 
       if (gameStateRef.current === "gameOver") {
@@ -9442,6 +9796,7 @@ export default function JogoPage() {
 
       {(gameState === "mainMenu" ||
         gameState === "settings" ||
+        gameState === "extras" ||
         gameState === "tutorialChoice") && (
         <img
           className="game-bg-image game-bg-image-menu"
@@ -9577,6 +9932,8 @@ export default function JogoPage() {
         <div className={`sn-fps-counter ${fpsUi < 40 ? "is-low" : ""}`}>{fpsUi} FPS</div>
       )}
 
+      {debugNotice && <div className="sn-debug-notice">{debugNotice}</div>}
+
       {bossTipVisible &&
         (gameState === "playing" || gameState === "paused") &&
         waveUi.bossWave && (
@@ -9594,7 +9951,7 @@ export default function JogoPage() {
             <p><b>ORBITAIS:</b> mantenha distância média e atravesse os espaços.</p>
             <p><b>LASERS:</b> siga o aviso luminoso e mude de faixa.</p>
             <p><b>SERVOS:</b> destrua ou use Dodge no último instante.</p>
-            <p><b>FASE 2:</b> abaixo de 400 HP, ele combina padrões.</p>
+            <p><b>FASE 2:</b> abaixo de 250 HP, ele entra na segunda fase.</p>
           </aside>
         )}
 
@@ -9664,6 +10021,11 @@ export default function JogoPage() {
                         return;
                       }
 
+                      if (option.action === "extras") {
+                        abrirExtras();
+                        return;
+                      }
+
                       if (option.mode) {
                         escolherModo(option.mode);
                       }
@@ -9683,6 +10045,101 @@ export default function JogoPage() {
             <strong>SPACE NEWS</strong>
             <span>DICA: Daniel vai te avisar quando o perigo estiver perto.</span>
           </div>
+        </section>
+      )}
+
+      {gameState === "extras" && (
+        <section className="game-screen sn-extras-screen">
+          <aside className="sn-extras-panel">
+            <header className="sn-extras-header">
+              <div>
+                <span>ARQUIVO SPACE NEWS</span>
+                <h2>EXTRA</h2>
+              </div>
+              <button type="button" onClick={voltarDosExtras} aria-label="Fechar extras">X</button>
+            </header>
+
+            <nav className="sn-extras-tabs">
+              {[
+                ["home", "CENTRAL"],
+                ["credits", "CRÉDITOS"],
+                ["wiki", "ARQUIVOS"],
+                ["records", "RANKING"],
+              ].map(([id, label]) => (
+                <button key={id} className={extrasSection === id ? "is-active" : ""} onClick={() => setExtrasSection(id as ExtraSection)}>
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="sn-extras-content">
+              {extrasSection === "home" && (
+                <div className="sn-extra-home">
+                  <div className="sn-extra-feature">
+                    <small>TRANSMISSÃO RECUPERADA</small>
+                    <h3>BASTIDORES DA MISSÃO</h3>
+                    <p>Conheça a equipe, consulte os arquivos dos personagens e veja os melhores resultados do modo Infinito.</p>
+                  </div>
+                  <div className="sn-extra-shortcuts">
+                    <button onClick={() => setExtrasSection("credits")}><b>EQUIPE</b><span>Quem construiu o Xô, falsiane! e o Space News.</span></button>
+                    <button onClick={() => setExtrasSection("wiki")}><b>ARQUIVOS</b><span>Personagens, nave e ameaça principal.</span></button>
+                    <button onClick={() => setExtrasSection("records")}><b>RANKING</b><span>Ranking online do modo Infinito.</span></button>
+                  </div>
+                </div>
+              )}
+
+              {extrasSection === "credits" && (
+                <div className="sn-credits-grid">
+                  {EXTRA_CREATORS.map((creator) => (
+                    <article key={creator.name}>
+                      <span className="sn-credit-avatar">
+                        <span>{creator.initials}</span>
+                        <img src={assetUrl(creator.image)} alt={creator.name} onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                      </span>
+                      <div><strong>{creator.name}</strong><p>{creator.role}</p></div>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              {extrasSection === "wiki" && (
+                <div className="sn-wiki-layout">
+                  <div className="sn-wiki-grid">
+                    {EXTRA_WIKI.map((entry, index) => (
+                      <button type="button" key={entry.name} className={selectedWikiCharacter === index ? "is-active" : ""} onClick={() => setSelectedWikiCharacter(index)}>
+                        <small>{entry.tag}</small>
+                        <h3>{entry.name}</h3>
+                        <p>{entry.text}</p>
+                      </button>
+                    ))}
+                  </div>
+                  <article className="sn-wiki-preview">
+                    <div className="sn-wiki-image-wrap">
+                      <img src={assetUrl(EXTRA_WIKI[selectedWikiCharacter].image)} alt={EXTRA_WIKI[selectedWikiCharacter].name} onError={(event) => { event.currentTarget.style.opacity = "0"; }} />
+                    </div>
+                    <div><small>{EXTRA_WIKI[selectedWikiCharacter].tag}</small><h3>{EXTRA_WIKI[selectedWikiCharacter].name}</h3><p>{EXTRA_WIKI[selectedWikiCharacter].text}</p></div>
+                  </article>
+                </div>
+              )}
+
+              {extrasSection === "records" && (
+                <div className="sn-ranking-panel">
+                  <header><span>TOP 10 ONLINE</span><small>{leaderboardStatus === "online" ? "Competição global" : leaderboardStatus === "loading" ? "Conectando..." : "Modo offline · dados locais"}</small></header>
+                  {leaderboard.length === 0 ? (
+                    <p className="sn-ranking-empty">Nenhum registro ainda. Entre no modo Infinito e conquiste o primeiro lugar.</p>
+                  ) : (
+                    <ol>
+                      {leaderboard.map((entry, index) => (
+                        <li key={entry.id}>
+                          <b>#{index + 1}</b><strong>{entry.name}</strong><span>{entry.score.toString().padStart(6, "0")} pts</span><em>W{entry.wave}</em>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              )}
+            </div>
+          </aside>
         </section>
       )}
 
@@ -9999,14 +10456,52 @@ export default function JogoPage() {
             <p>{gameOverTaunt}</p>
             <span className="game-over-wave">VOCÊ CAIU NA WAVE {gameOverWave}</span>
             <h1>GAME OVER</h1>
+            {currentModeRef.current === "infinite" && (
+              <div className={`sn-run-status ${debugUsedRef.current ? "is-debug" : ""}`}>
+                {debugUsedRef.current
+                  ? "PARTIDA DE TESTE — PONTUAÇÃO FORA DO RANKING"
+                  : `PONTUAÇÃO ${score.toString().padStart(6, "0")}`}
+              </div>
+            )}
             <button
               onClick={() => iniciarJogo(currentModeRef.current ?? "infinite")}
             >
               TENTAR NOVAMENTE
             </button>
+            {currentModeRef.current === "infinite" && (
+              <button onClick={() => { setLeaderboardOpen(true); carregarLeaderboardOnline().catch(() => {}); }}>VER RANKING</button>
+            )}
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
         </section>
+      )}
+
+      {recordPromptOpen && gameState === "gameOver" && (
+        <div className="sn-modal-backdrop">
+          <section className="sn-record-modal" role="dialog" aria-modal="true" aria-labelledby="record-title">
+            <small>NOVO REGISTRO DETECTADO</small>
+            <h2 id="record-title">ENTRAR NO RANKING?</h2>
+            <p>Sua transmissão alcançou <b>{score.toString().padStart(6, "0")}</b> pontos na Wave <b>{gameOverWave}</b>.</p>
+            <label>CODINOME DO PILOTO
+              <input value={recordName} onChange={(event) => setRecordName(event.target.value)} maxLength={16} autoFocus placeholder="Digite seu nome" />
+            </label>
+            <div>
+              <button onClick={registrarRecordeAtual} disabled={!recordName.trim()}>REGISTRAR</button>
+              <button onClick={() => setRecordPromptOpen(false)}>AGORA NÃO</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {leaderboardOpen && (
+        <div className="sn-modal-backdrop">
+          <section className="sn-leaderboard-modal" role="dialog" aria-modal="true">
+            <header><div><small>{leaderboardStatus === "online" ? "TRANSMISSÃO ONLINE" : "ARQUIVO LOCAL"}</small><h2>RANKING INFINITO</h2></div><button onClick={() => setLeaderboardOpen(false)}>X</button></header>
+            {leaderboard.length === 0 ? <p className="sn-ranking-empty">Nenhuma pontuação registrada.</p> : (
+              <ol>{leaderboard.map((entry, index) => <li key={entry.id}><b>#{index + 1}</b><strong>{entry.name}</strong><span>{entry.score.toString().padStart(6, "0")}</span><em>W{entry.wave}</em></li>)}</ol>
+            )}
+          </section>
+        </div>
       )}
 
       {gameState === "victory" && (
@@ -10016,35 +10511,37 @@ export default function JogoPage() {
           <div className="sn-victory-scanlines" />
           <div className="sn-victory-earth" />
           <div className="sn-victory-ship" />
-          <div className="sn-victory-broadcast">
-            <span>CANAL SPACE NEWS</span>
-            <strong>{victoryStep === 0 ? "RECUPERANDO TRANSMISSÃO" : "SINAL RESTAURADO"}</strong>
+          <div className="sn-victory-shell">
+            <div className="sn-victory-broadcast">
+              <span>CANAL SPACE NEWS</span>
+              <strong>{victoryStep === 0 ? "SINCRONIZANDO SINAL" : "TRANSMISSÃO RESTAURADA"}</strong>
+            </div>
+            {victoryStep >= 1 && (
+              <div className="sn-victory-title">
+                <small>MISSÃO CONCLUÍDA</small>
+                <h1>VITÓRIA!</h1>
+                <span>A TERRA FOI SALVA DA DESINFORMAÇÃO</span>
+              </div>
+            )}
+            <div className="sn-victory-dialog sn-dialog">
+              <img src={assetUrl(getDanielIcon("happy", danielMouthOpen))} alt="Daniel" draggable={false} />
+              <div>
+                <strong>DANIEL</strong>
+                <p>
+                  {victoryStep === 0 && "Cleber... os sensores estão voltando. Mantém a nave estável."}
+                  {victoryStep === 1 && "Confirmado! O núcleo do Chocado foi destruído. Os portais estão fechando."}
+                  {victoryStep === 2 && "O sinal da Terra voltou ao ar. Conseguimos, parceiro!"}
+                  {victoryStep >= 3 && "Missão encerrada. Pode trazer a Space News para casa."}
+                </p>
+              </div>
+            </div>
+            {victoryStep >= 3 && (
+              <div className="sn-victory-actions">
+                <button onClick={() => iniciarJogo("story")}>JOGAR NOVAMENTE</button>
+                <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+              </div>
+            )}
           </div>
-          <div className="sn-victory-dialog sn-dialog">
-            <img src={assetUrl(getDanielIcon("happy", danielMouthOpen))} alt="Daniel" draggable={false} />
-            <div>
-              <strong>DANIEL</strong>
-              <p>
-                {victoryStep === 0 && "Cleber... os sensores estão voltando. Aguenta só mais um instante."}
-                {victoryStep === 1 && "Confirmado! O núcleo do Chocado foi destruído e os portais estão fechando."}
-                {victoryStep === 2 && "Conseguimos! Os portais estão fechando e o sinal da Terra voltou ao ar."}
-                {victoryStep >= 3 && "Missão encerrada, parceiro. A Space News está voltando para casa."}
-              </p>
-            </div>
-          </div>
-          {victoryStep >= 2 && (
-            <div className="sn-victory-title">
-              <small>MISSÃO CONCLUÍDA</small>
-              <h1>VITÓRIA!</h1>
-              <span>A TERRA FOI SALVA DA DESINFORMAÇÃO</span>
-            </div>
-          )}
-          {victoryStep >= 3 && (
-            <div className="sn-victory-actions">
-              <button onClick={() => iniciarJogo("story")}>JOGAR NOVAMENTE</button>
-              <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
-            </div>
-          )}
         </section>
       )}
 
