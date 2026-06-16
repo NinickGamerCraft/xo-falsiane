@@ -10144,3 +10144,256 @@ html.xo-drawer-open body {
     max-height: calc(var(--sn-app-height, 100dvh) - 150px) !important;
   }
 }
+
+/* =========================================================
+   V21 — VLibras apenas no Xô, portais, mobile estável
+   ========================================================= */
+
+/* VLibras só aparece no site principal. */
+body.game-page-active [vw],
+body.game-page-active [vw-access-button],
+body.game-page-active .vlibras-container,
+body.game-page-active div[vw-plugin-wrapper] {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+body.xo-page-active [vw],
+body.xo-page-active [vw-access-button],
+body.xo-page-active .vlibras-container,
+body.xo-page-active div[vw-plugin-wrapper] {
+  pointer-events: auto !important;
+}
+
+/* Lista de fontes no menu lateral do Xô, falsiane! */
+.trusted-portals {
+  margin-top: 10px;
+}
+
+.trusted-portals > p {
+  margin: 10px 4px;
+  color: rgba(226, 235, 255, 0.72);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.trusted-portals-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.trusted-portals-list a {
+  display: grid;
+  gap: 3px;
+  padding: 10px 11px;
+  border: 1px solid rgba(83, 133, 255, 0.23);
+  border-radius: 12px;
+  background: rgba(12, 20, 38, 0.76);
+  color: #eef5ff;
+  text-decoration: none;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.trusted-portals-list a:hover,
+.trusted-portals-list a:focus-visible {
+  border-color: rgba(90, 157, 255, 0.72);
+  background: rgba(27, 48, 88, 0.86);
+  transform: translateY(-1px);
+}
+
+.trusted-portals-list strong {
+  font-size: 13px;
+  color: #ffffff;
+}
+
+.trusted-portals-list span {
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(199, 218, 255, 0.68);
+}
+
+/* Voltar ao site principal a partir do menu do Space News. */
+.game-return-site-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 2px solid rgba(255, 226, 139, 0.58);
+  border-radius: 9px;
+  background: rgba(255, 222, 121, 0.08);
+  color: #ffe9a8;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-decoration: none;
+}
+
+.game-return-site-button:hover,
+.game-return-site-button:focus-visible {
+  background: rgba(255, 222, 121, 0.18);
+  border-color: #ffe7a0;
+}
+
+/* Área 16:9 real para Android e iOS, com xadrez dos dois lados. */
+@media (pointer: coarse) and (orientation: landscape) {
+  .sn-game-mounted .game-fullscreen-page {
+    --sn-safe-left: env(safe-area-inset-left, 0px);
+    --sn-safe-right: env(safe-area-inset-right, 0px);
+    --sn-safe-top: env(safe-area-inset-top, 0px);
+    --sn-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --sn-content-w: calc(var(--sn-visible-w) - var(--sn-safe-left) - var(--sn-safe-right));
+    --sn-content-h: calc(var(--sn-visible-h) - var(--sn-safe-top) - var(--sn-safe-bottom));
+    --stage-w: min(var(--sn-content-w), calc(var(--sn-content-h) * 16 / 9));
+    --stage-h: min(var(--sn-content-h), calc(var(--sn-content-w) * 9 / 16));
+    --stage-left: calc(var(--sn-safe-left) + (var(--sn-content-w) - var(--stage-w)) / 2);
+    --stage-top: calc(var(--sn-safe-top) + (var(--sn-content-h) - var(--stage-h)) / 2);
+    background-color: #1a0e12 !important;
+    background-image:
+      linear-gradient(45deg, rgba(255, 211, 104, 0.08) 25%, transparent 25%),
+      linear-gradient(-45deg, rgba(255, 211, 104, 0.08) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, rgba(255, 211, 104, 0.08) 75%),
+      linear-gradient(-45deg, transparent 75%, rgba(255, 211, 104, 0.08) 75%) !important;
+    background-size: 34px 34px !important;
+    background-position: 0 0, 0 17px, 17px -17px, -17px 0 !important;
+  }
+
+  .sn-game-mounted .game-fullscreen-canvas,
+  .sn-game-mounted .game-title-bg-transition,
+  .sn-game-mounted .game-screen-fade,
+  .sn-game-mounted .game-low-hp-vignette,
+  .sn-game-mounted .game-screen,
+  .sn-game-mounted .game-bg-image {
+    left: var(--stage-left) !important;
+    top: var(--stage-top) !important;
+    width: var(--stage-w) !important;
+    height: var(--stage-h) !important;
+  }
+
+  .sn-game-mounted .game-title-bg-transition {
+    transform-origin: top center;
+  }
+
+  /* Menu mobile continua lateral como no PC. */
+  .game-state-mainMenu .game-main-menu-screen {
+    justify-content: flex-start !important;
+    align-items: center !important;
+    padding: 12px 12px 12px 18px !important;
+  }
+
+  .game-state-mainMenu .game-retro-panel {
+    width: min(42%, 390px) !important;
+    min-width: 286px !important;
+    max-width: 390px !important;
+    min-height: 0 !important;
+    max-height: calc(var(--stage-h) - 22px) !important;
+    margin: 0 !important;
+    padding: 13px !important;
+    gap: 8px !important;
+    border-width: 3px !important;
+    border-radius: 14px !important;
+    overflow-y: auto !important;
+  }
+
+  .game-state-mainMenu .game-retro-menu-list {
+    gap: 7px !important;
+  }
+
+  .game-state-mainMenu .game-menu-option {
+    min-height: 44px !important;
+    padding: 0 12px !important;
+    font-size: clamp(22px, 4.2vw, 31px) !important;
+  }
+
+  .game-state-mainMenu .game-menu-logo {
+    top: 10px !important;
+    right: 14px !important;
+  }
+
+  .game-state-mainMenu .game-menu-logo strong {
+    font-size: clamp(26px, 5vw, 39px) !important;
+  }
+
+  .game-state-mainMenu .game-return-site-button {
+    min-height: 34px !important;
+    padding: 6px 8px !important;
+    font-size: 10px !important;
+  }
+
+  /* Configurações cabem dentro da área 16:9, sem ocupar tudo. */
+  .game-state-settings .game-settings-screen {
+    padding: 8px !important;
+  }
+
+  .game-state-settings .game-settings-panel {
+    width: min(86%, 760px) !important;
+    max-height: calc(var(--stage-h) - 14px) !important;
+    padding: 9px 10px !important;
+    border-radius: 14px !important;
+    border-width: 2px !important;
+  }
+
+  .game-state-settings .game-settings-header {
+    min-height: 34px !important;
+    padding-bottom: 4px !important;
+  }
+
+  .game-state-settings .game-settings-header .game-panel-label {
+    font-size: 16px !important;
+  }
+
+  .game-state-settings .game-settings-close {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    font-size: 13px !important;
+  }
+
+  .game-state-settings .game-settings-tabs {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+    padding: 4px 0 6px !important;
+  }
+
+  .game-state-settings .game-settings-tabs button {
+    min-height: 31px !important;
+    padding: 4px !important;
+    font-size: 8px !important;
+    border-radius: 7px !important;
+  }
+
+  .game-state-settings .game-settings-list {
+    max-height: calc(var(--stage-h) - 86px) !important;
+    overflow-y: auto !important;
+  }
+
+  .game-state-settings .game-settings-category {
+    padding: 7px !important;
+  }
+
+  .game-state-settings .game-settings-category-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+  }
+}
+
+/* Em celulares mais lentos, preserva feedback visual sem filtros caros. */
+@media (pointer: coarse) {
+  .sn-mobile-controls,
+  .sn-mobile-button,
+  .sn-mobile-joystick {
+    contain: layout style paint;
+  }
+
+  .sn-mobile-joystick-knob {
+    will-change: transform;
+  }
+
+  .game-fullscreen-page.performance-lite .sn-mobile-button,
+  .game-fullscreen-page.performance-lite .sn-mobile-joystick {
+    box-shadow: none !important;
+  }
+}

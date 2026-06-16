@@ -21,6 +21,20 @@ function parseSpaceNewsPayload(value: string): SpaceNewsPayload | null {
   };
 }
 
+const PORTAIS_PARA_CHECAGEM = [
+  { nome: "Agência Brasil", descricao: "Noticiário público nacional", url: "https://agenciabrasil.ebc.com.br/" },
+  { nome: "G1", descricao: "Notícias nacionais e regionais", url: "https://g1.globo.com/" },
+  { nome: "BBC News Brasil", descricao: "Notícias e contexto internacional", url: "https://www.bbc.com/portuguese" },
+  { nome: "Diário do Nordeste", descricao: "Cobertura do Ceará e do Nordeste", url: "https://diariodonordeste.verdesmares.com.br/" },
+  { nome: "CNN Brasil", descricao: "Noticiário nacional e internacional", url: "https://www.cnnbrasil.com.br/" },
+  { nome: "Folha de S.Paulo", descricao: "Notícias, política e sociedade", url: "https://www.folha.uol.com.br/" },
+  { nome: "Estadão", descricao: "Notícias, economia e política", url: "https://www.estadao.com.br/" },
+  { nome: "UOL Notícias", descricao: "Notícias e cobertura em tempo real", url: "https://noticias.uol.com.br/" },
+  { nome: "Aos Fatos", descricao: "Checagem de declarações e boatos", url: "https://www.aosfatos.org/" },
+  { nome: "Agência Lupa", descricao: "Verificação de informações", url: "https://lupa.uol.com.br/" },
+  { nome: "Projeto Comprova", descricao: "Coalizão de veículos de checagem", url: "https://projetocomprova.com.br/" },
+];
+
 export default function Home() {
   const [modo, setModo] = useState("pergunta");
   const [texto, setTexto] = useState("");
@@ -51,6 +65,83 @@ export default function Home() {
     document.body.classList.toggle("reduce-motion", reduzirAnimacoes);
     document.body.classList.toggle("large-text", textoGrande);
   }, [tema, reduzirAnimacoes, textoGrande]);
+
+  useEffect(() => {
+    const body = document.body;
+    body.classList.add("xo-page-active");
+
+    let root = document.querySelector<HTMLElement>("[vw]");
+
+    if (!root) {
+      const container = document.createElement("div");
+      container.id = "xo-vlibras-root";
+      container.innerHTML = `
+        <div vw class="enabled">
+          <div vw-access-button class="active"></div>
+          <div vw-plugin-wrapper>
+            <div class="vw-plugin-top-wrapper"></div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(container);
+      root = container.querySelector<HTMLElement>("[vw]");
+    }
+
+    root?.style.removeProperty("display");
+    root?.style.removeProperty("visibility");
+    root?.style.removeProperty("pointer-events");
+
+    const inicializar = () => {
+      const win = window as any;
+      if (win.__xoVLibrasInicializado) return true;
+      if (!win.VLibras?.Widget) return false;
+      try {
+        new win.VLibras.Widget("https://vlibras.gov.br/app");
+        win.__xoVLibrasInicializado = true;
+        return true;
+      } catch (error) {
+        console.warn("Falha ao inicializar o VLibras:", error);
+        return false;
+      }
+    };
+
+    let script = document.querySelector<HTMLScriptElement>(
+      "script[data-xo-vlibras], script[src*='vlibras-plugin.js']",
+    );
+    if (!script) {
+      script = document.createElement("script");
+      script.src = "https://vlibras.gov.br/app/vlibras-plugin.js";
+      script.async = true;
+      script.dataset.xoVlibras = "true";
+      script.addEventListener("load", inicializar, { once: true });
+      document.body.appendChild(script);
+    } else if ((window as any).VLibras?.Widget) {
+      inicializar();
+    } else {
+      script.addEventListener("load", inicializar, { once: true });
+    }
+
+    (window as any).abrirVLibras = () => {
+      let tentativas = 0;
+      const abrir = () => {
+        inicializar();
+        const botao = document.querySelector<HTMLElement>("[vw-access-button]");
+        if (botao) {
+          botao.click();
+          return;
+        }
+        tentativas += 1;
+        if (tentativas < 24) window.setTimeout(abrir, 150);
+        else alert("O VLibras não conseguiu carregar. Verifique sua conexão e tente novamente.");
+      };
+      abrir();
+    };
+
+    return () => {
+      body.classList.remove("xo-page-active");
+      delete (window as any).abrirVLibras;
+    };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -349,6 +440,27 @@ export default function Home() {
             <img src="/game-icon.png" alt="Space News" />
             <span>Jogue nosso bônus: Space News</span>
           </a>
+
+          <details className="faq-item trusted-portals">
+            <summary>📰 Fontes para comparar informações</summary>
+            <p>
+              Nenhum portal é infalível. Compare a mesma informação em mais de uma fonte e procure documentos oficiais.
+            </p>
+            <div className="trusted-portals-list">
+              {PORTAIS_PARA_CHECAGEM.map((portal) => (
+                <a
+                  key={portal.nome}
+                  href={portal.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => tocarClique()}
+                >
+                  <strong>{portal.nome}</strong>
+                  <span>{portal.descricao}</span>
+                </a>
+              ))}
+            </div>
+          </details>
         </div>
 
         <div className="settings-section">

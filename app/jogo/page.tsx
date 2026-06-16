@@ -2116,7 +2116,8 @@ export default function JogoPage() {
   const keysRef = useRef<Record<string, boolean>>({});
   const mobileShootRef = useRef(false);
   const mobileMoveRef = useRef({ x: 0, y: 0 });
-  const [mobileStick, setMobileStick] = useState({ x: 0, y: 0 });
+  const mobileStickKnobRef = useRef<HTMLDivElement | null>(null);
+  const joystickGeometryRef = useRef<{ centerX: number; centerY: number; maxDistance: number } | null>(null);
 
   const gameStateRef = useRef<GameState>("title");
   const [gameState, setGameState] = useState<GameState>("title");
@@ -2166,6 +2167,7 @@ export default function JogoPage() {
   );
   const [fpsUi, setFpsUi] = useState(60);
   const fpsCounterRef = useRef({ frames: 0, lastAt: performance.now(), value: 60 });
+  const adaptivePerformanceRef = useRef({ reduced: false, lowSamples: 0, highSamples: 0 });
 
   const storyIndexRef = useRef(0);
   const [storyIndex, setStoryIndex] = useState(0);
@@ -3002,11 +3004,15 @@ export default function JogoPage() {
 
     if (frequent) {
       const now = performance.now();
-      const minGap = src.includes("game-shot") ? 24 : 18;
+      const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+      const minGap = src.includes("game-shot") ? (coarsePointer ? 58 : 28) : (coarsePointer ? 30 : 18);
       const lastAt = lastSoundPlayedAtRef.current.get(src) ?? -Infinity;
       if (now - lastAt < minGap) return;
       lastSoundPlayedAtRef.current.set(src, now);
       if (tocarSomWebAudio(src, finalVolume)) return;
+      // Sons muito frequentes não caem no HTMLAudio no mobile: isso evita
+      // pausas e stutters causados por vários elementos de mídia concorrentes.
+      if (window.matchMedia("(pointer: coarse)").matches) return;
     }
 
     let pool = audioPoolRef.current.get(src);
@@ -3756,30 +3762,40 @@ export default function JogoPage() {
   }
 
   function atualizarJoystick(event: ReactPointerEvent<HTMLDivElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const maxDistance = rect.width * 0.36;
+    let geometry = joystickGeometryRef.current;
+    if (!geometry) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      geometry = {
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2,
+        maxDistance: rect.width * 0.36,
+      };
+      joystickGeometryRef.current = geometry;
+    }
 
-    const rawX = event.clientX - centerX;
-    const rawY = event.clientY - centerY;
+    const rawX = event.clientX - geometry.centerX;
+    const rawY = event.clientY - geometry.centerY;
     const distance = Math.max(1, Math.hypot(rawX, rawY));
-    const limitedDistance = Math.min(distance, maxDistance);
-
+    const limitedDistance = Math.min(distance, geometry.maxDistance);
     const x = (rawX / distance) * limitedDistance;
     const y = (rawY / distance) * limitedDistance;
 
     mobileMoveRef.current = {
-      x: clamp(x / maxDistance, -1, 1),
-      y: clamp(y / maxDistance, -1, 1),
+      x: clamp(x / geometry.maxDistance, -1, 1),
+      y: clamp(y / geometry.maxDistance, -1, 1),
     };
 
-    setMobileStick({ x, y });
+    const knob = mobileStickKnobRef.current;
+    if (knob) {
+      knob.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+    }
   }
 
   function resetarJoystick() {
     mobileMoveRef.current = { x: 0, y: 0 };
-    setMobileStick({ x: 0, y: 0 });
+    joystickGeometryRef.current = null;
+    const knob = mobileStickKnobRef.current;
+    if (knob) knob.style.transform = "translate(-50%, -50%)";
   }
 
   function abrirMenuPrincipal() {
@@ -5673,20 +5689,20 @@ export default function JogoPage() {
         const parsed = JSON.parse(savedSettings) as Partial<typeof CONFIG.settings>;
         Object.assign(CONFIG.settings, parsed);
       }
-      if (settingsVersion !== "v16") {
+      if (settingsVersion !== "v21") {
         const coarsePointer = window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(hover: none)").matches;
         CONFIG.settings.mobileScale = Math.max(coarsePointer ? 1.02 : 0.94, Number(CONFIG.settings.mobileScale) || (coarsePointer ? 1.02 : 0.94));
         CONFIG.settings.mobileOpacity = Math.max(0.9, Number(CONFIG.settings.mobileOpacity) || 0.92);
-        CONFIG.settings.performanceMode = coarsePointer ? "performance" : "auto";
-        CONFIG.settings.enableParticles = !coarsePointer;
-        CONFIG.settings.enableScreenShake = !coarsePointer;
-        CONFIG.settings.enableBoostFireSprite = !coarsePointer;
-        CONFIG.settings.enableFlashingLights = !coarsePointer;
-        CONFIG.settings.particleQuality = coarsePointer ? 0.45 : 1;
+        CONFIG.settings.performanceMode = "auto";
+        CONFIG.settings.enableParticles = true;
+        CONFIG.settings.enableScreenShake = true;
+        CONFIG.settings.enableBoostFireSprite = true;
+        CONFIG.settings.enableFlashingLights = true;
+        CONFIG.settings.particleQuality = coarsePointer ? 0.58 : 1;
         CONFIG.settings.showFps = false;
         CONFIG.settings.fpsLimit = String(CONFIG.settings.fpsLimit || "unlimited");
         window.localStorage.setItem("spaceNews.settings", JSON.stringify(CONFIG.settings));
-        window.localStorage.setItem("spaceNews.settingsVersion", "v16");
+        window.localStorage.setItem("spaceNews.settingsVersion", "v21");
       }
       setSettingsSnapshot({ ...CONFIG.settings });
 
@@ -5807,13 +5823,41 @@ export default function JogoPage() {
   }, []);
 
   useEffect(() => {
-    // O VLibras deve continuar disponível tanto no site quanto no jogo.
-    document.body.classList.remove("game-page-active");
-    document.querySelectorAll<HTMLElement>("[data-space-news-hidden='true']").forEach((element) => {
-      element.style.removeProperty("display");
-      element.style.removeProperty("pointer-events");
-      delete element.dataset.spaceNewsHidden;
-    });
+    document.body.classList.add("game-page-active");
+
+    const ocultarVLibras = () => {
+      document
+        .querySelectorAll<HTMLElement>("[vw], [vw-access-button], .vlibras-container, div[vw-plugin-wrapper]")
+        .forEach((element) => {
+          if (!element.dataset.spaceNewsOriginalDisplay) {
+            element.dataset.spaceNewsOriginalDisplay = element.style.display || "__empty__";
+          }
+          element.style.setProperty("display", "none", "important");
+          element.style.setProperty("pointer-events", "none", "important");
+          element.dataset.spaceNewsHidden = "true";
+        });
+    };
+
+    ocultarVLibras();
+    let verificacoes = 0;
+    const timer = window.setInterval(() => {
+      ocultarVLibras();
+      verificacoes += 1;
+      if (verificacoes >= 12) window.clearInterval(timer);
+    }, 500);
+
+    return () => {
+      window.clearInterval(timer);
+      document.body.classList.remove("game-page-active");
+      document.querySelectorAll<HTMLElement>("[data-space-news-hidden='true']").forEach((element) => {
+        const original = element.dataset.spaceNewsOriginalDisplay;
+        if (original && original !== "__empty__") element.style.display = original;
+        else element.style.removeProperty("display");
+        element.style.removeProperty("pointer-events");
+        delete element.dataset.spaceNewsOriginalDisplay;
+        delete element.dataset.spaceNewsHidden;
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -5950,21 +5994,25 @@ export default function JogoPage() {
       const mode = String((CONFIG.settings as Record<string, unknown>).performanceMode ?? "auto");
       if (mode === "performance") return true;
       if (mode === "quality") return false;
-      return mobileLike || lowHardware;
+      return lowHardware || adaptivePerformanceRef.current.reduced;
     }
 
     function limitarObjetosPesados() {
       const reduced = usarEfeitosReduzidos();
-      const projectileCap = reduced ? 18 : 105;
+      const projectileCap = reduced ? 28 : mobileLike ? 62 : 105;
       if (bossProjectilesRef.current.length > projectileCap) {
         const beams = bossProjectilesRef.current.filter((projectile) => projectile.kind === "laser" || projectile.kind === "aimLaser");
         const others = bossProjectilesRef.current.filter((projectile) => projectile.kind !== "laser" && projectile.kind !== "aimLaser");
-        const beamCap = reduced ? 2 : beams.length;
+        const beamCap = reduced ? 2 : mobileLike ? 3 : beams.length;
         bossProjectilesRef.current = [...beams.slice(-beamCap), ...others.slice(-Math.max(0, projectileCap - Math.min(beams.length, beamCap)))];
       }
-      const particleCap = reduced ? 10 : 175;
+
+      const shotCap = reduced ? 38 : mobileLike ? 58 : 120;
+      if (shotsRef.current.length > shotCap) shotsRef.current = shotsRef.current.slice(-shotCap);
+
+      const particleCap = reduced ? 36 : mobileLike ? 72 : 175;
       if (particlesRef.current.length > particleCap) particlesRef.current = particlesRef.current.slice(-particleCap);
-      const shockwaveCap = reduced ? 1 : 18;
+      const shockwaveCap = reduced ? 2 : mobileLike ? 4 : 18;
       if (shockwavesRef.current.length > shockwaveCap) shockwavesRef.current = shockwavesRef.current.slice(-shockwaveCap);
     }
 
@@ -6109,7 +6157,7 @@ export default function JogoPage() {
       const isMobileLike = window.matchMedia("(pointer: coarse)").matches;
       const particleAmount = Math.round(
         Math.min(
-          isMobileLike ? 12 : 24,
+          isMobileLike ? 8 : 24,
           cfg.flamesParticleAmount * (powerActive ? 1.12 : 1) * particleQuality,
         ),
       );
@@ -6140,7 +6188,7 @@ export default function JogoPage() {
 
       }
 
-      const maxLiveParticles = isMobileLike ? 90 : 170;
+      const maxLiveParticles = isMobileLike ? 52 : 170;
       if (particlesRef.current.length > maxLiveParticles) {
         particlesRef.current = particlesRef.current.slice(-maxLiveParticles);
       }
@@ -9425,6 +9473,24 @@ export default function JogoPage() {
         fpsCounter.value = Math.max(1, Math.round((fpsCounter.frames * 1000) / Math.max(1, time - fpsCounter.lastAt)));
         fpsCounter.frames = 0;
         fpsCounter.lastAt = time;
+
+        if (String(CONFIG.settings.performanceMode) === "auto") {
+          const adaptive = adaptivePerformanceRef.current;
+          if (fpsCounter.value < 43) {
+            adaptive.lowSamples += 1;
+            adaptive.highSamples = 0;
+          } else if (fpsCounter.value > 56) {
+            adaptive.highSamples += 1;
+            adaptive.lowSamples = 0;
+          } else {
+            adaptive.lowSamples = Math.max(0, adaptive.lowSamples - 1);
+            adaptive.highSamples = Math.max(0, adaptive.highSamples - 1);
+          }
+
+          if (adaptive.lowSamples >= 2) adaptive.reduced = true;
+          if (adaptive.highSamples >= 4) adaptive.reduced = false;
+        }
+
         if (CONFIG.settings.showFps) setFpsUi(fpsCounter.value);
       }
 
@@ -10202,6 +10268,13 @@ export default function JogoPage() {
               })}
             </div>
 
+            <a
+              href="/"
+              className="game-return-site-button"
+              onClick={() => tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu")}
+            >
+              VOLTAR AO XÔ, FALSIANE!
+            </a>
             <p className="game-menu-help">ESC/Q: voltar</p>
           </aside>
 
@@ -10764,6 +10837,7 @@ export default function JogoPage() {
             onPointerDown={(event) => {
               event.preventDefault();
               event.currentTarget.setPointerCapture(event.pointerId);
+              joystickGeometryRef.current = null;
               atualizarJoystick(event);
             }}
             onPointerMove={(event) => {
@@ -10777,8 +10851,9 @@ export default function JogoPage() {
             onPointerCancel={resetarJoystick}
           >
             <div
+              ref={mobileStickKnobRef}
               className="sn-mobile-joystick-knob"
-              style={{ transform: `translate(calc(-50% + ${mobileStick.x}px), calc(-50% + ${mobileStick.y}px))` }}
+              style={{ transform: "translate(-50%, -50%)" }}
             />
           </div>
 
