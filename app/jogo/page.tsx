@@ -482,7 +482,7 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
   powerShield: { src: "/game/powerups/shield.png" },
   powerPowerShot: { src: "/game/powerups/power-shot.png" },
   powerHomingShot: { src: "/game/powerups/homing-shot.png" },
-  powerFlames: { src: "/game/ui/flames.png" },
+  powerFlames: { src: "/game/powerups/flames.png" },
   powerGoldenHeart: { src: "/game/powerups/golden-heart.png" },
   powerRandomBox: { src: "/game/powerups/random-box.png" },
   powerBadFlashbang: { src: "/game/powerups/bad-flashbang.png" },
@@ -1168,10 +1168,11 @@ const CONFIG = {
 
     // Áudio
     masterVolume: 1,
-    sfxVolume: 1,
-    menuVolume: 0.8,
-    hitVolume: 0.75,
-    abilityVolume: 0.85,
+    musicVolume: 0.9,
+    sfxVolume: 0.62,
+    menuVolume: 0.65,
+    hitVolume: 0.55,
+    abilityVolume: 0.65,
 
     // Performance / conforto visual
     enableScreenShake: true,
@@ -1557,6 +1558,16 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
     formatter: (v) => `${Math.round(Number(v) * 100)}%`,
   },
   {
+    key: "musicVolume",
+    label: "Música",
+    category: "ÁUDIO",
+    kind: "range",
+    min: 0,
+    max: 1,
+    step: 0.1,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
     key: "sfxVolume",
     label: "Efeitos",
     category: "ÁUDIO",
@@ -1801,7 +1812,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260616-v22-mobile-event-prewarm";
+const ASSET_VERSION = "space-news-20260616-v26-audio-flames";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -2634,6 +2645,18 @@ export default function JogoPage() {
     value: boolean | number | string,
   ) {
     (CONFIG.settings as Record<string, boolean | number | string>)[key] = value;
+
+    if (
+      bossMusicAudioRef.current &&
+      (key === "masterVolume" || key === "musicVolume")
+    ) {
+      bossMusicAudioRef.current.volume = clamp(
+        0.78 * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
+        0,
+        1,
+      );
+    }
+
     try {
       window.localStorage.setItem(
         "spaceNews.settings",
@@ -3490,7 +3513,7 @@ export default function JogoPage() {
       const audio = new Audio(CONFIG.sounds.chocadoMusic);
       audio.loop = true;
       audio.volume = clamp(
-        0.55 * CONFIG.settings.masterVolume * CONFIG.settings.sfxVolume,
+        0.78 * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
         0,
         1,
       );
@@ -6418,7 +6441,7 @@ export default function JogoPage() {
       mobileRuntimeRef.current =
         window.matchMedia("(pointer: coarse)").matches ||
         window.matchMedia("(hover: none)").matches;
-      if (settingsVersion !== "v24") {
+      if (settingsVersion !== "v26-audio-flames") {
         const coarsePointer =
           window.matchMedia("(pointer: coarse)").matches ||
           window.matchMedia("(hover: none)").matches;
@@ -6432,6 +6455,23 @@ export default function JogoPage() {
           Number(CONFIG.settings.mobileOpacity) || 0.92,
         );
         CONFIG.settings.performanceMode = "auto";
+        CONFIG.settings.musicVolume = 0.9;
+        CONFIG.settings.sfxVolume = Math.min(
+          Number(CONFIG.settings.sfxVolume) || 1,
+          0.62,
+        );
+        CONFIG.settings.menuVolume = Math.min(
+          Number(CONFIG.settings.menuVolume) || 0.8,
+          0.65,
+        );
+        CONFIG.settings.hitVolume = Math.min(
+          Number(CONFIG.settings.hitVolume) || 0.75,
+          0.55,
+        );
+        CONFIG.settings.abilityVolume = Math.min(
+          Number(CONFIG.settings.abilityVolume) || 0.85,
+          0.65,
+        );
         CONFIG.settings.enableParticles = true;
         CONFIG.settings.enableScreenShake = true;
         CONFIG.settings.enableBoostFireSprite = true;
@@ -6448,7 +6488,10 @@ export default function JogoPage() {
           "spaceNews.settings",
           JSON.stringify(CONFIG.settings),
         );
-        window.localStorage.setItem("spaceNews.settingsVersion", "v24");
+        window.localStorage.setItem(
+          "spaceNews.settingsVersion",
+          "v26-audio-flames",
+        );
       }
       setSettingsSnapshot({ ...CONFIG.settings });
 
@@ -9099,7 +9142,7 @@ export default function JogoPage() {
                       : power.kind === "randomBox"
                         ? "powerRandomBox"
                         : power.kind === "flames"
-                          ? null
+                          ? "powerFlames"
                           : "powerFireRate";
 
         const img = key ? assetsRef.current.get(key) : null;

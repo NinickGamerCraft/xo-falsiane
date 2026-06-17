@@ -1,0 +1,641 @@
+REFERÊNCIA COMPLETA DE DIRETÓRIOS — XÔ, FALSIANE! + SPACE NEWS
+
+============================================================
+1. CÓDIGO / ROTAS
+============================================================
+app/page.tsx
+- Página principal do Xô, falsiane!.
+
+app/vlibras.tsx
+- Componente que carrega e abre o VLibras apenas no site principal.
+
+app/globals.css
+- CSS do site e do jogo.
+
+app/jogo/page.tsx
+- Código completo do Space News.
+
+app/jogo/layout.tsx
+- Título, descrição e ícone próprios da rota /jogo.
+
+app/api/analisar/route.ts
+- API da IA do Xô, falsiane!.
+
+app/api/leaderboard/route.ts
+- API do ranking online do modo Infinito.
+
+app/icon.png ou app/icon.tsx
+- Ícone da aba do Xô, falsiane!.
+
+app/jogo/icon.png ou app/jogo/icon.tsx
+- Ícone específico da aba do Space News.
+
+public/game-icon.png
+- Ícone usado por botões do site e, na versão atual do layout, pelo favicon do Space News.
+
+============================================================
+2. FONTES E CURSORES
+============================================================
+public/fonts/Pixel Game.otf
+- Títulos e textos de maior destaque do Space News.
+
+public/fonts/born2bsporty-fs.otf
+- Textos comuns, HUD, diálogos e descrições do jogo.
+
+public/fonts/bytebounce.medium.ttf
+- Fonte pixel alternativa/legada.
+
+public/cursors/cursor.png
+- Cursor normal dentro do jogo.
+
+public/cursors/pointer.png
+- Cursor de clique/hover dentro do jogo.
+
+============================================================
+3. XÔ, FALSIANE! — EQUIPE E SONS
+============================================================
+public/team/nicolas.png
+- Foto/ícone do Nicolas.
+
+public/team/antonio.png
+- Foto/ícone do Antônio William.
+
+public/team/pedro.png
+- Foto/ícone do Pedro Kaiki.
+
+public/team/kaleb.png
+- Foto/ícone do Kaleb.
+
+public/team/pablo.png
+- Foto/ícone do Pablo.
+
+public/team/magno.png
+- Foto/ícone do Magno.
+
+public/sounds/click.mp3
+- Clique padrão do site.
+
+public/sounds/swoosh.mp3
+- Início de uma análise.
+
+public/sounds/confiavel.mp3
+- Resultado confiável.
+
+public/sounds/parcial.mp3
+- Resultado parcialmente confiável.
+
+public/sounds/nao-confirmado.mp3
+- Resultado não confirmado.
+
+public/sounds/suspeita.mp3
+- Resultado suspeito.
+
+public/sounds/falsa.mp3
+- Resultado falso.
+
+public/sounds/nicolas.mp3
+public/sounds/antonio.mp3
+public/sounds/pedro.mp3
+public/sounds/kaleb.mp3
+public/sounds/pablo.mp3
+public/sounds/magno.mp3
+- Sons opcionais individuais dos créditos.
+
+============================================================
+4. SPACE NEWS — FUNDOS
+============================================================
+public/game/backgrounds/title-bg.png
+- Fundo da tela de título.
+
+public/game/backgrounds/menu-bg.png
+- Fundo do menu principal.
+
+public/game/backgrounds/space.png
+- Panorama horizontal em loop do gameplay e tutorial.
+
+============================================================
+5. SPACE NEWS — PLAYER
+============================================================
+public/game/player/ship-idle.png
+- Nave parada/idle.
+
+public/game/player/ship-move-1.png
+public/game/player/ship-move-2.png
+public/game/player/ship-move-3.png
+public/game/player/ship-move-4.png
+- Frames da nave em movimento.
+
+public/game/player/ship-dodge.png
+- Sprite da esquiva.
+
+============================================================
+6. SPACE NEWS — EFEITOS
+============================================================
+public/game/effects/boost-fire.png
+- Fogo do boost atrás da nave.
+
+============================================================
+7. SPACE NEWS — POWER-UPS NO MAPA
+============================================================
+public/game/powerups/regen.png
+- Recupera 1 coração.
+
+public/game/powerups/triple-regen.png
+- Recupera até 3 corações.
+
+public/game/powerups/fire-rate.png
+- Aumenta a velocidade do tiro.
+
+public/game/powerups/shield.png
+- Escudo temporário.
+
+public/game/powerups/power-shot.png
+- Tiro mais forte.
+
+public/game/powerups/homing-shot.png
+- Tiro teleguiado.
+
+public/game/powerups/flames.png
+- NOVO: imagem do power-up Flames antes de ser coletado.
+
+public/game/powerups/golden-heart.png
+- Coração dourado.
+
+public/game/powerups/random-box.png
+- Caixa aleatória.
+
+public/game/powerups/bad-flashbang.png
+- Power-down de flashbang.
+
+public/game/powerups/bad-damage.png
+- Power-down de dano direto.
+
+public/game/powerups/bad-invert.png
+- Power-down que inverte a área visual.
+
+public/game/powerups/bad-slow.png
+- Power-down que reduz velocidade.
+
+============================================================
+8. SPACE NEWS — ÍCONES DE POWER-UP NA HUD
+============================================================
+public/game/ui/flames.png
+- Ícone do Flames na HUD depois de coletado.
+
+Os demais power-ups reutilizam as imagens de public/game/powerups/ na HUD.
+
+============================================================
+9. SPACE NEWS — TIROS
+============================================================
+public/game/shots/normal.png
+- Tiro normal do jogador.
+
+public/game/shots/strong.png
+- Tiro forte carregado.
+
+public/game/shots/power-shot.png
+- Tiro do power-up Power Shot.
+
+public/game/shots/homing-shot.png
+- Tiro teleguiado.
+
+public/game/shots/power-homing-shot.png
+- Combinação Power Shot + Homing.
+
+public/game/shots/enemy-bullet.png
+- Projétil padrão dos inimigos.
+
+============================================================
+10. SPACE NEWS — INIMIGOS
+============================================================
+public/game/enemies/red-idle.png
+public/game/enemies/red-move-1.png
+public/game/enemies/red-move-2.png
+public/game/enemies/red-move-3.png
+public/game/enemies/red-move-4.png
+- Nave vermelha e sua animação.
+
+public/game/enemies/black-idle.png
+public/game/enemies/black-move-1.png
+public/game/enemies/black-move-2.png
+public/game/enemies/black-move-3.png
+public/game/enemies/black-move-4.png
+- Nave preta e sua animação normal.
+
+public/game/enemies/black-windup-1.png
+public/game/enemies/black-windup-2.png
+- Aviso/animação antes do dash da nave preta.
+
+public/game/enemies/purple.png
+- Inimigo roxo e alvo de treino.
+
+public/game/enemies/alien-green-1.png
+public/game/enemies/alien-green-2.png
+public/game/enemies/alien-green-3.png
+public/game/enemies/alien-green-4.png
+- Nave alienígena que captura/arremessa o jogador.
+
+public/game/enemies/portal-sheet.png
+- Sprite sheet do portal de entrada dos inimigos.
+
+============================================================
+11. SPACE NEWS — ASTEROIDES
+============================================================
+public/game/obstacles/asteroid.png
+- Asteroide intacto.
+
+public/game/obstacles/asteroid-cracked.png
+- Asteroide danificado.
+
+public/game/obstacles/asteroid-fragment.png
+- Fragmentos do asteroide destruído.
+
+============================================================
+12. SPACE NEWS — BOSS CHOCADO
+============================================================
+public/game/bosses/chocado-1.png
+public/game/bosses/chocado-2.png
+public/game/bosses/chocado-3.png
+public/game/bosses/chocado-4.png
+public/game/bosses/chocado-5.png
+public/game/bosses/chocado-6.png
+- Frames principais da animação do Chocado.
+
+public/game/bosses/chocado-servo.png
+- Servo usado em ataques do boss.
+
+public/game/bosses/chocado-orb.png
+- Orb/projétil especial do Chocado.
+
+public/game/bosses/chocado-warning.png
+- Indicador visual de aviso antes de ataques.
+
+============================================================
+13. SPACE NEWS — HUD E CONTROLES
+============================================================
+public/game/ui/heart-full.png
+- Coração vermelho cheio.
+
+public/game/ui/heart-empty.png
+- Coração vazio.
+
+public/game/ui/heart-golden.png
+- Coração dourado.
+
+public/game/ui/life-full.png
+public/game/ui/life-empty.png
+- Sprites alternativos/legados de vida usados como fallback em partes antigas.
+
+public/game/ui/mobile-up.png
+public/game/ui/mobile-down.png
+public/game/ui/mobile-left.png
+public/game/ui/mobile-right.png
+- Setas direcionais mobile antigas/opcionais.
+
+public/game/ui/mobile-shot.png
+- Botão de tiro normal mobile.
+
+public/game/ui/mobile-strong.png
+- Botão de tiro forte mobile.
+
+public/game/ui/mobile-boost.png
+- Botão de boost mobile.
+
+public/game/ui/mobile-dodge.png
+- Botão de dodge mobile.
+
+public/game/ui/mobile-pause.png
+- Botão de pause mobile e PC.
+
+public/game/ui/mobile-fullscreen.png
+- Botão de fullscreen mobile.
+
+============================================================
+14. SPACE NEWS — DANIEL
+============================================================
+public/game/ui/daniel/normal-closed.png
+public/game/ui/daniel/normal-talk.png
+- Expressão normal, boca fechada e falando.
+
+public/game/ui/daniel/happy-closed.png
+public/game/ui/daniel/happy-talk.png
+- Expressão feliz.
+
+public/game/ui/daniel/alert-closed.png
+public/game/ui/daniel/alert-talk.png
+- Expressão de alerta.
+
+public/game/ui/daniel/fear-closed.png
+public/game/ui/daniel/fear-talk.png
+- Expressão de medo.
+
+public/game/ui/daniel/serious-closed.png
+public/game/ui/daniel/serious-talk.png
+- Expressão séria.
+
+============================================================
+15. SPACE NEWS — WIKI
+============================================================
+public/game/wiki/cleber.png
+- Imagem do Cleber.
+
+public/game/wiki/daniel.png
+- Imagem do Daniel.
+
+public/game/wiki/chocado.png
+- Imagem do Chocado.
+
+public/game/wiki/space-news.png
+- Imagem da nave Space News.
+
+============================================================
+16. SONS — MENU E INTERFACE
+============================================================
+public/sounds/menu-move.mp3
+- Mover seleção em menus.
+
+public/sounds/menu-confirm.mp3
+- Confirmar opção.
+
+public/sounds/menu-back.mp3
+- Voltar/cancelar.
+
+public/sounds/game-pause.mp3
+- Abrir ou fechar pause.
+
+public/sounds/cutscene-next.mp3
+- Avançar diálogo/cutscene.
+
+public/sounds/game-transition.mp3
+- Transições entre estados/telas.
+
+public/sounds/wave-start.mp3
+- Início de wave.
+
+public/sounds/boss-ui-beep.mp3
+- Bip da interface do boss.
+
+============================================================
+17. SONS — PLAYER E COMBATE
+============================================================
+public/sounds/game-shot.mp3
+- Tiro normal.
+
+public/sounds/game-strong-shot.mp3
+- Tiro forte.
+
+public/sounds/game-explosion.mp3
+- Explosão geral.
+
+public/sounds/player-damage.mp3
+- Jogador recebendo dano.
+
+public/sounds/low-hp-alarm.mp3
+- Alarme com 1 HP.
+
+public/sounds/enemy-shot.mp3
+- Tiro inimigo.
+
+public/sounds/enemy-hit.mp3
+- Inimigo recebendo hit.
+
+public/sounds/enemy-death.mp3
+- Inimigo destruído.
+
+public/sounds/asteroid-break.mp3
+- Asteroide quebrando.
+
+============================================================
+18. SONS — HABILIDADES
+============================================================
+public/sounds/ability-ready.mp3
+- Som genérico de habilidade pronta.
+
+public/sounds/boost-ready.mp3
+- Boost pronto.
+
+public/sounds/dodge-ready.mp3
+- Dodge pronto.
+
+public/sounds/strong-ready.mp3
+- Tiro forte pronto.
+
+public/sounds/boost-start.mp3
+- Início do boost.
+
+public/sounds/boost-hit.mp3
+- Boost acertando um inimigo.
+
+public/sounds/dodge.mp3
+- Execução da esquiva.
+
+============================================================
+19. SONS — POWER-UPS
+============================================================
+public/sounds/powerup-spawn.mp3
+- Power-up surgindo.
+
+public/sounds/powerup-pickup.mp3
+- Coleta do power-up.
+
+public/sounds/powerup-trail.mp3
+- Loop opcional do power-up flutuando.
+
+public/sounds/golden-heart.mp3
+- Coleta do coração dourado.
+
+public/sounds/random-powerup.mp3
+- Caixa aleatória.
+
+public/sounds/bad-powerup.mp3
+- Power-down ruim genérico.
+
+public/sounds/flashbang-voice.mp3
+- Voz antes do flashbang.
+
+public/sounds/flashbang.mp3
+- Explosão/clarão do flashbang.
+
+public/sounds/invert-screen.mp3
+- Tela invertida.
+
+public/sounds/damage-powerdown.mp3
+- Dano direto do power-down.
+
+public/sounds/slow-powerdown.mp3
+- Lentidão.
+
+public/sounds/shield-break.mp3
+- Escudo quebrando.
+
+public/sounds/flames-start.mp3
+- Flames ativado.
+
+public/sounds/flames-loop.mp3
+- Loop do fogo durante o uso.
+
+public/sounds/flames-hit.mp3
+- Flames acertando inimigo/boss.
+
+============================================================
+20. SONS — CHOCADO
+============================================================
+public/sounds/boss-intro.mp3
+- Introdução geral do boss.
+
+public/sounds/chocado-music.mp3
+- Música da batalha contra Chocado.
+
+public/sounds/chocado-roar.mp3
+- Rugido/aparição.
+
+public/sounds/chocado-grab.mp3
+- Chocado agarrando a nave.
+
+public/sounds/chocado-dash.mp3
+- Investida da cutscene inicial.
+
+public/sounds/chocado-release.mp3
+- Chocado soltando/arremessando o jogador.
+
+public/sounds/chocado-servo.mp3
+- Ataque de servo.
+
+public/sounds/chocado-orb.mp3
+- Ataque de orb.
+
+public/sounds/chocado-orb-fan.mp3
+- Leque de orbs.
+
+public/sounds/chocado-laser.mp3
+- Laser geral/legado.
+
+public/sounds/chocado-laser-charge.mp3
+- Carregamento do laser.
+
+public/sounds/chocado-laser-fire.mp3
+- Disparo do laser.
+
+public/sounds/chocado-cannon.mp3
+- Canhão.
+
+public/sounds/chocado-serpent.mp3
+- Padrão serpenteado.
+
+public/sounds/chocado-wall.mp3
+- Parede de projéteis.
+
+public/sounds/chocado-aim-lock.mp3
+- Mira travando no jogador.
+
+public/sounds/chocado-warning.mp3
+- Aviso de ataque.
+
+public/sounds/chocado-hit.mp3
+- Chocado recebendo dano.
+
+public/sounds/chocado-barrier.mp3
+- Barreira/defesa.
+
+public/sounds/chocado-phase-two.mp3
+- Entrada da segunda fase.
+
+public/sounds/chocado-tip-open.mp3
+- Abertura da dica do Chocado.
+
+public/sounds/chocado-defeat-burst.mp3
+- Explosões intermediárias da derrota.
+
+public/sounds/chocado-final-explosion.mp3
+- Explosão final grande.
+
+public/sounds/chocado-defeat.mp3
+- Encerramento da derrota.
+
+============================================================
+21. SONS — DANIEL / RÁDIO
+============================================================
+public/sounds/daniel/radio-open.mp3
+- Rádio abrindo.
+
+public/sounds/daniel/radio-close.mp3
+- Rádio fechando.
+
+public/sounds/daniel/radio-static-short.mp3
+- Estática curta do comunicador.
+
+public/sounds/daniel/tutorial-move.mp3
+public/sounds/daniel/tutorial-shot.mp3
+public/sounds/daniel/tutorial-strong.mp3
+public/sounds/daniel/tutorial-boost.mp3
+public/sounds/daniel/tutorial-dodge.mp3
+public/sounds/daniel/tutorial-done.mp3
+- Voicelines das etapas do tutorial.
+
+public/sounds/daniel/boss-false-clear-01.mp3
+- Daniel acreditando que a missão acabou.
+
+public/sounds/daniel/boss-sensor-01.mp3
+- Daniel detectando sinal estranho.
+
+public/sounds/daniel/boss-warning-01.mp3
+- Aviso de perigo.
+
+public/sounds/daniel/boss-intro-01.mp3
+- Entrada do Chocado.
+
+public/sounds/daniel/boss-phase2-01.mp3
+- Entrada da segunda fase.
+
+public/sounds/daniel/victory-01.mp3
+- Comemoração na vitória.
+
+============================================================
+22. SONS — TUTORIAL
+============================================================
+public/sounds/tutorial/tutorial-warning.mp3
+- Aviso por ação errada ou dano no tutorial.
+
+Outros sons planejados/lembrados:
+public/sounds/tutorial/daniel-talk.mp3
+public/sounds/tutorial/dialog-open.mp3
+public/sounds/tutorial/dialog-next.mp3
+public/sounds/tutorial/tutorial-success.mp3
+public/sounds/tutorial/ship-launch.mp3
+public/sounds/tutorial/target-hit.mp3
+- Arquivos opcionais do tutorial; confira se ainda são chamados na sua versão.
+
+============================================================
+23. SONS — VITÓRIA, GAME OVER E INTEGRAÇÃO
+============================================================
+public/sounds/game-over-explosion.mp3
+- Explosão inicial do game over.
+
+public/sounds/game-over-final-explosion.mp3
+- Explosão final do game over.
+
+public/sounds/victory-fanfare.mp3
+- Fanfare da vitória.
+
+public/sounds/fake-news-intercepted.mp3
+- Fake news residual detectada após Chocado.
+
+public/sounds/fake-news-transmit.mp3
+- Envio da mensagem para o Xô, falsiane!.
+
+============================================================
+24. ÍCONES DA ABA DO NAVEGADOR
+============================================================
+Opção recomendada com arquivos:
+app/icon.png
+- Ícone do Xô, falsiane!.
+
+app/jogo/icon.png
+- Ícone do Space News apenas na rota /jogo.
+
+Opção atual pelo layout:
+public/game-icon.png
+- Referenciado em app/jogo/layout.tsx para icon, shortcut e apple icon.
+
+Se existir app/favicon.ico, ele é o favicon geral da raiz e pode ficar em cache.
+O ícone específico do jogo deve ficar no segmento app/jogo/ ou ser definido em app/jogo/layout.tsx.

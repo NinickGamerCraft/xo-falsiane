@@ -7,7 +7,6 @@ declare global {
   interface Window {
     VLibras?: { Widget: new (url: string) => unknown };
     abrirVLibras?: () => void;
-    vlibrasIniciado?: boolean;
   }
 }
 
@@ -18,53 +17,42 @@ export default function VLibras() {
   const [status, setStatus] = useState<"carregando" | "pronto" | "erro">(
     "carregando",
   );
-  const intervaloRef = useRef<number | null>(null);
-  const timeoutRef = useRef<number | null>(null);
+  const widgetRef = useRef<unknown>(null);
   const inicializandoRef = useRef(false);
-  const ultimaInicializacaoRef = useRef(0);
+  const iniciadoEmRef = useRef(0);
+  const timersRef = useRef<number[]>([]);
 
-  const limparTentativas = useCallback(() => {
-    if (intervaloRef.current !== null) {
-      window.clearInterval(intervaloRef.current);
-      intervaloRef.current = null;
-    }
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
+  const agendar = useCallback((callback: () => void, delay: number) => {
+    const timer = window.setTimeout(callback, delay);
+    timersRef.current.push(timer);
+    return timer;
+  }, []);
+
+  const limparTimers = useCallback(() => {
+    for (const timer of timersRef.current) window.clearTimeout(timer);
+    timersRef.current = [];
   }, []);
 
   const iniciarVLibras = useCallback(() => {
-    const raiz = document.getElementById("xo-vlibras-root");
-    if (!raiz || !window.VLibras?.Widget) return false;
+    if (widgetRef.current) return true;
+    if (inicializandoRef.current) return false;
+    if (!window.VLibras?.Widget) return false;
+    if (!document.getElementById("xo-vlibras-root")) return false;
 
-    const pluginJaMontado = Boolean(
-      raiz.querySelector("[vw-plugin-wrapper] > *:not(.vw-plugin-top-wrapper), .vpw-container"),
-    );
-
-    if (pluginJaMontado) {
-      window.vlibrasIniciado = true;
-      raiz.dataset.vlibrasReady = "true";
-      setStatus("pronto");
-      return true;
-    }
-
-    const aguardandoMontagem =
-      window.vlibrasIniciado &&
-      Date.now() - ultimaInicializacaoRef.current < 5_000;
-    if (aguardandoMontagem || inicializandoRef.current) return false;
-
-    // Ao voltar de /jogo para /, o script continua na memória, mas o DOM do
-    // widget anterior pode ter sido desmontado. Nesse caso, inicializamos de novo.
-    window.vlibrasIniciado = false;
     inicializandoRef.current = true;
 
     try {
-      ultimaInicializacaoRef.current = Date.now();
-      new window.VLibras.Widget(VLibrAS_APP);
-      window.vlibrasIniciado = true;
+      widgetRef.current = new window.VLibras.Widget(VLibrAS_APP);
+      iniciadoEmRef.current = Date.now();
       setStatus("carregando");
-      return false;
+
+      agendar(() => {
+        if (document.querySelector("[vw-access-button]")) {
+          setStatus("pronto");
+        }
+      }, 900);
+
+      return true;
     } catch (error) {
       console.warn("Falha ao iniciar o VLibras:", error);
       setStatus("erro");
@@ -72,81 +60,96 @@ export default function VLibras() {
     } finally {
       inicializandoRef.current = false;
     }
-  }, []);
+  }, [agendar]);
 
   const garantirInicializacao = useCallback(() => {
-    limparTentativas();
-    setStatus("carregando");
-
     if (iniciarVLibras()) return;
 
-    intervaloRef.current = window.setInterval(() => {
-      if (iniciarVLibras()) limparTentativas();
-    }, 250);
+    let tentativa = 0;
+    const tentar = () => {
+      tentativa += 1;
+      if (iniciarVLibras()) return;
 
-    timeoutRef.current = window.setTimeout(() => {
-      limparTentativas();
-      if (!iniciarVLibras()) setStatus("erro");
-    }, 15_000);
-  }, [iniciarVLibras, limparTentativas]);
+      if (tentativa < 40) {
+        agendar(tentar, 250);
+      } else {
+        setStatus("erro");
+      }
+    };
+
+    agendar(tentar, 100);
+  }, [agendar, iniciarVLibras]);
 
   const abrirVLibras = useCallback(() => {
     garantirInicializacao();
 
-    let tentativas = 0;
+    let tentativa = 0;
     const tentarAbrir = () => {
-      iniciarVLibras();
-      const raiz = document.getElementById("xo-vlibras-root");
-      const botao = raiz?.querySelector<HTMLElement>("[vw-access-button]");
+      tentativa += 1;
 
-      if (botao && raiz?.dataset.vlibrasReady === "true") {
+      if (!widgetRef.current) {
+        iniciarVLibras();
+        if (tentativa < 40) {
+          agendar(tentarAbrir, 250);
+          return;
+        }
+      }
+
+      const tempoDesdeInicio = Date.now() - iniciadoEmRef.current;
+      if (tempoDesdeInicio < 750 && tentativa < 40) {
+        agendar(tentarAbrir, 180);
+        return;
+      }
+
+      const botao = document.querySelector<HTMLElement>("[vw-access-button]");
+      if (botao) {
         botao.click();
         botao.focus({ preventScroll: true });
         setStatus("pronto");
         return;
       }
 
-      tentativas += 1;
-      if (tentativas < 40) {
-        window.setTimeout(tentarAbrir, 250);
+      if (tentativa < 40) {
+        agendar(tentarAbrir, 250);
         return;
       }
 
       setStatus("erro");
       alert(
-        "O VLibras ainda não terminou de carregar. Verifique a conexão e tente novamente em alguns segundos.",
+        "O VLibras não terminou de carregar. Confira a internet e tente novamente em alguns segundos.",
       );
     };
 
-    window.setTimeout(tentarAbrir, 100);
-  }, [garantirInicializacao, iniciarVLibras]);
+    agendar(tentarAbrir, 80);
+  }, [agendar, garantirInicializacao, iniciarVLibras]);
 
   useEffect(() => {
     window.abrirVLibras = abrirVLibras;
     garantirInicializacao();
 
-    const aoVoltarParaPagina = () => garantirInicializacao();
+    const aoMostrarPagina = () => garantirInicializacao();
     const aoFicarVisivel = () => {
       if (document.visibilityState === "visible") garantirInicializacao();
     };
 
-    window.addEventListener("pageshow", aoVoltarParaPagina);
+    window.addEventListener("pageshow", aoMostrarPagina);
     document.addEventListener("visibilitychange", aoFicarVisivel);
 
     return () => {
-      limparTentativas();
+      limparTimers();
+      widgetRef.current = null;
       if (window.abrirVLibras === abrirVLibras) delete window.abrirVLibras;
-      window.removeEventListener("pageshow", aoVoltarParaPagina);
+      window.removeEventListener("pageshow", aoMostrarPagina);
       document.removeEventListener("visibilitychange", aoFicarVisivel);
     };
-  }, [abrirVLibras, garantirInicializacao, limparTentativas]);
+  }, [abrirVLibras, garantirInicializacao, limparTimers]);
 
   return (
     <>
       <div
         id="xo-vlibras-root"
         {...{ vw: "true" }}
-        className="enabled"
+        className="enabled vlibras-container"
         data-status={status}
         aria-label="Acessibilidade em Libras"
       >
