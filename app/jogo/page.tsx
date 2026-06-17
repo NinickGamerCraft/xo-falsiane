@@ -1033,6 +1033,13 @@ const CONFIG = {
     transition: "/sounds/game-transition.mp3",
     tutorialWarning: "/sounds/tutorial/tutorial-warning.mp3",
 
+    menuAmbience: "/sounds/ambient/menu-ambience.mp3",
+    spaceAmbience: "/sounds/ambient/space-ambience.mp3",
+    storyMusic: "/sounds/music/story-theme.mp3",
+    infiniteMusic: "/sounds/music/infinite-theme.mp3",
+    victoryMusic: "/sounds/music/victory-theme.mp3",
+    gameOverMusic: "/sounds/music/game-over-theme.mp3",
+
     abilityReady: "/sounds/ability-ready.mp3",
     powerUpPickup: "/sounds/powerup-pickup.mp3",
     powerUpSpawn: "/sounds/powerup-spawn.mp3",
@@ -1104,6 +1111,19 @@ const CONFIG = {
     chocadoLaserFire: "/sounds/chocado-laser-fire.mp3",
     chocadoDefeatBurst: "/sounds/chocado-defeat-burst.mp3",
     chocadoFinalExplosion: "/sounds/chocado-final-explosion.mp3",
+    chocadoIdleLoop: "/sounds/chocado/chocado-idle-loop.mp3",
+    chocadoPhaseTwoLoop: "/sounds/chocado/chocado-phase2-loop.mp3",
+    chocadoPrismCharge: "/sounds/chocado/chocado-prism-charge.mp3",
+    chocadoPrismFire: "/sounds/chocado/chocado-prism-fire.mp3",
+    chocadoCorePulse: "/sounds/chocado/chocado-core-pulse.mp3",
+    chocadoMineDeploy: "/sounds/chocado/chocado-mine-deploy.mp3",
+    chocadoCrossBurst: "/sounds/chocado/chocado-cross-burst.mp3",
+    chocadoServoReturn: "/sounds/chocado/chocado-servo-return.mp3",
+    chocadoImpact: "/sounds/chocado/chocado-impact.mp3",
+    chocadoDeathRumble: "/sounds/chocado/chocado-death-rumble.mp3",
+    chocadoHitOne: "/sounds/chocado/chocado-hit-1.mp3",
+    chocadoHitTwo: "/sounds/chocado/chocado-hit-2.mp3",
+    chocadoHitThree: "/sounds/chocado/chocado-hit-3.mp3",
     victoryFanfare: "/sounds/victory-fanfare.mp3",
     fakeNewsIntercepted: "/sounds/fake-news-intercepted.mp3",
     fakeNewsTransmit: "/sounds/fake-news-transmit.mp3",
@@ -2574,6 +2594,10 @@ export default function JogoPage() {
   const shakeRef = useRef({ intensity: 0, endAt: 0 });
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
   const bossMusicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
+  const gameplayMusicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const bossHumAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastBossHitVoiceAtRef = useRef(0);
   const pauseStartedAtRef = useRef(0);
   const backgroundOffsetRef = useRef(0);
   const abilityReadyRef = useRef({
@@ -2646,15 +2670,35 @@ export default function JogoPage() {
   ) {
     (CONFIG.settings as Record<string, boolean | number | string>)[key] = value;
 
-    if (
-      bossMusicAudioRef.current &&
-      (key === "masterVolume" || key === "musicVolume")
-    ) {
-      bossMusicAudioRef.current.volume = clamp(
-        0.78 * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
-        0,
-        1,
-      );
+    if (key === "masterVolume" || key === "musicVolume") {
+      if (bossMusicAudioRef.current) {
+        bossMusicAudioRef.current.volume = clamp(
+          0.78 * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
+          0,
+          1,
+        );
+      }
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.volume = clamp(
+          0.16 * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
+          0,
+          1,
+        );
+      }
+      if (gameplayMusicAudioRef.current) {
+        gameplayMusicAudioRef.current.volume = clamp(
+          0.42 * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
+          0,
+          1,
+        );
+      }
+      if (bossHumAudioRef.current) {
+        bossHumAudioRef.current.volume = clamp(
+          0.16 * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
+          0,
+          1,
+        );
+      }
     }
 
     try {
@@ -3499,6 +3543,74 @@ export default function JogoPage() {
     }
   }
 
+  function pararLoopAudio(ref: { current: HTMLAudioElement | null }, reset = true) {
+    const audio = ref.current;
+    if (!audio) return;
+    audio.pause();
+    if (reset) audio.currentTime = 0;
+  }
+
+  function tocarLoopAudio(
+    ref: { current: HTMLAudioElement | null },
+    src: string | undefined,
+    volumeBase: number,
+  ) {
+    if (!CONFIG.useSounds || !src || CONFIG.settings.masterVolume <= 0) return;
+    if (!ref.current || ref.current.dataset.src !== src) {
+      pararLoopAudio(ref, true);
+      const audio = new Audio(assetUrl(src));
+      audio.dataset.src = src;
+      audio.loop = true;
+      audio.preload = "auto";
+      ref.current = audio;
+    }
+    ref.current.volume = clamp(
+      volumeBase * CONFIG.settings.masterVolume * CONFIG.settings.musicVolume,
+      0,
+      1,
+    );
+    ref.current.play().catch(() => {});
+  }
+
+  function tocarAmbienteEspacial() {
+    tocarLoopAudio(ambientAudioRef, CONFIG.sounds.spaceAmbience, 0.16);
+  }
+
+  function tocarMusicaDoModo(mode: GameMode | null) {
+    tocarLoopAudio(
+      gameplayMusicAudioRef,
+      mode === "story" ? CONFIG.sounds.storyMusic : CONFIG.sounds.infiniteMusic,
+      0.42,
+    );
+  }
+
+  function tocarHumChocado(faseDois = false) {
+    tocarLoopAudio(
+      bossHumAudioRef,
+      faseDois ? CONFIG.sounds.chocadoPhaseTwoLoop : CONFIG.sounds.chocadoIdleLoop,
+      faseDois ? 0.18 : 0.12,
+    );
+  }
+
+  function pararCamadasDeAudio(reset = true) {
+    pararLoopAudio(ambientAudioRef, reset);
+    pararLoopAudio(gameplayMusicAudioRef, reset);
+    pararLoopAudio(bossHumAudioRef, reset);
+  }
+
+  function tocarVozHitChocado() {
+    const now = performance.now();
+    if (now - lastBossHitVoiceAtRef.current < 420) return;
+    lastBossHitVoiceAtRef.current = now;
+    const opcoes = [
+      CONFIG.sounds.chocadoHitOne,
+      CONFIG.sounds.chocadoHitTwo,
+      CONFIG.sounds.chocadoHitThree,
+      CONFIG.sounds.chocadoHit,
+    ].filter(Boolean);
+    tocarSom(opcoes[Math.floor(Math.random() * opcoes.length)], 0.18, "hit");
+  }
+
   function pararMusicaChocado(reset = true) {
     const audio = bossMusicAudioRef.current;
     if (!audio) return;
@@ -3630,6 +3742,7 @@ export default function JogoPage() {
     shakeRef.current = { intensity: 0, endAt: 0 };
     boostHitEnemiesRef.current.clear();
     pararMusicaChocado(true);
+    pararCamadasDeAudio(true);
   }
 
   function resetarWaves(mode: GameMode | null) {
@@ -3754,6 +3867,8 @@ export default function JogoPage() {
     setDebugNotice("");
 
     setEstado("playing");
+    tocarAmbienteEspacial();
+    tocarMusicaDoModo(mode);
   }
 
   function iniciarTutorialInterativo() {
@@ -3784,6 +3899,8 @@ export default function JogoPage() {
     setPassoTutorial("move");
     setIsLowHp(false);
     setEstado("tutorial");
+    tocarAmbienteEspacial();
+    tocarMusicaDoModo("story");
   }
 
   function iniciarGameOverCutscene() {
@@ -3963,6 +4080,12 @@ export default function JogoPage() {
       !bossRef.current.defeated
     ) {
       tocarMusicaChocado();
+      tocarHumChocado(
+        bossRef.current.hp <= CONFIG.gameplay.boss.chocado.enragedHp,
+      );
+    } else {
+      tocarAmbienteEspacial();
+      tocarMusicaDoModo(currentModeRef.current);
     }
     setEstado("playing");
     setIsLowHp(playerRef.current.hp <= 1);
@@ -4004,6 +4127,9 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.pause, 0.45);
       pauseStartedAtRef.current = performance.now();
       pararMusicaChocado(false);
+      ambientAudioRef.current?.pause();
+      gameplayMusicAudioRef.current?.pause();
+      bossHumAudioRef.current?.pause();
       limparContagemRetomada();
       setEstado("paused");
       setIsLowHp(false);
@@ -4025,6 +4151,7 @@ export default function JogoPage() {
     setEstado("mainMenu");
     setIndiceMenu(0);
     setEscurecendo(false);
+    tocarLoopAudio(ambientAudioRef, CONFIG.sounds.menuAmbience, 0.14);
 
     window.setTimeout(() => {
       setMenuAberto(true);
@@ -4317,6 +4444,7 @@ export default function JogoPage() {
       setEstado("mainMenu");
       setIndiceMenu(0);
       setSaindoTitulo(false);
+      tocarLoopAudio(ambientAudioRef, CONFIG.sounds.menuAmbience, 0.14);
 
       window.setTimeout(() => {
         setMenuAberto(true);
@@ -5263,6 +5391,9 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.bossIntro, 0.62, "sfx");
       tocarMusicaChocado();
     }
+    pararLoopAudio(gameplayMusicAudioRef, false);
+    tocarAmbienteEspacial();
+    tocarHumChocado(false);
     shakeRef.current = {
       intensity: fromStoryReveal ? 7 : 6,
       endAt: performance.now() + 520,
@@ -7788,7 +7919,7 @@ export default function JogoPage() {
         }
       }
 
-      tocarSom(CONFIG.sounds.chocadoLaser, 0.48, "sfx");
+      tocarSom(CONFIG.sounds.chocadoLaserCharge || CONFIG.sounds.chocadoLaser, 0.38, "sfx");
     }
 
     function spawnBossCannonBurst() {
@@ -8005,7 +8136,8 @@ export default function JogoPage() {
       });
 
       tocarSom(
-        CONFIG.sounds.chocadoLaserCharge ||
+        CONFIG.sounds.chocadoPrismCharge ||
+          CONFIG.sounds.chocadoLaserCharge ||
           CONFIG.sounds.chocadoWarning ||
           CONFIG.sounds.chocadoLaser,
         0.45,
@@ -8095,8 +8227,8 @@ export default function JogoPage() {
         }
       }
       tocarSom(
-        CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb,
-        0.39,
+        CONFIG.sounds.chocadoCorePulse || CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb,
+        0.37,
         "sfx",
       );
     }
@@ -8134,8 +8266,8 @@ export default function JogoPage() {
         });
       }
       tocarSom(
-        CONFIG.sounds.chocadoBarrier || CONFIG.sounds.chocadoOrb,
-        0.4,
+        CONFIG.sounds.chocadoMineDeploy || CONFIG.sounds.chocadoBarrier || CONFIG.sounds.chocadoOrb,
+        0.36,
         "sfx",
       );
     }
@@ -8184,7 +8316,7 @@ export default function JogoPage() {
           });
         });
       });
-      tocarSom(CONFIG.sounds.chocadoCannon, 0.4, "sfx");
+      tocarSom(CONFIG.sounds.chocadoCrossBurst || CONFIG.sounds.chocadoCannon, 0.36, "sfx");
     }
 
     function spawnBossEnragedCombo() {
@@ -8394,6 +8526,7 @@ export default function JogoPage() {
           0.62,
           "sfx",
         );
+        tocarHumChocado(true);
         shockwavesRef.current.push({
           id: enemyIdRef.current++,
           x: boss.x + boss.w * 0.35,
@@ -9872,7 +10005,8 @@ export default function JogoPage() {
             const hitX = shot.x + shot.w / 2;
             const hitY = shot.y + shot.h / 2;
             criarParticulasHit(hitX, hitY);
-            tocarSom(CONFIG.sounds.enemyHit, 0.25, "hit");
+            tocarSom(CONFIG.sounds.enemyHit, 0.2, "hit");
+            tocarVozHitChocado();
 
             if (shot.type === "strong") {
               aplicarShockwaveDeTiroForte(hitX, hitY);

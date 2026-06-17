@@ -2,20 +2,26 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Space News | Batalha contra a Desinformação",
+  title: "Space News | Combate à Desinformação",
   description:
-    "Um shoot'em up retro-futurista do projeto Xô, falsiane!, com modo história, infinito, chefes e ranking online.",
+    "Um shoot'em up retrofuturista com história, chefes, modo infinito e ranking online.",
   icons: {
-    icon: "/game-icon.png",
-    shortcut: "/game-icon.png",
-    apple: "/game-icon.png",
+    icon: [
+      {
+        url: "/icons/space-news.png?v=2",
+        type: "image/png",
+        sizes: "512x512",
+      },
+    ],
+    shortcut: "/icons/space-news.png?v=2",
+    apple: "/icons/space-news.png?v=2",
   },
 };
 
-type JogoLayoutProps = {
+export default function JogoLayout({
+  children,
+}: Readonly<{
   children: ReactNode;
-};
-
-export default function JogoLayout({ children }: JogoLayoutProps) {
+}>) {
   return children;
 }

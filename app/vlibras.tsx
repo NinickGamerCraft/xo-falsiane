@@ -1,148 +1,206 @@
 "use client";
 
-import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 declare global {
   interface Window {
     VLibras?: { Widget: new (url: string) => unknown };
     abrirVLibras?: () => void;
+    __xoVLibrasWidget?: unknown;
+    __xoVLibrasBooting?: boolean;
   }
 }
 
-const VLibrAS_SCRIPT = "https://vlibras.gov.br/app/vlibras-plugin.js";
-const VLibrAS_APP = "https://vlibras.gov.br/app";
+const SCRIPT_ID = "xo-vlibras-plugin-script";
+const SCRIPT_SRC = "https://vlibras.gov.br/app/vlibras-plugin.js";
+const APP_URL = "https://vlibras.gov.br/app";
+
+function encontrarBotaoOficial() {
+  return document.querySelector<HTMLElement>("[vw-access-button]");
+}
+
+function dispararCliqueCompleto(elemento: HTMLElement) {
+  const opcoes: MouseEventInit = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+  };
+
+  try {
+    elemento.dispatchEvent(new PointerEvent("pointerdown", opcoes));
+    elemento.dispatchEvent(new MouseEvent("mousedown", opcoes));
+    elemento.dispatchEvent(new PointerEvent("pointerup", opcoes));
+    elemento.dispatchEvent(new MouseEvent("mouseup", opcoes));
+  } catch {}
+
+  HTMLElement.prototype.click.call(elemento);
+}
 
 export default function VLibras() {
-  const [status, setStatus] = useState<"carregando" | "pronto" | "erro">(
+  const [estado, setEstado] = useState<"carregando" | "pronto" | "erro">(
     "carregando",
   );
-  const widgetRef = useRef<unknown>(null);
-  const inicializandoRef = useRef(false);
-  const iniciadoEmRef = useRef(0);
+  const montadoRef = useRef(true);
+  const tentativasWidgetRef = useRef(0);
   const timersRef = useRef<number[]>([]);
 
-  const agendar = useCallback((callback: () => void, delay: number) => {
-    const timer = window.setTimeout(callback, delay);
+  const agendar = useCallback((funcao: () => void, atraso: number) => {
+    const timer = window.setTimeout(funcao, atraso);
     timersRef.current.push(timer);
     return timer;
   }, []);
 
-  const limparTimers = useCallback(() => {
-    for (const timer of timersRef.current) window.clearTimeout(timer);
-    timersRef.current = [];
+  const marcarProntoQuandoExistir = useCallback(() => {
+    const botao = encontrarBotaoOficial();
+    const wrapper = document.querySelector("[vw-plugin-wrapper]");
+
+    if (botao && wrapper) {
+      if (montadoRef.current) setEstado("pronto");
+      return true;
+    }
+
+    return false;
   }, []);
 
-  const iniciarVLibras = useCallback(() => {
-    if (widgetRef.current) return true;
-    if (inicializandoRef.current) return false;
+  const iniciarWidget = useCallback(() => {
     if (!window.VLibras?.Widget) return false;
     if (!document.getElementById("xo-vlibras-root")) return false;
+    if (marcarProntoQuandoExistir()) return true;
+    if (window.__xoVLibrasBooting) return false;
 
-    inicializandoRef.current = true;
+    window.__xoVLibrasBooting = true;
+    tentativasWidgetRef.current += 1;
 
     try {
-      widgetRef.current = new window.VLibras.Widget(VLibrAS_APP);
-      iniciadoEmRef.current = Date.now();
-      setStatus("carregando");
-
-      agendar(() => {
-        if (document.querySelector("[vw-access-button]")) {
-          setStatus("pronto");
-        }
-      }, 900);
-
-      return true;
-    } catch (error) {
-      console.warn("Falha ao iniciar o VLibras:", error);
-      setStatus("erro");
-      return false;
+      window.__xoVLibrasWidget = new window.VLibras.Widget(APP_URL);
+    } catch (erro) {
+      console.warn("Não foi possível iniciar o VLibras:", erro);
     } finally {
-      inicializandoRef.current = false;
+      window.__xoVLibrasBooting = false;
     }
-  }, [agendar]);
 
-  const garantirInicializacao = useCallback(() => {
-    if (iniciarVLibras()) return;
+    return true;
+  }, [marcarProntoQuandoExistir]);
 
-    let tentativa = 0;
-    const tentar = () => {
-      tentativa += 1;
-      if (iniciarVLibras()) return;
-
-      if (tentativa < 40) {
-        agendar(tentar, 250);
-      } else {
-        setStatus("erro");
+  const garantirScript = useCallback(() => {
+    return new Promise<void>((resolve, reject) => {
+      if (window.VLibras?.Widget) {
+        resolve();
+        return;
       }
-    };
 
-    agendar(tentar, 100);
-  }, [agendar, iniciarVLibras]);
+      const existente = document.getElementById(SCRIPT_ID) as
+        | HTMLScriptElement
+        | null;
 
-  const abrirVLibras = useCallback(() => {
-    garantirInicializacao();
+      const aoCarregar = () => resolve();
+      const aoFalhar = () => reject(new Error("Falha ao carregar o VLibras"));
+
+      if (existente) {
+        existente.addEventListener("load", aoCarregar, { once: true });
+        existente.addEventListener("error", aoFalhar, { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.id = SCRIPT_ID;
+      script.src = SCRIPT_SRC;
+      script.async = true;
+      script.crossOrigin = "anonymous";
+      script.addEventListener("load", aoCarregar, { once: true });
+      script.addEventListener("error", aoFalhar, { once: true });
+      document.body.appendChild(script);
+    });
+  }, []);
+
+  const inicializar = useCallback(async () => {
+    if (!montadoRef.current) return;
+    setEstado("carregando");
+
+    try {
+      await garantirScript();
+      iniciarWidget();
+
+      let tentativa = 0;
+      const verificar = () => {
+        tentativa += 1;
+
+        if (marcarProntoQuandoExistir()) return;
+
+        if (tentativa === 12 && tentativasWidgetRef.current < 3) {
+          // Algumas navegações do Next deixam uma instância global sem DOM.
+          window.__xoVLibrasWidget = undefined;
+          iniciarWidget();
+        }
+
+        if (tentativa < 45) {
+          agendar(verificar, 220);
+        } else if (montadoRef.current) {
+          setEstado("erro");
+        }
+      };
+
+      verificar();
+    } catch {
+      if (montadoRef.current) setEstado("erro");
+    }
+  }, [agendar, garantirScript, iniciarWidget, marcarProntoQuandoExistir]);
+
+  const abrir = useCallback(async () => {
+    if (!marcarProntoQuandoExistir()) {
+      await inicializar();
+    }
 
     let tentativa = 0;
     const tentarAbrir = () => {
       tentativa += 1;
+      const botao = encontrarBotaoOficial();
 
-      if (!widgetRef.current) {
-        iniciarVLibras();
-        if (tentativa < 40) {
-          agendar(tentarAbrir, 250);
-          return;
-        }
-      }
-
-      const tempoDesdeInicio = Date.now() - iniciadoEmRef.current;
-      if (tempoDesdeInicio < 750 && tentativa < 40) {
-        agendar(tentarAbrir, 180);
-        return;
-      }
-
-      const botao = document.querySelector<HTMLElement>("[vw-access-button]");
       if (botao) {
-        botao.click();
-        botao.focus({ preventScroll: true });
-        setStatus("pronto");
+        dispararCliqueCompleto(botao);
+        if (montadoRef.current) setEstado("pronto");
         return;
       }
 
-      if (tentativa < 40) {
-        agendar(tentarAbrir, 250);
-        return;
+      if (tentativa < 35) {
+        agendar(tentarAbrir, 220);
+      } else {
+        if (montadoRef.current) setEstado("erro");
+        alert(
+          "O VLibras não conseguiu abrir. Verifique sua conexão, desative bloqueadores de conteúdo e tente novamente.",
+        );
       }
-
-      setStatus("erro");
-      alert(
-        "O VLibras não terminou de carregar. Confira a internet e tente novamente em alguns segundos.",
-      );
     };
 
-    agendar(tentarAbrir, 80);
-  }, [agendar, garantirInicializacao, iniciarVLibras]);
+    tentarAbrir();
+  }, [agendar, inicializar, marcarProntoQuandoExistir]);
 
   useEffect(() => {
-    window.abrirVLibras = abrirVLibras;
-    garantirInicializacao();
+    montadoRef.current = true;
+    window.abrirVLibras = abrir;
 
-    const aoMostrarPagina = () => garantirInicializacao();
-    const aoFicarVisivel = () => {
-      if (document.visibilityState === "visible") garantirInicializacao();
-    };
+    const observador = new MutationObserver(() => {
+      marcarProntoQuandoExistir();
+    });
+    observador.observe(document.body, { childList: true, subtree: true });
 
-    window.addEventListener("pageshow", aoMostrarPagina);
-    document.addEventListener("visibilitychange", aoFicarVisivel);
+    inicializar();
+
+    const aoVoltar = () => inicializar();
+    const aoReconectar = () => inicializar();
+    window.addEventListener("pageshow", aoVoltar);
+    window.addEventListener("online", aoReconectar);
 
     return () => {
-      limparTimers();
-      widgetRef.current = null;
-      if (window.abrirVLibras === abrirVLibras) delete window.abrirVLibras;
-      window.removeEventListener("pageshow", aoMostrarPagina);
-      document.removeEventListener("visibilitychange", aoFicarVisivel);
+      montadoRef.current = false;
+      observador.disconnect();
+      for (const timer of timersRef.current) window.clearTimeout(timer);
+      timersRef.current = [];
+      if (window.abrirVLibras === abrir) delete window.abrirVLibras;
+      window.removeEventListener("pageshow", aoVoltar);
+      window.removeEventListener("online", aoReconectar);
     };
-  }, [abrirVLibras, garantirInicializacao, limparTimers]);
+  }, [abrir, inicializar, marcarProntoQuandoExistir]);
 
   return (
     <>
@@ -150,8 +208,7 @@ export default function VLibras() {
         id="xo-vlibras-root"
         {...{ vw: "true" }}
         className="enabled vlibras-container"
-        data-status={status}
-        aria-label="Acessibilidade em Libras"
+        aria-label="Tradutor de Português para Libras"
       >
         <div {...{ "vw-access-button": "true" }} className="active" />
         <div {...{ "vw-plugin-wrapper": "true" }}>
@@ -159,14 +216,26 @@ export default function VLibras() {
         </div>
       </div>
 
-      <Script
-        id="vlibras-plugin-script"
-        src={VLibrAS_SCRIPT}
-        strategy="afterInteractive"
-        onLoad={garantirInicializacao}
-        onReady={garantirInicializacao}
-        onError={() => setStatus("erro")}
-      />
+      <button
+        type="button"
+        className={`xo-vlibras-launcher is-${estado}`}
+        onClick={abrir}
+        aria-label="Abrir tradução com VLibras"
+      >
+        <span className="xo-vlibras-launcher-icon" aria-hidden="true">
+          🤟
+        </span>
+        <span>
+          <strong>VLibras</strong>
+          <small>
+            {estado === "pronto"
+              ? "Disponível"
+              : estado === "erro"
+                ? "Tentar novamente"
+                : "Carregando..."}
+          </small>
+        </span>
+      </button>
     </>
   );
 }
