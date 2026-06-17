@@ -11065,3 +11065,358 @@ body.game-page-active .xo-vlibras-launcher,
     flex-basis: 36px;
   }
 }
+
+/* =========================================================
+   V28 — VLibras oficial, loading de assets e feedback
+   ========================================================= */
+
+/* O componente V28 usa somente a estrutura oficial [vw].
+   Não aplicar launcher próprio nem esconder o botão oficial. */
+body.xo-page-active > [vw],
+body.xo-page-active [vw].enabled {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  z-index: 2147483000 !important;
+}
+
+body.xo-page-active [vw-access-button],
+body.xo-page-active [vw-plugin-wrapper] {
+  pointer-events: auto !important;
+}
+
+/* Loader inicial do Space News */
+.sn-asset-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482500;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(83, 43, 134, 0.26), transparent 34%),
+    rgba(5, 3, 10, 0.97);
+  color: #fff2bd;
+}
+
+.sn-asset-loader-card {
+  width: min(620px, 92vw);
+  padding: clamp(24px, 5vw, 42px);
+  border: 3px solid #ead68f;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(24, 13, 32, 0.98), rgba(10, 6, 17, 0.98));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.68), 0 0 36px rgba(213, 177, 79, 0.16);
+  text-align: center;
+}
+
+.sn-asset-loader-card p {
+  margin: 0 0 10px;
+  color: #f1c85e;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+  font-size: clamp(12px, 1.5vw, 16px);
+  font-weight: 900;
+  letter-spacing: 0.2em;
+}
+
+.sn-asset-loader-card h1 {
+  margin: 0 0 24px;
+  font-family: var(--game-title-font), Impact, sans-serif;
+  font-size: clamp(30px, 6vw, 64px);
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.sn-asset-loader-track {
+  position: relative;
+  width: 100%;
+  height: 22px;
+  overflow: hidden;
+  border: 3px solid #ead68f;
+  border-radius: 999px;
+  background: #160b1d;
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.7);
+}
+
+.sn-asset-loader-track span {
+  display: block;
+  height: 100%;
+  min-width: 2%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f0475c, #ff9f2f, #ffe78c);
+  box-shadow: 0 0 18px rgba(255, 192, 76, 0.52);
+  transition: width 160ms linear;
+}
+
+.sn-asset-loader-card > strong {
+  display: block;
+  margin-top: 12px;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+  font-size: clamp(18px, 3vw, 28px);
+}
+
+.sn-asset-loader-card small {
+  display: block;
+  max-width: 480px;
+  margin: 14px auto 0;
+  color: rgba(255, 242, 199, 0.72);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: clamp(13px, 2vw, 16px);
+  line-height: 1.5;
+}
+
+.sn-asset-warning {
+  position: fixed;
+  left: 50%;
+  top: max(14px, env(safe-area-inset-top));
+  z-index: 2147482400;
+  width: min(760px, calc(100vw - 28px));
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px 13px 18px;
+  border: 2px solid #ffc55c;
+  border-radius: 16px;
+  background: rgba(26, 12, 24, 0.97);
+  color: #fff2c6;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5), 0 0 24px rgba(255, 173, 62, 0.16);
+}
+
+.sn-asset-warning div {
+  display: grid;
+  gap: 3px;
+}
+
+.sn-asset-warning strong {
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+
+.sn-asset-warning span {
+  color: rgba(255, 240, 205, 0.72);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 13px;
+}
+
+.sn-asset-warning button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 2px solid #e9d491;
+  border-radius: 10px;
+  background: #2c172e;
+  color: #fff0bd;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.sn-asset-warning button.is-close {
+  width: 38px;
+  padding: 0;
+  font-size: 22px;
+}
+
+/* Botão e modal de feedback compartilhados */
+.xo-feedback-fab {
+  position: fixed;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 2147481800;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 9px 14px;
+  border: 1px solid rgba(101, 156, 255, 0.52);
+  border-radius: 15px;
+  background: linear-gradient(145deg, rgba(8, 19, 42, 0.96), rgba(17, 58, 121, 0.94));
+  color: #f7fbff;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 0 22px rgba(48, 126, 255, 0.18);
+  font: 800 14px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+.xo-feedback-fab > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: #347ff0;
+}
+
+.xo-feedback-fab.is-game {
+  border: 2px solid rgba(240, 212, 136, 0.68);
+  background: linear-gradient(180deg, rgba(31, 14, 31, 0.96), rgba(15, 8, 20, 0.96));
+  color: #ffefb6;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+}
+
+.xo-feedback-fab.is-game > span {
+  background: #7a3c84;
+}
+
+.xo-feedback-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(1, 4, 12, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.xo-feedback-modal {
+  position: relative;
+  width: min(620px, 94vw);
+  max-height: min(760px, 90dvh);
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid rgba(97, 151, 255, 0.56);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(10, 18, 37, 0.99), rgba(5, 10, 22, 0.99));
+  color: #eef5ff;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.62);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.xo-feedback-modal.is-game {
+  border: 3px solid #e6cf88;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(29, 14, 31, 0.99), rgba(10, 6, 15, 0.99));
+  color: #fff0bd;
+}
+
+.xo-feedback-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 38px;
+  height: 38px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.xo-feedback-kicker {
+  margin: 0 0 10px;
+  color: #6ca7ff;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.xo-feedback-modal.is-game .xo-feedback-kicker {
+  color: #e9c95c;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+}
+
+.xo-feedback-modal h2 {
+  margin: 0 50px 8px 0;
+  font-size: clamp(28px, 5vw, 42px);
+}
+
+.xo-feedback-modal > p:not(.xo-feedback-kicker) {
+  color: rgba(224, 235, 255, 0.72);
+}
+
+.xo-feedback-modal.is-game > p:not(.xo-feedback-kicker) {
+  color: rgba(255, 240, 190, 0.72);
+}
+
+.xo-feedback-modal label {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  font-weight: 800;
+}
+
+.xo-feedback-modal select,
+.xo-feedback-modal textarea {
+  width: 100%;
+  border: 1px solid rgba(99, 151, 255, 0.42);
+  border-radius: 13px;
+  background: rgba(2, 7, 17, 0.82);
+  color: inherit;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.xo-feedback-modal textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.xo-feedback-modal.is-game select,
+.xo-feedback-modal.is-game textarea {
+  border: 2px solid rgba(231, 207, 136, 0.54);
+  background: rgba(12, 6, 16, 0.9);
+}
+
+.xo-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.xo-feedback-actions button {
+  min-height: 44px;
+  padding: 10px 15px;
+  border: 0;
+  border-radius: 12px;
+  background: #347ff0;
+  color: white;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.xo-feedback-actions button:last-child {
+  background: rgba(101, 145, 216, 0.2);
+  border: 1px solid rgba(101, 145, 216, 0.42);
+}
+
+.xo-feedback-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.xo-feedback-modal.is-game .xo-feedback-actions button {
+  background: #8f4a8e;
+  font-family: var(--game-ui-font), system-ui, sans-serif;
+}
+
+@media (pointer: coarse), (max-width: 720px) {
+  .sn-asset-warning {
+    grid-template-columns: 1fr auto;
+  }
+
+  .sn-asset-warning > button:not(.is-close) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .xo-feedback-fab {
+    left: max(10px, env(safe-area-inset-left));
+    bottom: max(10px, env(safe-area-inset-bottom));
+    min-height: 42px;
+    padding: 7px 10px;
+  }
+
+  .xo-feedback-fab strong {
+    display: none;
+  }
+
+  .xo-feedback-modal {
+    padding: 22px 18px;
+    backdrop-filter: none;
+  }
+}

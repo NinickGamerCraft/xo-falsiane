@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import VLibras from "./vlibras";
+import FeedbackButton from "./feedback-button";
+import PWARegister from "./pwa-register";
 
 type Tema = "system" | "dark" | "light";
 type TemaResolvido = "dark" | "light";
@@ -1027,6 +1029,8 @@ export default function Home() {
           </section>
         )}
       </div>
+      <PWARegister />
+      <FeedbackButton contexto="Xô, falsiane!" />
       <VLibras />
     </main>
   );

@@ -34,6 +34,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import FeedbackButton from "../feedback-button";
+import PWARegister from "../pwa-register";
 
 function isIOSLikeDevice() {
   if (typeof navigator === "undefined") return false;
@@ -1840,29 +1842,67 @@ function assetUrl(src: string) {
   return `${src}${separator}v=${ASSET_VERSION}`;
 }
 
+function listarAssetsParaCacheOffline() {
+  const urls = new Set<string>();
+
+  for (const config of Object.values(ASSETS)) {
+    urls.add(assetUrl(config.src));
+    for (const frame of config.frameSrcs ?? []) urls.add(assetUrl(frame));
+  }
+
+  for (const value of Object.values(CONFIG.uiImages)) {
+    if (typeof value === "string" && value.startsWith("/")) {
+      urls.add(assetUrl(value));
+    }
+  }
+
+  for (const value of Object.values(CONFIG.sounds)) {
+    if (typeof value === "string" && value.startsWith("/")) {
+      urls.add(assetUrl(value));
+    }
+  }
+
+  return [...urls];
+}
+
 class AssetManager {
   private images = new Map<SpriteKey, HTMLImageElement | null>();
   private frameImages = new Map<SpriteKey, (HTMLImageElement | null)[]>();
 
-  async loadAll() {
+  async loadAll(
+    onProgress?: (loaded: number, total: number, src: string, ok: boolean) => void,
+  ) {
     const entries = Object.entries(ASSETS) as [SpriteKey, SpriteConfig][];
+    const total = entries.reduce(
+      (sum, [, config]) => sum + 1 + (config.frameSrcs?.length ?? 0),
+      0,
+    );
+    const failed: string[] = [];
+    let loaded = 0;
+
+    const loadTracked = async (src: string) => {
+      const image = await this.loadImage(src);
+      loaded += 1;
+      if (!image) failed.push(src);
+      onProgress?.(loaded, total, src, Boolean(image));
+      return image;
+    };
 
     await Promise.all(
       entries.map(async ([key, config]) => {
-        // Imagem principal: para player é o sprite parado/idle; para outros é o sprite normal/spritesheet.
-        const image = await this.loadImage(config.src);
+        const image = await loadTracked(config.src);
         this.images.set(key, image);
 
-        // Frames separados: usados quando não queremos spritesheet.
         if (config.frameSrcs && config.frameSrcs.length > 0) {
           const frames = await Promise.all(
-            config.frameSrcs.map((frameSrc) => this.loadImage(frameSrc)),
+            config.frameSrcs.map((frameSrc) => loadTracked(frameSrc)),
           );
-
           this.frameImages.set(key, frames);
         }
       }),
     );
+
+    return { total, failed: [...new Set(failed)] };
   }
 
   get(key: SpriteKey) {
@@ -1888,20 +1928,29 @@ class AssetManager {
   private loadImage(src: string) {
     return new Promise<HTMLImageElement | null>((resolve) => {
       const img = new Image();
-      img.src = assetUrl(src);
+      let finalizado = false;
 
-      img.onload = () => {
-        resolve(img);
+      const finalizar = (image: HTMLImageElement | null) => {
+        if (finalizado) return;
+        finalizado = true;
+        window.clearTimeout(timeout);
+        resolve(image);
       };
 
+      const timeout = window.setTimeout(() => {
+        console.warn(`Tempo esgotado ao carregar asset: ${src}`);
+        finalizar(null);
+      }, 15000);
+
+      img.onload = () => finalizar(img);
       img.onerror = () => {
         console.warn(`Asset não encontrado: ${src}`);
-        resolve(null);
+        finalizar(null);
       };
+      img.src = assetUrl(src);
     });
   }
 }
-
 class Sprite {
   key: SpriteKey;
   x: number;
@@ -2526,6 +2575,14 @@ export default function JogoPage() {
   const [victoryFakeNewsCopied, setVictoryFakeNewsCopied] = useState(false);
 
   const assetsRef = useRef(new AssetManager());
+  const assetLoadRunRef = useRef(0);
+  const [assetLoadState, setAssetLoadState] = useState({
+    loading: true,
+    loaded: 0,
+    total: 1,
+  });
+  const [missingAssets, setMissingAssets] = useState<string[]>([]);
+  const [assetWarningVisible, setAssetWarningVisible] = useState(false);
   const enemyIdRef = useRef(0);
   const shotIdRef = useRef(0);
 
@@ -6701,8 +6758,44 @@ export default function JogoPage() {
     }
   }, []);
 
+  async function carregarAssetsDoJogo() {
+    const runId = ++assetLoadRunRef.current;
+    assetsRef.current = new AssetManager();
+    setMissingAssets([]);
+    setAssetWarningVisible(false);
+    setAssetLoadState({ loading: true, loaded: 0, total: 1 });
+
+    const report = await assetsRef.current.loadAll((loaded, total) => {
+      if (assetLoadRunRef.current !== runId) return;
+      setAssetLoadState({ loading: true, loaded, total: Math.max(1, total) });
+    });
+
+    if (assetLoadRunRef.current !== runId) return;
+
+    setMissingAssets(report.failed);
+    setAssetWarningVisible(report.failed.length > 0);
+    setAssetLoadState({
+      loading: false,
+      loaded: Math.max(1, report.total),
+      total: Math.max(1, report.total),
+    });
+
+    // Depois do carregamento visual, o service worker guarda os demais
+    // assets em segundo plano para manter a partida estável se a internet cair.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.ready
+        .then((registration) => {
+          registration.active?.postMessage({
+            type: "CACHE_URLS",
+            urls: listarAssetsParaCacheOffline(),
+          });
+        })
+        .catch(() => {});
+    }
+  }
+
   useEffect(() => {
-    assetsRef.current.loadAll();
+    void carregarAssetsDoJogo();
 
     const warmSounds = [
       CONFIG.sounds.normalShot,
@@ -11473,6 +11566,62 @@ export default function JogoPage() {
       style={gameStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
+      <PWARegister />
+
+      {assetLoadState.loading && (
+        <section className="sn-asset-loader" role="status" aria-live="polite">
+          <div className="sn-asset-loader-card">
+            <p>CANAL SPACE NEWS</p>
+            <h1>Preparando a transmissão</h1>
+            <div className="sn-asset-loader-track" aria-hidden="true">
+              <span
+                style={{
+                  width: `${Math.round(
+                    (assetLoadState.loaded / Math.max(1, assetLoadState.total)) *
+                      100,
+                  )}%`,
+                }}
+              />
+            </div>
+            <strong>
+              {Math.round(
+                (assetLoadState.loaded / Math.max(1, assetLoadState.total)) *
+                  100,
+              )}%
+            </strong>
+            <small>
+              Carregando imagens essenciais. Depois disso, a partida pode
+              continuar mesmo se a conexão cair.
+            </small>
+          </div>
+        </section>
+      )}
+
+      {!assetLoadState.loading &&
+        assetWarningVisible &&
+        missingAssets.length > 0 && (
+          <aside className="sn-asset-warning" role="alert">
+            <div>
+              <strong>Alguns assets não carregaram</strong>
+              <span>
+                {missingAssets.length} arquivo(s) usarão fallback. Verifique a
+                conexão ou os diretórios.
+              </span>
+            </div>
+            <button type="button" onClick={() => void carregarAssetsDoJogo()}>
+              Tentar novamente
+            </button>
+            <button
+              type="button"
+              className="is-close"
+              onClick={() => setAssetWarningVisible(false)}
+              aria-label="Fechar aviso"
+            >
+              ×
+            </button>
+          </aside>
+        )}
+
       <div
         ref={customCursorRef}
         className="game-custom-cursor"
@@ -12881,6 +13030,18 @@ export default function JogoPage() {
             />
           </button>
         </div>
+      )}
+
+      {[
+        "title",
+        "mainMenu",
+        "settings",
+        "extras",
+        "paused",
+        "gameOver",
+        "victory",
+      ].includes(gameState) && (
+        <FeedbackButton contexto="Space News" compacto />
       )}
     </main>
   );
