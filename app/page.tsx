@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import VLibras from "./vlibras";
 import FeedbackButton from "./feedback-button";
 import PWARegister from "./pwa-register";
 
@@ -1031,7 +1030,6 @@ export default function Home() {
       </div>
       <PWARegister />
       <FeedbackButton contexto="Xô, falsiane!" />
-      <VLibras />
     </main>
   );
 }

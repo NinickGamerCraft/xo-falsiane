@@ -1,167 +1,383 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 declare global {
   interface Window {
     VLibras?: {
-      Widget: new (url: string) => unknown;
+      Widget: new (baseUrl: string) => unknown;
     };
     abrirVLibras?: () => void;
-    __xoVlibrasInitialized?: boolean;
+    __xoVlibrasInstance?: unknown;
+    __xoVlibrasScriptPromise?: Promise<void>;
+    __xoVlibrasInitPromise?: Promise<void>;
   }
 }
 
-const VLIBRAS_APP_URL = "https://vlibras.gov.br/app";
-const VLIBRAS_SCRIPT_URL = "https://vlibras.gov.br/app/vlibras-plugin.js";
+const VLIBRAS_BASE_URL = "https://vlibras.gov.br/app";
+const VLIBRAS_SCRIPT_URL =
+  "https://vlibras.gov.br/app/vlibras-plugin.js";
 const ROOT_ID = "xo-vlibras-root";
 const SCRIPT_ID = "xo-vlibras-script";
 
-function criarEstruturaOficial(): HTMLDivElement {
-  const existente = document.getElementById(ROOT_ID) as HTMLDivElement | null;
-
-  if (existente) {
-    existente.style.removeProperty("display");
-    return existente;
-  }
-
-  const root = document.createElement("div");
-  root.id = ROOT_ID;
-  root.setAttribute("vw", "");
-  root.className = "enabled";
-
-  const accessButton = document.createElement("div");
-  accessButton.setAttribute("vw-access-button", "");
-  accessButton.className = "active";
-
-  const pluginWrapper = document.createElement("div");
-  pluginWrapper.setAttribute("vw-plugin-wrapper", "");
-
-  const topWrapper = document.createElement("div");
-  topWrapper.className = "vw-plugin-top-wrapper";
-
-  pluginWrapper.appendChild(topWrapper);
-  root.appendChild(accessButton);
-  root.appendChild(pluginWrapper);
-  document.body.appendChild(root);
-
-  return root;
+function wait(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
-export default function VLibras() {
-  useEffect(() => {
-    let cancelado = false;
-    let initTimer: number | null = null;
-    let openTimer: number | null = null;
+function showElement(element: HTMLElement) {
+  element.style.removeProperty("display");
+  element.style.removeProperty("visibility");
+  element.style.removeProperty("opacity");
+  element.style.removeProperty("pointer-events");
+  element.removeAttribute("aria-hidden");
+}
 
-    const garantirEstrutura = () => {
-      const root = criarEstruturaOficial();
-      root.style.removeProperty("display");
-      return root;
-    };
+function ensureOfficialMarkup() {
+  let root =
+    document.getElementById(ROOT_ID) ||
+    document.querySelector<HTMLElement>("[vw]");
 
-    const iniciarWidget = () => {
-      if (cancelado) return false;
+  if (!root) {
+    root = document.createElement("div");
+    root.id = ROOT_ID;
+    root.setAttribute("vw", "");
+    root.className = "enabled";
+    root.dataset.xoVlibrasManaged = "true";
+    document.body.appendChild(root);
+  } else {
+    root.id = ROOT_ID;
+    root.setAttribute("vw", "");
+    root.classList.add("enabled");
+  }
 
-      const root = garantirEstrutura();
+  let accessButton =
+    root.querySelector<HTMLElement>("[vw-access-button]");
 
-      if (window.__xoVlibrasInitialized) {
-        return true;
-      }
+  if (!accessButton) {
+    accessButton = document.createElement("div");
+    accessButton.setAttribute("vw-access-button", "");
+    accessButton.className = "active";
+    root.appendChild(accessButton);
+  } else {
+    accessButton.classList.add("active");
+  }
 
-      if (!window.VLibras?.Widget) {
-        return false;
-      }
+  let pluginWrapper =
+    root.querySelector<HTMLElement>("[vw-plugin-wrapper]");
 
-      try {
-        new window.VLibras.Widget(VLIBRAS_APP_URL);
-        window.__xoVlibrasInitialized = true;
-        root.style.removeProperty("display");
-        return true;
-      } catch (error) {
-        console.error("Falha ao iniciar o VLibras:", error);
-        window.__xoVlibrasInitialized = false;
-        return false;
-      }
-    };
+  if (!pluginWrapper) {
+    pluginWrapper = document.createElement("div");
+    pluginWrapper.setAttribute("vw-plugin-wrapper", "");
+    root.appendChild(pluginWrapper);
+  }
 
-    const tentarInicializar = (tentativa = 0) => {
-      if (cancelado || iniciarWidget() || tentativa >= 60) return;
+  let topWrapper =
+    pluginWrapper.querySelector<HTMLElement>(
+      ".vw-plugin-top-wrapper",
+    );
 
-      initTimer = window.setTimeout(() => {
-        tentarInicializar(tentativa + 1);
-      }, 250);
-    };
+  if (!topWrapper) {
+    topWrapper = document.createElement("div");
+    topWrapper.className = "vw-plugin-top-wrapper";
+    pluginWrapper.appendChild(topWrapper);
+  }
 
-    const tentarAbrir = (tentativa = 0) => {
-      if (cancelado) return;
+  showElement(root);
+  showElement(accessButton);
+  showElement(pluginWrapper);
 
-      iniciarWidget();
+  accessButton.setAttribute(
+    "aria-label",
+    "Abrir tradutor VLibras",
+  );
+  accessButton.setAttribute("title", "Abrir VLibras");
 
-      const botao = document.querySelector<HTMLElement>("[vw-access-button]");
+  return {
+    root,
+    accessButton,
+    pluginWrapper,
+  };
+}
 
-      if (botao && window.__xoVlibrasInitialized) {
-        botao.click();
-        return;
-      }
+function loadVlibrasScriptOnce(): Promise<void> {
+  if (window.VLibras?.Widget) {
+    return Promise.resolve();
+  }
 
-      if (tentativa >= 20) {
-        window.alert(
-          "O VLibras ainda não terminou de carregar. Verifique sua conexão e tente novamente em alguns segundos.",
+  if (window.__xoVlibrasScriptPromise) {
+    return window.__xoVlibrasScriptPromise;
+  }
+
+  window.__xoVlibrasScriptPromise = new Promise<void>(
+    (resolve, reject) => {
+      let settled = false;
+      let script =
+        document.getElementById(SCRIPT_ID) as
+          | HTMLScriptElement
+          | null;
+
+      if (!script) {
+        script = document.querySelector<HTMLScriptElement>(
+          'script[src*="vlibras-plugin.js"]',
         );
+      }
+
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        callback();
+      };
+
+      const handleLoad = () => {
+        if (script) script.dataset.xoVlibrasState = "loaded";
+        finish(resolve);
+      };
+
+      const handleError = () => {
+        if (script) {
+          script.dataset.xoVlibrasState = "error";
+          script.remove();
+        }
+
+        finish(() => {
+          reject(
+            new Error(
+              "Não foi possível carregar o script oficial do VLibras.",
+            ),
+          );
+        });
+      };
+
+      const timeoutId = window.setTimeout(() => {
+        if (window.VLibras?.Widget) {
+          finish(resolve);
+          return;
+        }
+
+        if (script) script.remove();
+
+        finish(() => {
+          reject(
+            new Error(
+              "O carregamento do script do VLibras excedeu o tempo limite.",
+            ),
+          );
+        });
+      }, 15_000);
+
+      if (script) {
+        script.id = SCRIPT_ID;
+
+        if (
+          window.VLibras?.Widget ||
+          script.dataset.xoVlibrasState === "loaded"
+        ) {
+          finish(resolve);
+          return;
+        }
+
+        script.addEventListener("load", handleLoad, {
+          once: true,
+        });
+        script.addEventListener("error", handleError, {
+          once: true,
+        });
         return;
       }
 
-      openTimer = window.setTimeout(() => {
-        tentarAbrir(tentativa + 1);
-      }, 250);
-    };
-
-    garantirEstrutura();
-
-    const scriptExistente = document.getElementById(
-      SCRIPT_ID,
-    ) as HTMLScriptElement | null;
-
-    if (window.VLibras?.Widget) {
-      tentarInicializar();
-    } else if (scriptExistente) {
-      scriptExistente.addEventListener("load", () => tentarInicializar(), {
-        once: true,
-      });
-      tentarInicializar();
-    } else {
-      const script = document.createElement("script");
+      script = document.createElement("script");
       script.id = SCRIPT_ID;
       script.src = VLIBRAS_SCRIPT_URL;
       script.async = true;
-      script.onload = () => tentarInicializar();
-      script.onerror = () => {
-        console.error("Não foi possível carregar o script oficial do VLibras.");
-      };
+      script.defer = true;
+      script.dataset.xoVlibrasState = "loading";
+      script.addEventListener("load", handleLoad, {
+        once: true,
+      });
+      script.addEventListener("error", handleError, {
+        once: true,
+      });
+
       document.body.appendChild(script);
+    },
+  ).catch((error) => {
+    window.__xoVlibrasScriptPromise = undefined;
+    throw error;
+  });
+
+  return window.__xoVlibrasScriptPromise;
+}
+
+async function waitForWidgetConstructor(
+  timeoutMs = 10_000,
+) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (window.VLibras?.Widget) return;
+    await wait(200);
+  }
+
+  throw new Error(
+    "A API window.VLibras.Widget não ficou disponível.",
+  );
+}
+
+async function initVlibrasOnce() {
+  if (window.__xoVlibrasInstance) {
+    ensureOfficialMarkup();
+    return;
+  }
+
+  if (window.__xoVlibrasInitPromise) {
+    return window.__xoVlibrasInitPromise;
+  }
+
+  window.__xoVlibrasInitPromise = (async () => {
+    ensureOfficialMarkup();
+
+    await loadVlibrasScriptOnce();
+    await waitForWidgetConstructor();
+
+    if (!window.__xoVlibrasInstance) {
+      window.__xoVlibrasInstance =
+        new window.VLibras!.Widget(VLIBRAS_BASE_URL);
     }
 
-    window.abrirVLibras = () => tentarAbrir();
+    ensureOfficialMarkup();
+  })().finally(() => {
+    window.__xoVlibrasInitPromise = undefined;
+  });
 
-    const aoReconectar = () => tentarInicializar();
-    window.addEventListener("online", aoReconectar);
+  return window.__xoVlibrasInitPromise;
+}
+
+async function initWithRetry() {
+  const delays = [0, 300, 1_000, 2_500, 5_000];
+
+  let lastError: unknown = null;
+
+  for (const delay of delays) {
+    if (delay > 0) await wait(delay);
+
+    try {
+      await initVlibrasOnce();
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn("[VLibras] tentativa falhou:", error);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Falha desconhecida ao iniciar o VLibras.");
+}
+
+async function openVlibras() {
+  await initWithRetry();
+
+  const { accessButton } = ensureOfficialMarkup();
+
+  accessButton.focus({ preventScroll: true });
+  accessButton.click();
+}
+
+export default function VLibras() {
+  const pathname = usePathname();
+  const isGameRoute = pathname.startsWith("/jogo");
+
+  useEffect(() => {
+    const root = document.getElementById(ROOT_ID);
+
+    if (isGameRoute) {
+      root?.style.setProperty("display", "none", "important");
+      root?.setAttribute("aria-hidden", "true");
+      return;
+    }
+
+    if (root) showElement(root);
+  }, [isGameRoute]);
+
+  useEffect(() => {
+    if (isGameRoute) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const start = async () => {
+      if (cancelled) return;
+
+      try {
+        await initWithRetry();
+      } catch (error) {
+        console.error(
+          "[VLibras] não foi possível inicializar:",
+          error,
+        );
+      }
+    };
+
+    window.abrirVLibras = () => {
+      void openVlibras().catch((error) => {
+        console.error("[VLibras] falha ao abrir:", error);
+        window.alert(
+          "O VLibras não conseguiu carregar agora. Verifique a conexão, desative bloqueadores de conteúdo e tente novamente.",
+        );
+      });
+    };
+
+    const handleOnline = () => {
+      void start();
+    };
+
+    const handlePageShow = () => {
+      void start();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void start();
+      }
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener(
+        "DOMContentLoaded",
+        () => {
+          void start();
+        },
+        { once: true },
+      );
+    } else {
+      void start();
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("pageshow", handlePageShow);
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibility,
+    );
 
     return () => {
-      cancelado = true;
+      cancelled = true;
 
-      if (initTimer !== null) window.clearTimeout(initTimer);
-      if (openTimer !== null) window.clearTimeout(openTimer);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("pageshow", handlePageShow);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibility,
+      );
 
-      window.removeEventListener("online", aoReconectar);
-      delete window.abrirVLibras;
-
-      const root = document.getElementById(ROOT_ID);
-      if (root) root.style.display = "none";
+      // Não remover DOM, script ou instância global.
     };
-  }, []);
+  }, [isGameRoute]);
 
-  // Nada é renderizado pelo React. O widget oficial é inserido no body
-  // somente após a hidratação, evitando divergência servidor/cliente.
   return null;
 }
