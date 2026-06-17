@@ -1,11 +1,12 @@
-const CACHE_VERSION = "xo-space-news-v1";
+const CACHE_VERSION = "xo-space-news-v2";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
+const CACHE_PREFIX = "xo-space-news-";
+
+const OFFLINE_URL = "/offline.html";
 
 const APP_SHELL = [
-  "/",
-  "/jogo",
-  "/offline.html",
+  OFFLINE_URL,
   "/icons/xo-falsiane-192.png",
   "/icons/xo-falsiane-512.png",
   "/icons/space-news-192.png",
@@ -14,37 +15,44 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE).then(async (cache) => {
+    (async () => {
+      const cache = await caches.open(SHELL_CACHE);
+
       await Promise.allSettled(
         APP_SHELL.map(async (url) => {
-          const response = await fetch(url, { cache: "reload" });
+          const response = await fetch(url, {
+            cache: "reload",
+          });
 
           if (response.ok) {
-            await cache.put(url, response);
+            await cache.put(url, response.clone());
           }
         }),
       );
 
       await self.skipWaiting();
-    }),
+    })(),
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    Promise.all([
-      caches.keys().then((keys) =>
-        Promise.all(
-          keys
-            .filter(
-              (key) => ![SHELL_CACHE, RUNTIME_CACHE].includes(key),
-            )
-            .map((key) => caches.delete(key)),
-        ),
-      ),
+    (async () => {
+      const keys = await caches.keys();
 
-      self.clients.claim(),
-    ]),
+      await Promise.all(
+        keys
+          .filter(
+            (key) =>
+              key.startsWith(CACHE_PREFIX) &&
+              key !== SHELL_CACHE &&
+              key !== RUNTIME_CACHE,
+          )
+          .map((key) => caches.delete(key)),
+      );
+
+      await self.clients.claim();
+    })(),
   );
 });
 
@@ -52,11 +60,18 @@ function isApiRequest(url) {
   return url.pathname.startsWith("/api/");
 }
 
-function isStaticAsset(request, url) {
+function isNextDataRequest(request, url) {
   return (
-    ["image", "font", "style", "script", "audio"].includes(
-      request.destination,
-    ) ||
+    url.pathname.startsWith("/_next/webpack-hmr") ||
+    url.searchParams.has("_rsc") ||
+    request.headers.get("RSC") === "1" ||
+    request.headers.get("Next-Router-Prefetch") === "1"
+  );
+}
+
+function isRuntimeAsset(request, url) {
+  return (
+    ["image", "font", "audio"].includes(request.destination) ||
     url.pathname.startsWith("/_next/static/") ||
     url.pathname.startsWith("/game/") ||
     url.pathname.startsWith("/sounds/") ||
@@ -66,38 +81,21 @@ function isStaticAsset(request, url) {
   );
 }
 
-async function networkFirst(request) {
-  const cache = await caches.open(RUNTIME_CACHE);
-
+async function navigationNetworkOnly(request) {
   try {
-    const response = await fetch(request);
-
-    if (response.ok) {
-      await cache.put(request, response.clone());
-    }
-
-    return response;
+    return await fetch(request, {
+      cache: "no-store",
+    });
   } catch {
-    const cached = await cache.match(request);
-
-    if (cached) {
-      return cached;
-    }
-
-    return (
-      (await caches.match("/offline.html")) ||
-      Response.error()
-    );
+    return (await caches.match(OFFLINE_URL)) || Response.error();
   }
 }
 
-async function cacheFirst(request) {
+async function immutableCacheFirst(request) {
   const cache = await caches.open(RUNTIME_CACHE);
   const cached = await cache.match(request);
 
-  if (cached) {
-    return cached;
-  }
+  if (cached) return cached;
 
   const response = await fetch(request);
 
@@ -111,31 +109,25 @@ async function cacheFirst(request) {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
 
-  if (request.method !== "GET") {
-    return;
-  }
+  if (request.method !== "GET") return;
+  if (request.headers.has("range")) return;
 
   const url = new URL(request.url);
 
-  if (url.origin !== self.location.origin) {
-    return;
-  }
+  if (url.origin !== self.location.origin) return;
+  if (isApiRequest(url)) return;
+  if (isNextDataRequest(request, url)) return;
 
-  if (isApiRequest(url)) {
-    return;
-  }
-
-  if (request.headers.has("range")) {
-    return;
-  }
-
+  // Nunca armazene HTML/RSC do Next.
+  // HTML antigo pode apontar para chunks que já não existem.
   if (request.mode === "navigate") {
-    event.respondWith(networkFirst(request));
+    event.respondWith(navigationNetworkOnly(request));
     return;
   }
 
-  if (isStaticAsset(request, url)) {
-    event.respondWith(cacheFirst(request));
+  // Guarda somente assets estáticos e públicos.
+  if (isRuntimeAsset(request, url)) {
+    event.respondWith(immutableCacheFirst(request));
   }
 });
 
@@ -147,28 +139,31 @@ self.addEventListener("message", (event) => {
     return;
   }
 
-  if (
-    data.type === "CACHE_URLS" &&
-    Array.isArray(data.urls)
-  ) {
+  if (data.type === "CACHE_URLS" && Array.isArray(data.urls)) {
     event.waitUntil(
-      caches.open(RUNTIME_CACHE).then((cache) =>
-        Promise.allSettled(
+      (async () => {
+        const cache = await caches.open(RUNTIME_CACHE);
+
+        await Promise.allSettled(
           data.urls
             .filter(
               (url) =>
                 typeof url === "string" &&
-                url.startsWith("/"),
+                url.startsWith("/") &&
+                !url.startsWith("/api/") &&
+                !url.includes("?_rsc="),
             )
             .map(async (url) => {
-              const response = await fetch(url);
+              const response = await fetch(url, {
+                cache: "no-cache",
+              });
 
-              if (response.ok) {
-                await cache.put(url, response);
+              if (response.ok && response.type !== "opaque") {
+                await cache.put(url, response.clone());
               }
             }),
-        ),
-      ),
+        );
+      })(),
     );
   }
 });

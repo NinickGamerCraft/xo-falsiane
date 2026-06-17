@@ -699,14 +699,6 @@ body.reduce-motion *::after {
   transform: translateY(-2px);
 }
 
-.vlibras-container {
-  z-index: 9999999 !important;
-}
-
-[vw-access-button] {
-  z-index: 9999999 !important;
-}
-
 .floating-action {
   overflow: visible !important;
 }
@@ -7980,11 +7972,6 @@ body:has(.game-fullscreen-page) .game-custom-cursor {
    SPACE NEWS V13 — EXTRAS, RANKING, VITÓRIA E PERFORMANCE
    ========================================================= */
 
-/* VLibras permanece disponível no site e no jogo. */
-[vw], [vw-access-button], .vlibras-container, div[vw-plugin-wrapper] {
-  pointer-events: auto;
-}
-
 .sn-debug-notice {
   position: fixed;
   left: 50%;
@@ -10149,22 +10136,6 @@ html.xo-drawer-open body {
    V21 — VLibras apenas no Xô, portais, mobile estável
    ========================================================= */
 
-/* VLibras só aparece no site principal. */
-body.game-page-active [vw],
-body.game-page-active [vw-access-button],
-body.game-page-active .vlibras-container,
-body.game-page-active div[vw-plugin-wrapper] {
-  display: none !important;
-  pointer-events: none !important;
-}
-
-body.xo-page-active [vw],
-body.xo-page-active [vw-access-button],
-body.xo-page-active .vlibras-container,
-body.xo-page-active div[vw-plugin-wrapper] {
-  pointer-events: auto !important;
-}
-
 /* Lista de fontes no menu lateral do Xô, falsiane! */
 .trusted-portals {
   margin-top: 10px;
@@ -10922,169 +10893,8 @@ body.light-mode .about-project-grid span {
 
 
 /* =========================================================
-   V26 — VLibras controlado pelo CSS oficial do widget
-   ========================================================= */
-body.xo-page-active #xo-vlibras-root {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  z-index: 2147483000 !important;
-}
-
-/* Não sobrescrever tamanho, posição, transform ou hover do botão.
-   A faixa “Disponível com VLibras” depende do CSS oficial. */
-body.xo-page-active #xo-vlibras-root [vw-access-button],
-body.xo-page-active #xo-vlibras-root [vw-plugin-wrapper] {
-  pointer-events: auto !important;
-}
-
-body.game-page-active #xo-vlibras-root,
-body.game-page-active #xo-vlibras-root [vw-access-button],
-body.game-page-active #xo-vlibras-root [vw-plugin-wrapper] {
-  display: none !important;
-  pointer-events: none !important;
-}
-
-/* =========================================================
-   V27 — botão VLibras estável e independente do botão oficial
-   ========================================================= */
-#xo-vlibras-root {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  z-index: 2147483000 !important;
-}
-
-/* O botão oficial continua no DOM para acionar o plugin, mas o launcher
-   próprio evita falhas visuais e de clique entre navegadores. */
-#xo-vlibras-root > [vw-access-button] {
-  position: fixed !important;
-  right: 2px !important;
-  bottom: 2px !important;
-  width: 2px !important;
-  height: 2px !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  opacity: 0.001 !important;
-  pointer-events: none !important;
-  overflow: hidden !important;
-}
-
-#xo-vlibras-root [vw-plugin-wrapper] {
-  pointer-events: auto !important;
-  z-index: 2147483001 !important;
-}
-
-.xo-vlibras-launcher {
-  position: fixed;
-  right: max(18px, env(safe-area-inset-right));
-  bottom: max(18px, env(safe-area-inset-bottom));
-  z-index: 2147482999;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 164px;
-  min-height: 56px;
-  padding: 9px 14px 9px 10px;
-  border: 1px solid rgba(91, 147, 255, 0.52);
-  border-radius: 16px;
-  background: linear-gradient(145deg, rgba(7, 14, 30, 0.96), rgba(10, 35, 82, 0.94));
-  color: #f5f9ff;
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.38), 0 0 22px rgba(47, 128, 255, 0.2);
-  backdrop-filter: blur(10px);
-  cursor: pointer;
-  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  text-align: left;
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-}
-
-.xo-vlibras-launcher:hover,
-.xo-vlibras-launcher:focus-visible {
-  transform: translateY(-2px);
-  border-color: rgba(116, 176, 255, 0.88);
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.42), 0 0 28px rgba(47, 128, 255, 0.34);
-  outline: none;
-}
-
-.xo-vlibras-launcher-icon {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
-  border-radius: 12px;
-  background: linear-gradient(145deg, #1b67e8, #44a0ff);
-  font-size: 20px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
-}
-
-.xo-vlibras-launcher > span:last-child {
-  display: grid;
-  gap: 1px;
-}
-
-.xo-vlibras-launcher strong {
-  font-size: 14px;
-  line-height: 1.1;
-  letter-spacing: 0.02em;
-}
-
-.xo-vlibras-launcher small {
-  color: rgba(220, 233, 255, 0.72);
-  font-size: 11px;
-}
-
-.xo-vlibras-launcher.is-carregando {
-  opacity: 0.82;
-}
-
-.xo-vlibras-launcher.is-erro {
-  border-color: rgba(255, 188, 91, 0.72);
-}
-
-body.game-page-active .xo-vlibras-launcher,
-.game-fullscreen-page ~ .xo-vlibras-launcher {
-  display: none !important;
-}
-
-@media (pointer: coarse), (max-width: 720px) {
-  .xo-vlibras-launcher {
-    right: max(12px, env(safe-area-inset-right));
-    bottom: max(12px, env(safe-area-inset-bottom));
-    min-width: 148px;
-    min-height: 52px;
-    padding: 7px 12px 7px 8px;
-    backdrop-filter: none;
-  }
-
-  .xo-vlibras-launcher-icon {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
-  }
-}
-
-/* =========================================================
    V28 — VLibras oficial, loading de assets e feedback
    ========================================================= */
-
-/* O componente V28 usa somente a estrutura oficial [vw].
-   Não aplicar launcher próprio nem esconder o botão oficial. */
-body.xo-page-active > [vw],
-body.xo-page-active [vw].enabled {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  z-index: 2147483000 !important;
-}
-
-body.xo-page-active [vw-access-button],
-body.xo-page-active [vw-plugin-wrapper] {
-  pointer-events: auto !important;
-}
 
 /* Loader inicial do Space News */
 .sn-asset-loader {
@@ -11419,4 +11229,14 @@ body.xo-page-active [vw-plugin-wrapper] {
     padding: 22px 18px;
     backdrop-filter: none;
   }
+}
+
+
+/* =========================================================
+   V29 — VLibras oficial sem sobrescritas visuais
+   ========================================================= */
+/* A posição, o tamanho, o hover e a abertura do botão são controlados
+   exclusivamente pelo CSS oficial carregado por vlibras-plugin.js. */
+body.game-page-active #xo-vlibras-root {
+  display: none !important;
 }
