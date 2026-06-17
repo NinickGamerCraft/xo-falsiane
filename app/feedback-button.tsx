@@ -7,7 +7,7 @@ type FeedbackButtonProps = {
   compacto?: boolean;
 };
 
-const FEEDBACK_EMAIL = "ninickgamecraft@gmail.com";
+const FEEDBACK_EMAIL = "verifique.ai@gmail.com";
 
 export default function FeedbackButton({
   contexto,

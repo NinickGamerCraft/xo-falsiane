@@ -11240,3 +11240,180 @@ body.light-mode .about-project-grid span {
 body.game-page-active #xo-vlibras-root {
   display: none !important;
 }
+
+/* =========================================================
+   V30 — CORREÇÃO DEFINITIVA DAS CONFIGURAÇÕES NO MOBILE
+   Evita stepper atravessando cards e remove scroll horizontal.
+   ========================================================= */
+
+@media (pointer: coarse), (max-width: 1000px), (max-height: 760px) {
+  .game-state-settings .game-settings-panel {
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  .game-state-settings .game-settings-list {
+    min-width: 0 !important;
+    width: 100% !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain !important;
+    scrollbar-gutter: stable !important;
+  }
+
+  .game-state-settings .game-settings-category,
+  .game-state-settings .game-settings-category-list,
+  .game-state-settings .game-setting-row {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .game-state-settings .game-settings-category-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    gap: 7px !important;
+  }
+
+  .game-state-settings .game-setting-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto auto !important;
+    align-content: center !important;
+    align-items: stretch !important;
+    gap: 7px !important;
+    min-height: 92px !important;
+    padding: 9px 10px !important;
+    overflow: hidden !important;
+  }
+
+  .game-state-settings .game-setting-main-action {
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 24px !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    overflow: hidden !important;
+  }
+
+  .game-state-settings .game-setting-label {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    font-size: clamp(10px, 1.75vw, 14px) !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .game-state-settings .game-setting-control {
+    flex: 0 0 auto !important;
+  }
+
+  .game-state-settings .sn-setting-stepper {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    grid-template-columns: 36px minmax(0, 1fr) 36px !important;
+    gap: 6px !important;
+    box-sizing: border-box !important;
+  }
+
+  .game-state-settings .sn-setting-stepper > button {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    padding: 0 !important;
+    border-radius: 9px !important;
+    font-size: 21px !important;
+    line-height: 1 !important;
+  }
+
+  .game-state-settings .sn-setting-stepper-value {
+    width: 100% !important;
+    min-width: 0 !important;
+    gap: 4px !important;
+    align-content: center !important;
+  }
+
+  .game-state-settings .sn-setting-stepper-value strong {
+    min-width: 0 !important;
+    font-size: clamp(10px, 1.65vw, 13px) !important;
+    line-height: 1 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .game-state-settings .game-setting-bar {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: 9px !important;
+    box-sizing: border-box !important;
+  }
+
+  .game-state-settings .game-setting-toggle,
+  .game-state-settings .sn-keybind-value {
+    font-size: 10px !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* Palco muito estreito, portrait ou janela dividida: uma coluna limpa. */
+@media (pointer: coarse) and (max-width: 680px),
+       (pointer: coarse) and (orientation: portrait),
+       (max-width: 520px) {
+  .game-state-settings .game-settings-category-list {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .game-state-settings .game-setting-row {
+    min-height: 86px !important;
+  }
+}
+
+/* Landscape baixo: preserva duas colunas, como no PC, sem esmagar os controles. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  .game-state-settings .game-settings-panel {
+    width: min(88%, 820px) !important;
+    max-height: calc(var(--stage-h, 100dvh) - 10px) !important;
+    padding: 7px 9px !important;
+  }
+
+  .game-state-settings .game-settings-header {
+    min-height: 30px !important;
+    padding-bottom: 3px !important;
+  }
+
+  .game-state-settings .game-settings-tabs {
+    padding: 3px 0 5px !important;
+    gap: 4px !important;
+  }
+
+  .game-state-settings .game-settings-tabs button {
+    min-height: 29px !important;
+    padding: 3px 4px !important;
+    font-size: 8px !important;
+  }
+
+  .game-state-settings .game-settings-list {
+    max-height: calc(var(--stage-h, 100dvh) - 78px) !important;
+  }
+
+  .game-state-settings .game-setting-row {
+    min-height: 80px !important;
+    padding: 7px 8px !important;
+    gap: 5px !important;
+  }
+
+  .game-state-settings .sn-setting-stepper {
+    grid-template-columns: 32px minmax(0, 1fr) 32px !important;
+    gap: 5px !important;
+  }
+
+  .game-state-settings .sn-setting-stepper > button {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    font-size: 19px !important;
+  }
+}
