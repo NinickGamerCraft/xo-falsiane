@@ -11417,3 +11417,32 @@ body.game-page-active #xo-vlibras-root {
     font-size: 19px !important;
   }
 }
+/* VLibras: mantenha a interface oficial visível e clicável no site */
+#xo-vlibras-root {
+  z-index: 2147483600 !important;
+}
+
+#xo-vlibras-root [vw-access-button] {
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#xo-vlibras-root [vw-plugin-wrapper] {
+  z-index: 2147483640 !important;
+}
+
+/* O VLibras deve aparecer somente no Xô, falsiane! */
+body.game-page-active #xo-vlibras-root {
+  display: none !important;
+}
+
+/* Não esconda o botão oficial no mobile */
+@media (pointer: coarse), (max-width: 900px) {
+  body:not(.game-page-active) #xo-vlibras-root,
+  body:not(.game-page-active) #xo-vlibras-root [vw-access-button] {
+    visibility: visible;
+    pointer-events: auto !important;
+  }
+}
+
