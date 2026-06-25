@@ -56,6 +56,9 @@ type FullscreenCapableDocument = Document & {
 type GameState =
   | "title"
   | "mainMenu"
+  | "multiplayerMenu"
+  | "localLobby"
+  | "localModeSelect"
   | "settings"
   | "extras"
   | "storyCutscene"
@@ -67,7 +70,7 @@ type GameState =
   | "gameOver"
   | "victory";
 
-type GameMode = "story" | "infinite";
+type GameMode = "story" | "infinite" | "localCoop" | "localScore" | "localPvp";
 
 type ExtraSection = "home" | "credits" | "wiki" | "records";
 
@@ -155,6 +158,7 @@ type SpriteKey =
 
 type Shot = {
   id: number;
+  ownerId?: 1 | 2;
   stretchUntil: number;
   x: number;
   y: number;
@@ -421,8 +425,9 @@ type GameCssVars = CSSProperties & {
 type MenuOption = {
   label: string;
   mode?: GameMode;
-  action?: "settings" | "extras";
+  action?: "settings" | "extras" | "multiplayer";
   disabled?: boolean;
+  hint?: string;
 };
 
 type WaveSpawnEvent = {
@@ -1295,11 +1300,25 @@ const BOOST_HOLD_MAX_MS = 2400;
 const AIM_FADE_MS = 420;
 
 const MAIN_MENU_OPTIONS: MenuOption[] = [
-  { label: "HISTÓRIA", mode: "story" },
-  { label: "INFINITO", mode: "infinite" },
+  { label: "HISTÓRIA", mode: "story", hint: "Campanha principal" },
+  { label: "INFINITO", mode: "infinite", hint: "Sobreviva o máximo possível" },
+  { label: "MULTIPLAYER", action: "multiplayer", hint: "Local e online" },
   { label: "CONFIGURAÇÕES", action: "settings" },
   { label: "EXTRA", action: "extras" },
 ];
+
+const MULTIPLAYER_BRANCH_OPTIONS = [
+  { label: "LOCAL", description: "Mesmo aparelho: teclado, touch e controles." },
+  { label: "ONLINE", description: "Em breve: salas por código e luta/co-op pela internet.", disabled: true },
+];
+
+const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: string }> = [
+  { label: "COOP", mode: "localCoop", description: "Modo infinito com jogadores unidos contra as waves." },
+  { label: "PVP", mode: "localPvp", description: "Arena local, pontos por nocaute e respawn." },
+  { label: "DISPUTA", mode: "localScore", description: "Protótipo: pontos separados nas waves." },
+];
+
+const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
 
 const LEADERBOARD_KEY = "spaceNews.infiniteLeaderboard.v2";
 const DEBUG_SEQUENCE = "170626";
@@ -2641,6 +2660,25 @@ export default function JogoPage() {
 
   const [playerHp, setPlayerHp] = useState(CONFIG.gameplay.player.maxHp);
   const [goldenHp, setGoldenHp] = useState(0);
+  const [player2Hp, setPlayer2Hp] = useState(CONFIG.gameplay.player.maxHp);
+  const [player2GoldenHp, setPlayer2GoldenHp] = useState(0);
+  const [player2DodgeReadyRatio, setPlayer2DodgeReadyRatio] = useState(1);
+  const [player2StrongReadyRatio, setPlayer2StrongReadyRatio] = useState(1);
+  const [player2BoostReadyRatio, setPlayer2BoostReadyRatio] = useState(1);
+  const [localP1Score, setLocalP1Score] = useState(0);
+  const [localP2Score, setLocalP2Score] = useState(0);
+  const [localPvpRound, setLocalPvpRound] = useState(1);
+  const [localModeNotice, setLocalModeNotice] = useState("");
+  const [multiplayerBranchIndex, setMultiplayerBranchIndex] = useState(0);
+  const [localLobbyIndex, setLocalLobbyIndex] = useState(1);
+  const [localModeIndex, setLocalModeIndex] = useState(0);
+  const [pauseIndex, setPauseIndex] = useState(0);
+  const [localPlayerSlots, setLocalPlayerSlots] = useState([
+    { id: 1, ready: true, input: "P1", color: LOCAL_PLAYER_COLORS[0] },
+    { id: 2, ready: false, input: "CONTROLE/TECLADO", color: LOCAL_PLAYER_COLORS[1] },
+    { id: 3, ready: false, input: "CONTROLE EXTRA", color: LOCAL_PLAYER_COLORS[2] },
+    { id: 4, ready: false, input: "CONTROLE EXTRA", color: LOCAL_PLAYER_COLORS[3] },
+  ]);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
     flashWhite: false,
     flashBlur: false,
@@ -2751,6 +2789,23 @@ export default function JogoPage() {
   const shotIdRef = useRef(0);
 
   const playerRef = useRef<Player>(createInitialPlayer());
+  const player2Ref = useRef<Player | null>(null);
+  const player2InputRef = useRef({ x: 0, y: 0 });
+  const player2ButtonsRef = useRef<Record<string, boolean>>({});
+  const player2ButtonsPressedRef = useRef<Record<string, boolean>>({});
+  const player2BoostReadyAtRef = useRef(0);
+  const player2RespawnAtRef = useRef(0);
+  const localP1ScoreRef = useRef(0);
+  const localP2ScoreRef = useRef(0);
+  const localPvpRoundRef = useRef(1);
+  const localPvpMatchLockedRef = useRef(false);
+  const localReviveHoldRef = useRef({ target: 0, progress: 0, lastAt: 0 });
+  const lastPvpPowerDropAtRef = useRef(0);
+  const localPlayerSlotsRef = useRef(localPlayerSlots);
+  const multiplayerBranchIndexRef = useRef(0);
+  const localLobbyIndexRef = useRef(1);
+  const localModeIndexRef = useRef(0);
+  const pauseIndexRef = useRef(0);
   const playerAnimRef = useRef(
     new AnimatedSprite(
       "player",
@@ -2854,7 +2909,11 @@ export default function JogoPage() {
     }
     if (
       estado !== "mainMenu" &&
+      estado !== "multiplayerMenu" &&
+      estado !== "localLobby" &&
+      estado !== "localModeSelect" &&
       estado !== "settings" &&
+      estado !== "paused" &&
       estado !== "tutorialChoice"
     ) {
       resetarRepeticaoDirecionalMenu();
@@ -2873,6 +2932,197 @@ export default function JogoPage() {
     setMenuOpen(valor);
   }
 
+
+  function isLocalMode(mode = currentModeRef.current) {
+    return mode === "localCoop" || mode === "localScore" || mode === "localPvp";
+  }
+
+  function isLocalWaveMode(mode = currentModeRef.current) {
+    return mode === "localCoop" || mode === "localScore";
+  }
+
+  function isLocalPvpMode(mode = currentModeRef.current) {
+    return mode === "localPvp";
+  }
+
+
+  function danoLocalPorJogador() {
+    if (!isLocalWaveMode()) return 1;
+    const players = Math.max(1, totalJogadoresLocaisProntos());
+    if (players <= 1) return 1;
+    return 1 / 2 ** (players - 1);
+  }
+
+  function rotuloModoLocal(mode = currentModeRef.current) {
+    if (mode === "localCoop") return "COOP LOCAL";
+    if (mode === "localScore") return "DISPUTA LOCAL";
+    if (mode === "localPvp") return "PVP LOCAL";
+    return "LOCAL";
+  }
+
+
+  function vidaMaximaLocal() {
+    return CONFIG.gameplay.player.maxHp;
+  }
+
+  function resetarReviveLocal() {
+    localReviveHoldRef.current = { target: 0, progress: 0, lastAt: 0 };
+  }
+
+  function limparRoundPvp() {
+    localPvpMatchLockedRef.current = false;
+    resetarReviveLocal();
+  }
+
+  function aplicarFlingPlayerLocal(
+    player: Player,
+    dirX: number,
+    dirY: number,
+    force: number,
+  ) {
+    const dir = normalizarDirecao(dirX, dirY);
+    player.vx += dir.x * force;
+    player.vy += dir.y * force;
+    player.vx = clamp(player.vx, -18, 18);
+    player.vy = clamp(player.vy, -15, 15);
+    player.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+    player.stretchVx = player.vx;
+    player.stretchVy = player.vy;
+  }
+
+  function manterPlayerNaArena(player: Player) {
+    player.x = clamp(player.x, 10, CONFIG.canvasWidth - player.w - 10);
+    player.y = clamp(player.y, 10, CONFIG.canvasHeight - player.h - 10);
+  }
+
+  function escolherPowerUpPvp(): PowerUpKind {
+    const table: PowerUpKind[] = [
+      "regen",
+      "fireRate",
+      "shield",
+      "powerShot",
+      "homingShot",
+      "randomBox",
+    ];
+    return table[Math.floor(Math.random() * table.length)];
+  }
+
+  function spawnPowerUpPvp(force = false) {
+    if (!isLocalPvpMode()) return;
+    const now = performance.now();
+    if (!force && now - lastPvpPowerDropAtRef.current < 1450) return;
+    lastPvpPowerDropAtRef.current = now;
+    const cfg = CONFIG.gameplay.powerups;
+    const id = powerUpIdRef.current++;
+    const fromRight = Math.random() > 0.5;
+    powerUpsRef.current.push({
+      id,
+      kind: escolherPowerUpPvp(),
+      x: fromRight ? CONFIG.canvasWidth - cfg.width - 70 : 70,
+      y: 76,
+      w: cfg.width,
+      h: cfg.height,
+      vx: fromRight ? -2.35 : 2.35,
+      vy: 2.05,
+      age: 0,
+      life: Math.min(cfg.lifeMs, 11000),
+      wavePhase: rand(0, Math.PI * 2),
+      bornAt: now,
+    });
+    tocarSom(CONFIG.sounds.powerUpSpawn || CONFIG.sounds.abilityReady, 0.32, "ability");
+    tocarLoopPowerUpTrail(id);
+  }
+
+  function processarPontoPvp(winner: 1 | 2) {
+    if (!isLocalPvpMode() || localPvpMatchLockedRef.current) return;
+    localPvpMatchLockedRef.current = true;
+    const nextP1 = localP1ScoreRef.current + (winner === 1 ? 1 : 0);
+    const nextP2 = localP2ScoreRef.current + (winner === 2 ? 1 : 0);
+    localP1ScoreRef.current = nextP1;
+    localP2ScoreRef.current = nextP2;
+    setLocalP1Score(nextP1);
+    setLocalP2Score(nextP2);
+    criarExplosao(
+      winner === 1
+        ? (player2Ref.current?.x ?? CONFIG.canvasWidth - 200)
+        : playerRef.current.x,
+      winner === 1
+        ? (player2Ref.current?.y ?? CONFIG.canvasHeight / 2)
+        : playerRef.current.y,
+      winner === 1 ? LOCAL_PLAYER_COLORS[0] : LOCAL_PLAYER_COLORS[1],
+      22,
+    );
+
+    const matchPoint = Math.max(nextP1, nextP2) >= 3;
+    setLocalModeNotice(
+      matchPoint
+        ? `${winner === 1 ? "P1" : "P2"} VENCEU A MELHOR DE 5!`
+        : `${winner === 1 ? "P1" : "P2"} MARCOU · ROUND ${localPvpRoundRef.current + 1}`,
+    );
+
+    window.setTimeout(() => {
+      if (matchPoint) {
+        localP1ScoreRef.current = 0;
+        localP2ScoreRef.current = 0;
+        setLocalP1Score(0);
+        setLocalP2Score(0);
+        localPvpRoundRef.current = 1;
+        setLocalPvpRound(1);
+        setLocalModeNotice("NOVA PARTIDA PVP");
+      } else {
+        localPvpRoundRef.current += 1;
+        setLocalPvpRound(localPvpRoundRef.current);
+      }
+      resetarPosicoesLocais();
+      localPvpMatchLockedRef.current = false;
+      window.setTimeout(() => setLocalModeNotice(""), 900);
+    }, matchPoint ? 1700 : 1150);
+  }
+
+  function criarPlayer2Inicial() {
+    const player = createInitialPlayer();
+    player.x = 118;
+    player.y = CONFIG.canvasHeight / 2 + 70;
+    player.strongReadyAt = 0;
+    player.invincibleUntil = performance.now() + 1400;
+    return player;
+  }
+
+  function resetarPosicoesLocais() {
+    const p1 = playerRef.current;
+    p1.x = 112;
+    p1.y = CONFIG.canvasHeight / 2 - 112;
+    p1.vx = 0;
+    p1.vy = 0;
+    p1.hp = CONFIG.gameplay.player.maxHp;
+    p1.goldenHp = 0;
+    p1.normalCooldown = 0;
+    p1.strongReadyAt = 0;
+    p1.invincibleUntil = performance.now() + 1200;
+    setPlayerHp(p1.hp);
+    setGoldenHp(0);
+
+    const p2 = player2Ref.current ?? criarPlayer2Inicial();
+    p2.x = isLocalPvpMode() ? CONFIG.canvasWidth - p2.w - 150 : 112;
+    p2.y = isLocalPvpMode() ? CONFIG.canvasHeight / 2 - p2.h / 2 : CONFIG.canvasHeight / 2 + 42;
+    p2.vx = 0;
+    p2.vy = 0;
+    p2.hp = CONFIG.gameplay.player.maxHp;
+    p2.goldenHp = 0;
+    p2.normalCooldown = 0;
+    p2.strongReadyAt = 0;
+    p2.invincibleUntil = performance.now() + 1200;
+    player2Ref.current = p2;
+    setPlayer2Hp(p2.hp);
+    setPlayer2GoldenHp(p2.goldenHp);
+    setPlayer2DodgeReadyRatio(1);
+    setPlayer2StrongReadyRatio(1);
+    setPlayer2BoostReadyRatio(1);
+    player2BoostReadyAtRef.current = 0;
+    if (isLocalPvpMode()) spawnPowerUpPvp(true);
+    limparRoundPvp();
+  }
+
   function setEscurecendo(valor: boolean) {
     screenFadeRef.current = valor;
     setScreenFade(valor);
@@ -2888,6 +3138,120 @@ export default function JogoPage() {
       (index + SETTINGS_OPTIONS.length) % SETTINGS_OPTIONS.length;
     settingsIndexRef.current = safeIndex;
     setSettingsIndex(safeIndex);
+  }
+
+  function setIndiceMultiplayerBranch(index: number) {
+    const safeIndex =
+      (index + MULTIPLAYER_BRANCH_OPTIONS.length) % MULTIPLAYER_BRANCH_OPTIONS.length;
+    multiplayerBranchIndexRef.current = safeIndex;
+    setMultiplayerBranchIndex(safeIndex);
+  }
+
+  function setIndiceLobbyLocal(index: number) {
+    const safeIndex = ((index % 4) + 4) % 4;
+    localLobbyIndexRef.current = safeIndex;
+    setLocalLobbyIndex(safeIndex);
+  }
+
+  function setIndiceModoLocal(index: number) {
+    const safeIndex =
+      (index + LOCAL_MODE_OPTIONS.length) % LOCAL_MODE_OPTIONS.length;
+    localModeIndexRef.current = safeIndex;
+    setLocalModeIndex(safeIndex);
+  }
+
+  function setIndicePause(index: number) {
+    const safeIndex = ((index % 3) + 3) % 3;
+    pauseIndexRef.current = safeIndex;
+    setPauseIndex(safeIndex);
+  }
+
+  function atualizarSlotsLocais(
+    updater: typeof localPlayerSlots | ((current: typeof localPlayerSlots) => typeof localPlayerSlots),
+  ) {
+    const next =
+      typeof updater === "function"
+        ? updater(localPlayerSlotsRef.current)
+        : updater;
+    localPlayerSlotsRef.current = next;
+    setLocalPlayerSlots(next);
+  }
+
+  function totalJogadoresLocaisProntos() {
+    return localPlayerSlotsRef.current.filter((slot) => slot.ready).length;
+  }
+
+  function abrirMultiplayer() {
+    tocarSom(CONFIG.sounds.menuConfirm, 0.38, "menu");
+    setIndiceMultiplayerBranch(0);
+    setEstado("multiplayerMenu");
+  }
+
+  function abrirLobbyLocal() {
+    tocarSom(CONFIG.sounds.menuConfirm, 0.38, "menu");
+    setIndiceLobbyLocal(1);
+    atualizarSlotsLocais((current) =>
+      current.map((slot, index) =>
+        index === 0
+          ? { ...slot, ready: true, input: "TECLADO/TOUCH" }
+          : { ...slot, ready: false, input: index === 1 ? "APERTE U OU A" : "AGUARDANDO" },
+      ),
+    );
+    setLocalModeNotice("P2 precisa confirmar com teclado/controle para liberar o modo local.");
+    window.setTimeout(() => setLocalModeNotice(""), 2600);
+    setEstado("localLobby");
+  }
+
+  function alternarReadySlotLocal(index = localLobbyIndexRef.current) {
+    if (index === 0) return;
+    tocarSom(CONFIG.sounds.menuConfirm, 0.34, "menu");
+    atualizarSlotsLocais((current) =>
+      current.map((slot, slotIndex) => {
+        if (slotIndex !== index) return slot;
+        const nextReady = !slot.ready;
+        return {
+          ...slot,
+          ready: nextReady,
+          input: nextReady
+            ? index === 1
+              ? "TECLADO P2 / CONTROLE 1"
+              : `CONTROLE ${index}`
+            : index === 1
+              ? "APERTE U OU A"
+              : "AGUARDANDO",
+        };
+      }),
+    );
+  }
+
+  function abrirSelecaoModoLocal() {
+    if (totalJogadoresLocaisProntos() < 2) {
+      tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
+      setLocalModeNotice("Confirme pelo menos P2 para começar.");
+      window.setTimeout(() => setLocalModeNotice(""), 1800);
+      return;
+    }
+    tocarSom(CONFIG.sounds.menuConfirm, 0.38, "menu");
+    setIndiceModoLocal(0);
+    setEstado("localModeSelect");
+  }
+
+  function voltarDoMultiplayer() {
+    tocarSom(CONFIG.sounds.menuBack, 0.36, "menu");
+    setEstado("mainMenu");
+    setIndiceMenu(2);
+  }
+
+  function executarOpcaoPauseAtual() {
+    if (pauseIndexRef.current === 0) {
+      pausarOuVoltar();
+      return;
+    }
+    if (pauseIndexRef.current === 1) {
+      abrirConfiguracoes();
+      return;
+    }
+    voltarAoMenuPrincipal();
   }
 
   function setIndiceTutorialChoice(index: number) {
@@ -3305,14 +3669,8 @@ export default function JogoPage() {
     gamepadAxesRef.current = { x, y };
     atualizarStatusGamepad(`Controle conectado: ${pad.id.slice(0, 46)}`);
 
-    const houveEntrada =
-      Object.values(pressedButtons).some(Boolean) ||
-      Object.values(gamepadDirectionsPressedRef.current).some(Boolean);
     if (lastGamepadIdRef.current !== pad.id) {
       lastGamepadIdRef.current = pad.id;
-      retomarAudioDoJogo();
-    } else if (houveEntrada) {
-      retomarAudioDoJogo();
     }
 
     if (gamepadCaptureRef.current) {
@@ -3417,6 +3775,79 @@ export default function JogoPage() {
       }
     }
 
+    if (gameStateRef.current === "multiplayerMenu") {
+      if (botaoControleAcionado("gamepadBackButton")) {
+        voltarDoMultiplayer();
+        return;
+      }
+      if (consumirDirecaoMenu("up") || consumirDirecaoMenu("left")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
+        setIndiceMultiplayerBranch(multiplayerBranchIndexRef.current - 1);
+        return;
+      }
+      if (consumirDirecaoMenu("down") || consumirDirecaoMenu("right")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
+        setIndiceMultiplayerBranch(multiplayerBranchIndexRef.current + 1);
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        if (multiplayerBranchIndexRef.current === 0) abrirLobbyLocal();
+        else tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
+        return;
+      }
+    }
+
+    if (gameStateRef.current === "localLobby") {
+      if (botaoControleAcionado("gamepadBackButton")) {
+        setEstado("multiplayerMenu");
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton") && !localPlayerSlotsRef.current[1]?.ready) {
+        setIndiceLobbyLocal(1);
+        alternarReadySlotLocal(1);
+        return;
+      }
+      if (consumirDirecaoMenu("left") || consumirDirecaoMenu("up")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndiceLobbyLocal(localLobbyIndexRef.current - 1);
+        return;
+      }
+      if (consumirDirecaoMenu("right") || consumirDirecaoMenu("down")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndiceLobbyLocal(localLobbyIndexRef.current + 1);
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        alternarReadySlotLocal();
+        return;
+      }
+      if (botaoControleAcionado("gamepadPauseButton")) {
+        abrirSelecaoModoLocal();
+        return;
+      }
+    }
+
+    if (gameStateRef.current === "localModeSelect") {
+      if (botaoControleAcionado("gamepadBackButton")) {
+        setEstado("localLobby");
+        return;
+      }
+      if (consumirDirecaoMenu("left") || consumirDirecaoMenu("up")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndiceModoLocal(localModeIndexRef.current - 1);
+        return;
+      }
+      if (consumirDirecaoMenu("right") || consumirDirecaoMenu("down")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndiceModoLocal(localModeIndexRef.current + 1);
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        iniciarJogo(LOCAL_MODE_OPTIONS[localModeIndexRef.current].mode);
+        return;
+      }
+    }
+
     if (gameStateRef.current === "settings") {
       if (botaoControleAcionado("gamepadBackButton")) {
         voltarDasConfiguracoes();
@@ -3490,8 +3921,28 @@ export default function JogoPage() {
     }
 
     if (gameStateRef.current === "paused") {
-      if (botaoControleAcionado("gamepadPauseButton")) pausarOuVoltar();
-      if (botaoControleAcionado("gamepadBackButton")) voltarAoMenuPrincipal();
+      if (botaoControleAcionado("gamepadPauseButton")) {
+        pausarOuVoltar();
+        return;
+      }
+      if (botaoControleAcionado("gamepadBackButton")) {
+        voltarAoMenuPrincipal();
+        return;
+      }
+      if (consumirDirecaoMenu("up")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndicePause(pauseIndexRef.current - 1);
+        return;
+      }
+      if (consumirDirecaoMenu("down")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndicePause(pauseIndexRef.current + 1);
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        executarOpcaoPauseAtual();
+        return;
+      }
       return;
     }
 
@@ -4246,6 +4697,13 @@ export default function JogoPage() {
     ref.current.play().catch(() => {});
   }
 
+  function pararAlarmeLowHp(reset = true) {
+    const audio = alarmAudioRef.current;
+    if (!audio) return;
+    audio.pause();
+    if (reset) audio.currentTime = 0;
+  }
+
   function retomarAudioDoJogo() {
     obterAudioContext()
       ?.resume()
@@ -4256,7 +4714,6 @@ export default function JogoPage() {
       gameplayMusicAudioRef,
       bossMusicAudioRef,
       bossHumAudioRef,
-      alarmAudioRef,
       flamesLoopAudioRef,
     ];
 
@@ -4403,6 +4860,7 @@ export default function JogoPage() {
     bossProjectilesRef.current = [];
     powerUpsRef.current = [];
     pararTodosPowerUpTrails();
+    pararAlarmeLowHp(true);
     fireRateUntilRef.current = 0;
     powerShotUntilRef.current = 0;
     homingShotUntilRef.current = 0;
@@ -4444,8 +4902,9 @@ export default function JogoPage() {
 
   function resetarWaves(mode: GameMode | null) {
     const now = performance.now();
-    const isInfinite = mode === "infinite";
+    const isInfinite = mode === "infinite" || isLocalWaveMode(mode);
     const isStory = mode === "story";
+    const isPvp = mode === "localPvp";
     const firstDelay = isInfinite
       ? CONFIG.gameplay.infiniteWaves.firstWaveDelayMs
       : isStory
@@ -4456,11 +4915,13 @@ export default function JogoPage() {
       : isStory
         ? CONFIG.gameplay.storyWaves.messageMs
         : 0;
-    const initialMessage = isInfinite
-      ? "PREPARE-SE"
-      : isStory
-        ? "MISSÃO HISTÓRIA"
-        : "";
+    const initialMessage = isPvp
+      ? "ARENA PVP"
+      : isInfinite
+        ? "PREPARE-SE"
+        : isStory
+          ? "MISSÃO HISTÓRIA"
+          : "";
 
     waveStateRef.current = {
       mode,
@@ -4468,10 +4929,10 @@ export default function JogoPage() {
       wave: 0,
       waveStartedAt: 0,
       queue: [],
-      nextWaveAt: mode ? now + firstDelay : 0,
+      nextWaveAt: mode && !isPvp ? now + firstDelay : 0,
       difficulty: 1,
       bossWave: false,
-      messageUntil: mode ? now + messageMs : 0,
+      messageUntil: mode && !isPvp ? now + messageMs : 0,
       message: initialMessage,
     };
 
@@ -4526,6 +4987,7 @@ export default function JogoPage() {
 
     const player = createInitialPlayer();
     playerRef.current = player;
+    player2Ref.current = isLocalMode(mode) ? criarPlayer2Inicial() : null;
 
     limparCombate();
     resetarWaves(mode);
@@ -4534,6 +4996,13 @@ export default function JogoPage() {
     setStrongCooldown(0);
     scoreRef.current = 0;
     setScore(0);
+    localP1ScoreRef.current = 0;
+    localP2ScoreRef.current = 0;
+    localPvpRoundRef.current = 1;
+    localPvpMatchLockedRef.current = false;
+    setLocalP1Score(0);
+    setLocalP2Score(0);
+    setLocalPvpRound(1);
     boostChargeRef.current = CONFIG.gameplay.boost.startCharge;
     setBoostCharge(CONFIG.gameplay.boost.startCharge);
     abilityReadyRef.current = {
@@ -4542,8 +5011,22 @@ export default function JogoPage() {
       dodge: true,
       strong: true,
     };
-    setPlayerHp(player.hp);
-    setGoldenHp(player.goldenHp);
+    if (isLocalMode(mode)) {
+      resetarPosicoesLocais();
+      setLocalModeNotice(
+        mode === "localCoop"
+          ? "Coop local: Player 2 entra por controle ou teclado."
+          : mode === "localScore"
+            ? "Disputa local: cada abate conta para quem acertou."
+            : "PvP local: acerte o rival para pontuar.",
+      );
+      window.setTimeout(() => setLocalModeNotice(""), 4200);
+    } else {
+      setPlayerHp(player.hp);
+      setGoldenHp(player.goldenHp);
+      setPlayer2Hp(CONFIG.gameplay.player.maxHp);
+      setLocalModeNotice("");
+    }
     setRandomVisualEffect({
       flashWhite: false,
       flashBlur: false,
@@ -4551,6 +5034,7 @@ export default function JogoPage() {
     });
     slowPlayerUntilRef.current = 0;
     setIsLowHp(false);
+    pararAlarmeLowHp(true);
     setGameOverFlash(false);
     setFlashSnapshot("");
     setGameOverTaunt(GAME_OVER_TAUNTS[0]);
@@ -4634,8 +5118,7 @@ export default function JogoPage() {
     setIsLowHp(false);
 
     if (alarmAudioRef.current) {
-      alarmAudioRef.current.pause();
-      alarmAudioRef.current.currentTime = 0;
+      pararAlarmeLowHp(true);
     }
 
     tocarSom(
@@ -4729,6 +5212,7 @@ export default function JogoPage() {
     setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
 
     if (
+      player.hp > 0 &&
       player.hp <= 1 &&
       gameStateRef.current === "playing" &&
       CONFIG.useSounds &&
@@ -4752,7 +5236,19 @@ export default function JogoPage() {
     if (player.hp <= 0) {
       player.hp = 0;
       setPlayerHp(0);
-      iniciarGameOverCutscene();
+      if (isLocalPvpMode()) {
+        localP2ScoreRef.current += 1;
+        setLocalP2Score(localP2ScoreRef.current);
+        setLocalModeNotice("PLAYER 2 MARCOU!");
+        window.setTimeout(() => {
+          resetarPosicoesLocais();
+          setLocalModeNotice("");
+        }, 900);
+      } else if (isLocalWaveMode() && player2Ref.current && player2Ref.current.hp > 0) {
+        player.invincibleUntil = performance.now() + 999999;
+      } else {
+        iniciarGameOverCutscene();
+      }
     }
   }
 
@@ -4828,8 +5324,10 @@ export default function JogoPage() {
       gameplayMusicAudioRef.current?.pause();
       bossHumAudioRef.current?.pause();
       limparContagemRetomada();
+      setIndicePause(0);
       setEstado("paused");
       setIsLowHp(false);
+      pararAlarmeLowHp(false);
       return;
     }
 
@@ -4844,6 +5342,7 @@ export default function JogoPage() {
     limparCombate();
     resetarWaves(null);
     setIsLowHp(false);
+    pararAlarmeLowHp(true);
     setGameOverFlash(false);
     setEstado("mainMenu");
     setIndiceMenu(0);
@@ -4889,8 +5388,19 @@ export default function JogoPage() {
     }, 90);
   }
 
-  function adicionarPontuacao(valor: number) {
+  function adicionarPontuacao(valor: number, ownerId: 1 | 2 = 1) {
     scoreRef.current += valor;
+
+    if (isLocalMode()) {
+      if (ownerId === 2) {
+        localP2ScoreRef.current += valor;
+        setLocalP2Score(localP2ScoreRef.current);
+      } else {
+        localP1ScoreRef.current += valor;
+        setLocalP1Score(localP1ScoreRef.current);
+      }
+    }
+
     sincronizarScoreUi();
   }
 
@@ -4915,8 +5425,8 @@ export default function JogoPage() {
     }
   }
 
-  function registrarAbate(kind: EnemyKind) {
-    adicionarPontuacao(CONFIG.gameplay.score[kind]);
+  function registrarAbate(kind: EnemyKind, ownerId: 1 | 2 = 1) {
+    adicionarPontuacao(CONFIG.gameplay.score[kind], ownerId);
   }
 
   function normalizarDirecao(dirX: number, dirY: number) {
@@ -5199,6 +5709,11 @@ export default function JogoPage() {
 
     if (option.action === "settings") {
       abrirConfiguracoes();
+      return;
+    }
+
+    if (option.action === "multiplayer") {
+      abrirMultiplayer();
       return;
     }
 
@@ -6458,14 +6973,14 @@ export default function JogoPage() {
   }
 
   function bonusDanoInfinito() {
-    if (currentModeRef.current !== "infinite") return 0;
+    if (currentModeRef.current !== "infinite" && !isLocalWaveMode()) return 0;
     return Math.min(8, Math.floor(Math.max(0, waveStateRef.current.wave) / 75));
   }
 
   function aplicarDificuldadeWave(inicio: number, difficulty: number) {
     const waveNumber = waveStateRef.current.wave;
     const hpBonus =
-      currentModeRef.current === "infinite"
+      currentModeRef.current === "infinite" || isLocalWaveMode()
         ? Math.min(6, Math.floor(Math.max(0, waveNumber) / 50))
         : 0;
     const speedScale = Math.min(1.48, 1 + Math.max(0, difficulty - 1) * 0.16);
@@ -6510,7 +7025,7 @@ export default function JogoPage() {
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
 
     waveStateRef.current = {
-      mode: "infinite",
+      mode: isLocalWaveMode() ? (currentModeRef.current as GameMode) : "infinite",
       active: true,
       wave: waveNumber,
       waveStartedAt: now,
@@ -6523,7 +7038,7 @@ export default function JogoPage() {
     };
 
     setWaveUi({
-      mode: "infinite",
+      mode: isLocalWaveMode() ? (currentModeRef.current as GameMode) : "infinite",
       wave: waveNumber,
       active: true,
       bossWave,
@@ -6547,9 +7062,11 @@ export default function JogoPage() {
     const mode = wave.mode;
     if (!mode) return;
 
-    const isInfinite = mode === "infinite";
+    const isInfinite = mode === "infinite" || isLocalWaveMode(mode);
     const isStory = mode === "story";
+    const isPvp = mode === "localPvp";
 
+    if (isPvp) return;
     if (isInfinite && !CONFIG.gameplay.infiniteWaves.enabled) return;
     if (isStory && !CONFIG.gameplay.storyWaves.enabled) return;
 
@@ -7091,6 +7608,7 @@ export default function JogoPage() {
       player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 1);
       setPlayerHp(player.hp);
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+      if (player.hp > 1) pararAlarmeLowHp(true);
       return;
     }
 
@@ -7098,6 +7616,7 @@ export default function JogoPage() {
       player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 3);
       setPlayerHp(player.hp);
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+      if (player.hp > 1) pararAlarmeLowHp(true);
       return;
     }
 
@@ -7627,6 +8146,7 @@ export default function JogoPage() {
   useEffect(() => {
     const shouldPlayAlarm =
       CONFIG.settings.enableLowHpAlarm &&
+      playerHp > 0 &&
       playerHp <= 1 &&
       gameState === "playing";
 
@@ -7644,8 +8164,7 @@ export default function JogoPage() {
 
       alarmAudioRef.current.play().catch(() => {});
     } else if (alarmAudioRef.current) {
-      alarmAudioRef.current.pause();
-      alarmAudioRef.current.currentTime = 0;
+      pararAlarmeLowHp(true);
     }
   }, [playerHp, gameState]);
 
@@ -7969,6 +8488,8 @@ export default function JogoPage() {
     function shootNormal() {
       const player = playerRef.current;
 
+      if (isLocalWaveMode() && player.hp <= 0) return;
+
       if (!acaoTutorialPermitida("shot")) {
         return;
       }
@@ -7995,6 +8516,7 @@ export default function JogoPage() {
 
       shotsRef.current.push({
         id: shotIdRef.current++,
+        ownerId: 1,
         stretchUntil:
           performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: player.x + player.w - 2,
@@ -8003,11 +8525,11 @@ export default function JogoPage() {
         h: shotH,
         speed: shotSpeed,
         damage:
-          CONFIG.gameplay.shots.normal.damage *
+          (CONFIG.gameplay.shots.normal.damage *
             (powerActive
               ? CONFIG.gameplay.powerups.powerShotDamageMultiplier
               : 1) +
-          bonusDanoInfinito(),
+          bonusDanoInfinito()) * danoLocalPorJogador(),
         type: "normal",
         variant:
           powerActive && homingActive
@@ -8032,6 +8554,8 @@ export default function JogoPage() {
       const now = performance.now();
       const dir = normalizarDirecao(dirXParam, dirYParam);
 
+      if (isLocalWaveMode() && player.hp <= 0) return;
+
       if (!acaoTutorialPermitida("strong")) {
         return;
       }
@@ -8042,6 +8566,7 @@ export default function JogoPage() {
 
       shotsRef.current.push({
         id: shotIdRef.current++,
+        ownerId: 1,
         stretchUntil:
           performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: player.x + player.w - 2,
@@ -8049,7 +8574,7 @@ export default function JogoPage() {
         w: CONFIG.gameplay.shots.strong.width,
         h: CONFIG.gameplay.shots.strong.height,
         speed: CONFIG.gameplay.shots.strong.speed,
-        damage: CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito(),
+        damage: (CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito()) * danoLocalPorJogador(),
         type: "strong",
         vx: dir.x * CONFIG.gameplay.shots.strong.speed,
         vy: dir.y * CONFIG.gameplay.shots.strong.speed,
@@ -8117,6 +8642,21 @@ export default function JogoPage() {
         1,
       );
       setDodgeReadyRatio(dodgeRatio);
+
+      const p2 = player2Ref.current;
+      if (p2 && isLocalMode()) {
+        const p2StrongRemainingMs = Math.max(0, p2.strongReadyAt - now);
+        setPlayer2StrongReadyRatio(
+          clamp(1 - p2StrongRemainingMs / CONFIG.gameplay.shots.strong.cooldownMs, 0, 1),
+        );
+        const p2DodgeReadyAt = p2.dodgeUntil + CONFIG.gameplay.dodge.cooldownMs;
+        setPlayer2DodgeReadyRatio(
+          clamp(1 - Math.max(0, p2DodgeReadyAt - now) / CONFIG.gameplay.dodge.cooldownMs, 0, 1),
+        );
+        setPlayer2BoostReadyRatio(
+          clamp(1 - Math.max(0, player2BoostReadyAtRef.current - now) / 3600, 0, 1),
+        );
+      }
 
       const boostReadyNow =
         boostChargeRef.current >= CONFIG.gameplay.boost.maxCharge;
@@ -8202,9 +8742,10 @@ export default function JogoPage() {
     function desenharPlayer(ctx: CanvasRenderingContext2D, delta: number) {
       const player = playerRef.current;
       const now = performance.now();
+      const ghostLocal = isLocalWaveMode() && player.hp <= 0;
       const invincible = now < player.invincibleUntil;
 
-      if (invincible && Math.floor(now / 100) % 2 === 0) {
+      if (!ghostLocal && invincible && Math.floor(now / 100) % 2 === 0) {
         return;
       }
 
@@ -8303,6 +8844,12 @@ export default function JogoPage() {
       );
       ctx.rotate((player.tilt * Math.PI) / 180);
 
+      ctx.globalAlpha = ghostLocal ? 0.38 : 1;
+      if (ghostLocal) {
+        ctx.shadowColor = LOCAL_PLAYER_COLORS[0];
+        ctx.shadowBlur = 18;
+      }
+
       if (CONFIG.useSprites && playerAsset) {
         if (
           playerConfig.frames &&
@@ -8367,6 +8914,432 @@ export default function JogoPage() {
       }
 
       ctx.restore();
+    }
+
+
+    function obterGamepadPlayer2() {
+      if (typeof navigator === "undefined" || !navigator.getGamepads) return null;
+      const pads = Array.from(navigator.getGamepads()).filter(Boolean) as Gamepad[];
+      return pads[1] ?? pads[0] ?? null;
+    }
+
+    function atualizarInputPlayer2() {
+      const p2 = player2Ref.current;
+      if (!p2 || !isLocalMode()) return;
+
+      const keyboardX = (keysRef.current["l"] ? 1 : 0) - (keysRef.current["j"] ? 1 : 0);
+      const keyboardY = (keysRef.current["k"] ? 1 : 0) - (keysRef.current["i"] ? 1 : 0);
+      let gamepadX = 0;
+      let gamepadY = 0;
+      const previousButtons = player2ButtonsRef.current;
+      const buttons: Record<string, boolean> = {};
+      const pressed: Record<string, boolean> = {};
+      const pad = obterGamepadPlayer2();
+
+      if (pad?.connected) {
+        const deadzone = clamp(Number(CONFIG.settings.gamepadDeadzone) || 0.18, 0.06, 0.5);
+        gamepadX = aplicarDeadzone(Number(pad.axes[0] || 0), deadzone);
+        gamepadY = aplicarDeadzone(Number(pad.axes[1] || 0), deadzone);
+        pad.buttons.forEach((button, index) => {
+          const value = button.pressed || button.value > 0.55;
+          const key = String(index);
+          buttons[key] = value;
+          pressed[key] = value && !previousButtons[key];
+        });
+      }
+
+      player2ButtonsRef.current = buttons;
+      player2ButtonsPressedRef.current = pressed;
+      player2InputRef.current = {
+        x: clamp(keyboardX + gamepadX, -1, 1),
+        y: clamp(keyboardY + gamepadY, -1, 1),
+      };
+    }
+
+    function p2Segurando(...keys: string[]) {
+      return keys.some((key) => Boolean(player2ButtonsRef.current[key]));
+    }
+
+    function p2Acionado(...keys: string[]) {
+      return keys.some((key) => Boolean(player2ButtonsPressedRef.current[key]));
+    }
+
+    function atirarNormalPlayer2() {
+      const player = player2Ref.current;
+      if (!player || player.hp <= 0 || player.normalCooldown > 0) return;
+      const shotSpeed = CONFIG.gameplay.shots.normal.speed;
+      shotsRef.current.push({
+        id: shotIdRef.current++,
+        ownerId: 2,
+        stretchUntil: performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+        x: isLocalPvpMode() ? player.x - CONFIG.gameplay.shots.normal.width + 2 : player.x + player.w - 2,
+        y: player.y + player.h / 2 - CONFIG.gameplay.shots.normal.height / 2,
+        w: CONFIG.gameplay.shots.normal.width,
+        h: CONFIG.gameplay.shots.normal.height,
+        speed: shotSpeed,
+        damage: (CONFIG.gameplay.shots.normal.damage + bonusDanoInfinito()) * danoLocalPorJogador(),
+        type: "normal",
+        variant: "normal",
+        vx: isLocalPvpMode() ? -shotSpeed : shotSpeed,
+        vy: 0,
+      });
+      player.normalCooldown = CONFIG.gameplay.shots.normal.cooldownFrames;
+      tocarSom(CONFIG.sounds.normalShot, 0.38, "sfx");
+    }
+
+    function atirarFortePlayer2() {
+      const player = player2Ref.current;
+      if (!player || player.hp <= 0) return;
+      const now = performance.now();
+      if (now < player.strongReadyAt) return;
+      shotsRef.current.push({
+        id: shotIdRef.current++,
+        ownerId: 2,
+        stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+        x: isLocalPvpMode() ? player.x - CONFIG.gameplay.shots.strong.width + 2 : player.x + player.w - 2,
+        y: player.y + player.h / 2 - CONFIG.gameplay.shots.strong.height / 2,
+        w: CONFIG.gameplay.shots.strong.width,
+        h: CONFIG.gameplay.shots.strong.height,
+        speed: CONFIG.gameplay.shots.strong.speed,
+        damage: (CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito()) * danoLocalPorJogador(),
+        type: "strong",
+        vx: isLocalPvpMode() ? -CONFIG.gameplay.shots.strong.speed : CONFIG.gameplay.shots.strong.speed,
+        vy: 0,
+      });
+      player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
+      setPlayer2StrongReadyRatio(0);
+      player.vx += isLocalPvpMode()
+        ? CONFIG.gameplay.player.strongShotRecoil
+        : -CONFIG.gameplay.player.strongShotRecoil;
+      player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+      player.stretchVx = isLocalPvpMode()
+        ? CONFIG.gameplay.player.maxSpeedX
+        : -CONFIG.gameplay.player.maxSpeedX;
+      player.stretchVy = 0;
+      tocarSom(CONFIG.sounds.strongShot, 0.42, "sfx");
+    }
+
+    function boostPlayer2() {
+      const player = player2Ref.current;
+      if (!player || player.hp <= 0) return;
+      const now = performance.now();
+      if (now < player2BoostReadyAtRef.current) return;
+      const input = player2InputRef.current;
+      const defaultDir = isLocalPvpMode() ? -1 : 1;
+      const dir = normalizarDirecao(input.x || player.vx || defaultDir, input.y || player.vy || 0);
+      player.boostUntil = now + CONFIG.gameplay.boost.durationMs * 0.9;
+      player.boostVx = dir.x * CONFIG.gameplay.boost.speed;
+      player.boostVy = dir.y * CONFIG.gameplay.boost.speed;
+      player.invincibleUntil = Math.max(player.invincibleUntil, player.boostUntil + 240);
+      player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+      player.stretchVx = player.boostVx;
+      player.stretchVy = player.boostVy;
+      player2BoostReadyAtRef.current = now + 3600;
+      setPlayer2BoostReadyRatio(0);
+      tocarSom(CONFIG.sounds.boostStart, 0.42, "ability");
+      criarParticulasBoost(player, 6);
+    }
+
+    function esquivaPlayer2() {
+      const player = player2Ref.current;
+      if (!player || player.hp <= 0) return;
+      const now = performance.now();
+      if (now < player.dodgeUntil + CONFIG.gameplay.dodge.cooldownMs) return;
+      const dir = normalizarDirecao(player.vx || player2InputRef.current.x || 1, player.vy || player2InputRef.current.y || 0);
+      player.dodgeUntil = now + CONFIG.gameplay.dodge.durationMs;
+      setPlayer2DodgeReadyRatio(0);
+      player.invincibleUntil = Math.max(player.invincibleUntil, player.dodgeUntil);
+      player.vx += dir.x * CONFIG.gameplay.dodge.speedImpulse;
+      player.vy += dir.y * CONFIG.gameplay.dodge.speedImpulse;
+      tocarSom(CONFIG.sounds.dodge, 0.38, "ability");
+    }
+
+    function receberDanoPlayer2(dano: number) {
+      const player = player2Ref.current;
+      if (!player || player.hp <= 0) return;
+      const now = performance.now();
+      if (now < player.invincibleUntil || now < player.dodgeUntil) return;
+      if (player.goldenHp > 0) {
+        player.goldenHp = Math.max(0, player.goldenHp - Math.max(1, Math.ceil(dano)));
+        setPlayer2GoldenHp(player.goldenHp);
+        player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+        tocarSom(CONFIG.sounds.goldenHeart || CONFIG.sounds.playerDamage, 0.42, "ability");
+        return;
+      }
+      player.hp = Math.max(0, player.hp - dano);
+      player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+      setPlayer2Hp(player.hp);
+      criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#60a5fa", 12);
+      tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
+      if (isLocalPvpMode()) spawnPowerUpPvp(false);
+
+      if (player.hp <= 0) {
+        if (isLocalPvpMode()) {
+          processarPontoPvp(1);
+          return;
+        }
+
+        const p1Alive = playerRef.current.hp > 0;
+        if (!p1Alive) iniciarGameOverCutscene();
+      }
+    }
+
+    function receberDanoPlayer1Local(dano: number) {
+      const player = playerRef.current;
+      const now = performance.now();
+      if (now < player.invincibleUntil || now < player.dodgeUntil || player.hp <= 0) return;
+      player.hp = Math.max(0, player.hp - dano);
+      player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+      setPlayerHp(player.hp);
+      criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 12);
+      tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
+      if (isLocalPvpMode()) spawnPowerUpPvp(false);
+
+      if (player.hp <= 0) {
+        if (isLocalPvpMode()) {
+          processarPontoPvp(2);
+          return;
+        }
+
+        const p2Alive = Boolean(player2Ref.current && player2Ref.current.hp > 0);
+        if (!p2Alive) iniciarGameOverCutscene();
+      }
+    }
+
+    function atualizarPlayer2(delta: number, canvas: HTMLCanvasElement) {
+      const player = player2Ref.current;
+      if (!player || !isLocalMode() || gameStateRef.current !== "playing") return;
+      atualizarInputPlayer2();
+      const speedFactor = delta / 16.67;
+      const input = player2InputRef.current;
+      const previousVx = player.vx;
+      const previousVy = player.vy;
+
+      const ghostLocal = isLocalWaveMode() && player.hp <= 0;
+      if (player.hp > 0 || ghostLocal) {
+        const ghostFactor = ghostLocal ? 0.45 : 1;
+        if (input.x !== 0) player.vx += input.x * CONFIG.gameplay.player.acceleration * speedFactor * ghostFactor;
+        else player.vx *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
+        if (input.y !== 0) player.vy += input.y * CONFIG.gameplay.player.acceleration * speedFactor * ghostFactor;
+        else player.vy *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
+
+        const maxX = CONFIG.gameplay.player.maxSpeedX * ghostFactor;
+        const maxY = CONFIG.gameplay.player.maxSpeedY * ghostFactor;
+        player.vx = clamp(player.vx, -maxX, maxX);
+        player.vy = clamp(player.vy, -maxY, maxY);
+        if (Math.abs(player.vx) < 0.02) player.vx = 0;
+        if (Math.abs(player.vy) < 0.02) player.vy = 0;
+
+        const wasMoving = Math.hypot(previousVx, previousVy) > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
+        const moving = Math.hypot(player.vx, player.vy) > CONFIG.gameplay.dynamicStretch.playerTriggerSpeed;
+        if (!ghostLocal && !wasMoving && moving) {
+          player.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+          player.stretchVx = player.vx;
+          player.stretchVy = player.vy;
+        }
+
+        if (!ghostLocal && performance.now() < player.boostUntil) {
+          player.vx = player.boostVx;
+          player.vy = player.boostVy;
+          criarParticulasBoost(player, 2);
+        }
+
+        player.x += player.vx * speedFactor;
+        player.y += player.vy * speedFactor;
+        player.x = clamp(player.x, 0, canvas.width - player.w);
+        player.y = clamp(player.y, 0, canvas.height - player.h);
+        player.tilt += (((player.vy / Math.max(0.001, CONFIG.gameplay.player.maxSpeedY)) * CONFIG.gameplay.player.tiltMaxDeg) - player.tilt) * CONFIG.gameplay.player.tiltResponse;
+
+        if (player.normalCooldown > 0) player.normalCooldown = Math.max(0, player.normalCooldown - speedFactor);
+
+        const keyboardShot = keysRef.current["u"];
+        const keyboardStrong = keysRef.current["o"];
+        const keyboardBoost = keysRef.current["p"];
+        const keyboardDodge = keysRef.current["h"];
+
+        if (!ghostLocal) {
+          if (keyboardShot || p2Segurando("1", "7")) atirarNormalPlayer2();
+          if (keyboardStrong || p2Segurando("2", "6")) atirarFortePlayer2();
+          if (keyboardBoost || p2Segurando("0", "5")) boostPlayer2();
+          if (keyboardDodge || p2Acionado("3", "4")) esquivaPlayer2();
+        }
+      }
+    }
+
+    function resolverColisoesPlayer2() {
+      const player = player2Ref.current;
+      if (!player || !isLocalMode() || gameStateRef.current !== "playing") return;
+      const hitbox = getPlayerHitbox(player);
+      const now = performance.now();
+      const intangible = player.hp <= 0 || now < player.invincibleUntil || now < player.dodgeUntil || now < player.boostUntil;
+      if (!intangible) {
+        for (const enemy of enemiesRef.current) {
+          if (rectsCollide(hitbox, enemy)) {
+            receberDanoPlayer2(enemy.kind === "asteroid" ? 0 : 1);
+            break;
+          }
+        }
+        for (const bullet of enemyProjectilesRef.current) {
+          if (rectsCollide(hitbox, bullet)) {
+            receberDanoPlayer2(bullet.damage);
+            enemyProjectilesRef.current = enemyProjectilesRef.current.filter((item) => item.id !== bullet.id);
+            break;
+          }
+        }
+        for (const projectile of bossProjectilesRef.current) {
+          const active = !projectile.activeAt || performance.now() >= projectile.activeAt;
+          if (!active) continue;
+          const hit = projectile.kind === "laser" || projectile.kind === "aimLaser"
+            ? rectHitsRotatedBeam(hitbox, projectile)
+            : rectsCollide(hitbox, projectile);
+          if (hit) {
+            receberDanoPlayer2(projectile.damage);
+            break;
+          }
+        }
+      }
+
+      if (isLocalPvpMode()) {
+        const p1 = playerRef.current;
+        const p1Hitbox = getPlayerHitbox(p1);
+        const p2Hitbox = getPlayerHitbox(player);
+        const nowPvp = performance.now();
+
+        if (p1.hp > 0 && player.hp > 0 && rectsCollide(p1Hitbox, p2Hitbox)) {
+          const p1cx = p1.x + p1.w / 2;
+          const p1cy = p1.y + p1.h / 2;
+          const p2cx = player.x + player.w / 2;
+          const p2cy = player.y + player.h / 2;
+          const dir = normalizarDirecao(p2cx - p1cx || 1, p2cy - p1cy || 0);
+          aplicarFlingPlayerLocal(p1, -dir.x, -dir.y, 4.8);
+          aplicarFlingPlayerLocal(player, dir.x, dir.y, 4.8);
+          p1.x -= dir.x * 10;
+          p1.y -= dir.y * 8;
+          player.x += dir.x * 10;
+          player.y += dir.y * 8;
+          manterPlayerNaArena(p1);
+          manterPlayerNaArena(player);
+          tocarSom(CONFIG.sounds.playerDamage, 0.22, "hit");
+        }
+
+        const shotsToRemove = new Set<number>();
+        for (const shot of shotsRef.current) {
+          if (shot.ownerId === 1 && player.hp > 0 && rectsCollide(shot, p2Hitbox)) {
+            const force = shot.type === "strong" ? 12 : 4.5;
+            aplicarFlingPlayerLocal(player, shot.vx ?? 1, shot.vy ?? 0, force);
+            receberDanoPlayer2(shot.type === "strong" ? 2 : 1);
+            shotsToRemove.add(shot.id);
+          } else if (shot.ownerId === 2 && p1.hp > 0 && rectsCollide(shot, p1Hitbox)) {
+            const force = shot.type === "strong" ? 12 : 4.5;
+            aplicarFlingPlayerLocal(p1, shot.vx ?? -1, shot.vy ?? 0, force);
+            receberDanoPlayer1Local(shot.type === "strong" ? 2 : 1);
+            shotsToRemove.add(shot.id);
+          }
+        }
+
+        if (p1.hp > 0 && player.hp > 0) {
+          if (nowPvp < p1.boostUntil && rectsCollide(getPlayerHitbox(p1), getPlayerHitbox(player))) {
+            aplicarFlingPlayerLocal(player, p1.boostVx || 1, p1.boostVy || 0, 14);
+            receberDanoPlayer2(1);
+          }
+          if (nowPvp < player.boostUntil && rectsCollide(getPlayerHitbox(player), getPlayerHitbox(p1))) {
+            aplicarFlingPlayerLocal(p1, player.boostVx || -1, player.boostVy || 0, 14);
+            receberDanoPlayer1Local(1);
+          }
+        }
+
+        if (shotsToRemove.size > 0) {
+          shotsRef.current = shotsRef.current.filter((shot) => !shotsToRemove.has(shot.id));
+        }
+      }
+    }
+
+    function desenharIndicadorJogadorLocal(
+      ctx: CanvasRenderingContext2D,
+      player: Player | null,
+      label: string,
+      color: string,
+    ) {
+      if (!player || !isLocalMode()) return;
+      const centerX = player.x + player.w / 2;
+      const arrowY = Math.max(24, player.y - 34);
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "rgba(255,255,255,0.92)";
+      ctx.lineWidth = 3;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.moveTo(centerX, arrowY + 28);
+      ctx.lineTo(centerX - 16, arrowY);
+      ctx.lineTo(centerX + 16, arrowY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.font = "bold 15px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(label, centerX, arrowY - 12);
+      ctx.restore();
+    }
+
+    function desenharPlayer2(ctx: CanvasRenderingContext2D, delta: number) {
+      const player = player2Ref.current;
+      if (!player || !isLocalMode()) return;
+      const now = performance.now();
+      const ghostLocal = isLocalWaveMode() && player.hp <= 0;
+      if (!ghostLocal && player.hp <= 0 && Math.floor(now / 180) % 2 === 0) return;
+      if (!ghostLocal && now < player.invincibleUntil && Math.floor(now / 100) % 2 === 0) return;
+
+      const anim = playerAnimRef.current;
+      anim.update(delta);
+      const moving = Math.hypot(player.vx, player.vy) > CONFIG.gameplay.player.animationMoveThreshold || now < player.boostUntil;
+      const img = moving ? assetsRef.current.getFrame("player", anim.frame) : assetsRef.current.get("player");
+
+      ctx.save();
+      ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+      ctx.rotate((player.tilt * Math.PI) / 180);
+      if (isLocalPvpMode()) ctx.scale(-1, 1);
+      const pulse = getStretchPulse(player.stretchUntil, "player");
+      applyVelocityStretch(ctx, player.stretchVx, player.stretchVy, getStretchSettings("player").multiplier, pulse);
+      ctx.globalAlpha = ghostLocal ? 0.34 : player.hp <= 0 ? 0.35 : 0.96;
+      ctx.shadowColor = LOCAL_PLAYER_COLORS[1];
+      ctx.shadowBlur = ghostLocal ? 22 : 16;
+      if (img) {
+        ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+
+        const tintCanvas = document.createElement("canvas");
+        tintCanvas.width = Math.max(1, Math.floor(player.w));
+        tintCanvas.height = Math.max(1, Math.floor(player.h));
+        const tintCtx = tintCanvas.getContext("2d");
+        if (tintCtx) {
+          tintCtx.imageSmoothingEnabled = false;
+          tintCtx.drawImage(img, 0, 0, tintCanvas.width, tintCanvas.height);
+          tintCtx.globalCompositeOperation = "source-atop";
+          tintCtx.globalAlpha = ghostLocal ? 0.24 : 0.44;
+          tintCtx.fillStyle = LOCAL_PLAYER_COLORS[1];
+          tintCtx.fillRect(0, 0, tintCanvas.width, tintCanvas.height);
+          ctx.drawImage(tintCanvas, -player.w / 2, -player.h / 2, player.w, player.h);
+        }
+
+        ctx.save();
+        ctx.globalCompositeOperation = "screen";
+        ctx.globalAlpha = ghostLocal ? 0.12 : 0.18;
+        ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = "#f97316";
+        ctx.beginPath();
+        ctx.moveTo(player.w / 2, 0);
+        ctx.lineTo(-player.w / 2, -player.h / 2);
+        ctx.lineTo(-player.w / 2, player.h / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+
     }
 
     function desenharTiro(ctx: CanvasRenderingContext2D, shot: Shot) {
@@ -10154,9 +11127,160 @@ export default function JogoPage() {
       ctx.restore();
     }
 
+    function aplicarPowerUpPlayer2(kind: PowerUpKind) {
+      const player = player2Ref.current;
+      if (!player || player.hp <= 0) return;
+      const now = performance.now();
+      const glowColor = powerUpColor(kind);
+
+      tocarSom(
+        CONFIG.sounds.powerUpPickup || CONFIG.sounds.abilityReady,
+        0.45,
+        "ability",
+      );
+      criarParticulasHit(
+        player.x + player.w / 2,
+        player.y + player.h / 2,
+        glowColor,
+        12,
+      );
+
+      if (kind === "regen") {
+        player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 1);
+      } else if (kind === "tripleRegen") {
+        player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 3);
+      } else if (kind === "goldenHeart") {
+        player.goldenHp = Math.min(CONFIG.gameplay.powerups.goldenHeartMax, player.goldenHp + 1);
+        setPlayer2GoldenHp(player.goldenHp);
+        player.invincibleUntil = Math.max(player.invincibleUntil, now + 900);
+      } else if (kind === "shield") {
+        player.invincibleUntil = Math.max(player.invincibleUntil, now + 9000);
+      } else if (kind === "fireRate") {
+        player.normalCooldown = 0;
+      } else if (kind === "powerShot" || kind === "homingShot" || kind === "flames") {
+        player.strongReadyAt = 0;
+        player2BoostReadyAtRef.current = Math.min(player2BoostReadyAtRef.current, now + 700);
+      } else if (kind === "randomBox") {
+        if (Math.random() < 0.68) {
+          player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 1);
+        } else {
+          player.invincibleUntil = Math.max(player.invincibleUntil, now + 5000);
+        }
+      }
+
+      setPlayer2Hp(player.hp);
+    }
+
+    function reviverJogadoresLocais() {
+      if (!isLocalWaveMode() || gameStateRef.current !== "playing") return;
+      const p1 = playerRef.current;
+      const p2 = player2Ref.current;
+      if (!p2) return;
+
+      const now = performance.now();
+      const reviveRef = localReviveHoldRef.current;
+      const distancia = Math.hypot(
+        p1.x + p1.w / 2 - (p2.x + p2.w / 2),
+        p1.y + p1.h / 2 - (p2.y + p2.h / 2),
+      );
+      const inRange = distancia <= 120;
+
+      const p1Interagiu =
+        teclaControlePressionada("shot") ||
+        teclaControlePressionada("boost") ||
+        mobileShootRef.current;
+      const p2Interagiu =
+        keysRef.current["u"] ||
+        keysRef.current["p"] ||
+        p2Segurando("0", "1", "5", "7");
+
+      let target = 0;
+      let holding = false;
+      if (p1.hp <= 0 && p2.hp > 0 && inRange) {
+        target = 1;
+        holding = Boolean(p2Interagiu);
+      } else if (p2.hp <= 0 && p1.hp > 0 && inRange) {
+        target = 2;
+        holding = Boolean(p1Interagiu);
+      }
+
+      if (!target || !holding) {
+        reviveRef.target = target;
+        reviveRef.progress = target && inRange ? Math.max(0, reviveRef.progress - 0.018) : 0;
+        reviveRef.lastAt = now;
+        return;
+      }
+
+      if (reviveRef.target !== target) reviveRef.progress = 0;
+      reviveRef.target = target;
+      const elapsed = reviveRef.lastAt ? now - reviveRef.lastAt : 16;
+      reviveRef.lastAt = now;
+      reviveRef.progress = clamp(reviveRef.progress + elapsed / 1450, 0, 1);
+
+      if (reviveRef.progress < 1) return;
+
+      if (target === 1) {
+        p1.hp = 2;
+        p1.invincibleUntil = now + 2200;
+        p1.x = clamp(p2.x - p1.w - 28, 0, CONFIG.canvasWidth - p1.w);
+        p1.y = clamp(p2.y, 0, CONFIG.canvasHeight - p1.h);
+        p1.vx = -2.2;
+        p1.vy = 0;
+        setPlayerHp(p1.hp);
+        setIsLowHp(false);
+        pararAlarmeLowHp(true);
+        criarExplosao(p1.x + p1.w / 2, p1.y + p1.h / 2, LOCAL_PLAYER_COLORS[0], 18);
+      } else if (target === 2) {
+        p2.hp = 2;
+        p2.invincibleUntil = now + 2200;
+        p2.x = clamp(p1.x + p1.w + 28, 0, CONFIG.canvasWidth - p2.w);
+        p2.y = clamp(p1.y, 0, CONFIG.canvasHeight - p2.h);
+        p2.vx = 2.2;
+        p2.vy = 0;
+        setPlayer2Hp(p2.hp);
+        criarExplosao(p2.x + p2.w / 2, p2.y + p2.h / 2, LOCAL_PLAYER_COLORS[1], 18);
+      }
+
+      resetarReviveLocal();
+      tocarSom(CONFIG.sounds.abilityReady || CONFIG.sounds.powerUpPickup, 0.55, "ability");
+    }
+
+    function desenharReviveLocal(ctx: CanvasRenderingContext2D) {
+      if (!isLocalWaveMode()) return;
+      const target = localReviveHoldRef.current.target;
+      const progress = clamp(localReviveHoldRef.current.progress, 0, 1);
+      const ghost = target === 1 ? playerRef.current : target === 2 ? player2Ref.current : null;
+      if (!ghost || ghost.hp > 0) return;
+      const cx = ghost.x + ghost.w / 2;
+      const cy = Math.max(72, ghost.y - 34);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.fillStyle = "rgba(8, 5, 14, 0.82)";
+      ctx.strokeStyle = target === 1 ? LOCAL_PLAYER_COLORS[0] : LOCAL_PLAYER_COLORS[1];
+      ctx.lineWidth = 3;
+      ctx.shadowColor = ctx.strokeStyle;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.roundRect(-86, -20, 172, 40, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#fff7d6";
+      ctx.font = `bold 13px "${CONFIG.fonts.ui}"`;
+      ctx.textAlign = "center";
+      ctx.fillText("SEGURE PARA REVIVER", 0, -4);
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.fillRect(-70, 8, 140, 8);
+      ctx.fillStyle = target === 1 ? LOCAL_PLAYER_COLORS[0] : LOCAL_PLAYER_COLORS[1];
+      ctx.fillRect(-70, 8, 140 * progress, 8);
+      ctx.restore();
+    }
+
     function resolverPowerUps() {
       const player = playerRef.current;
       const playerHitbox = getPlayerHitbox(player);
+      const p2 = player2Ref.current;
+      const p2Hitbox = p2 ? getPlayerHitbox(p2) : null;
       const collected = new Set<number>();
 
       for (const power of powerUpsRef.current) {
@@ -10167,10 +11291,29 @@ export default function JogoPage() {
           h: power.h * 0.72,
         };
 
-        if (rectsCollide(playerHitbox, pickupBox)) {
+        if (player.hp > 0 && rectsCollide(playerHitbox, pickupBox)) {
           collected.add(power.id);
           pararLoopPowerUpTrail(power.id);
           aplicarPowerUp(power.kind);
+          criarParticulasHit(
+            power.x + power.w / 2,
+            power.y + power.h / 2,
+            powerUpColor(power.kind),
+            12,
+          );
+          continue;
+        }
+
+        if (
+          p2 &&
+          p2.hp > 0 &&
+          p2Hitbox &&
+          isLocalMode() &&
+          rectsCollide(p2Hitbox, pickupBox)
+        ) {
+          collected.add(power.id);
+          pararLoopPowerUpTrail(power.id);
+          aplicarPowerUpPlayer2(power.kind);
           criarParticulasHit(
             power.x + power.w / 2,
             power.y + power.h / 2,
@@ -10780,7 +11923,7 @@ export default function JogoPage() {
 
             if (enemy.hp <= 0 || enemy.removedByStrong) {
               enemiesToRemove.add(enemy.id);
-              registrarAbate(enemy.kind);
+              registrarAbate(enemy.kind, shot.ownerId ?? 1);
               if (gameStateRef.current !== "tutorial") {
                 tentarSpawnPowerUp(
                   enemy.x + enemy.w / 2,
@@ -11121,6 +12264,9 @@ export default function JogoPage() {
         atualizarBossProjectiles(delta);
         atualizarCapturaAlien(delta, canvas);
         atualizarPowerUps(delta, canvas);
+      if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 5200) {
+        spawnPowerUpPvp(true);
+      }
         resolverPowerUps();
         atualizarParticulas(delta);
         atualizarPowerUpUi();
@@ -11155,7 +12301,7 @@ export default function JogoPage() {
           ? 1
           : 0);
 
-      const gamepadMove = gamepadAxesRef.current;
+      const gamepadMove = isLocalMode() ? { x: 0, y: 0 } : gamepadAxesRef.current;
       let inputX = clamp(
         keyboardX + mobileMoveRef.current.x + gamepadMove.x,
         -1,
@@ -11170,6 +12316,7 @@ export default function JogoPage() {
       const nowForHold = performance.now();
 
       if (
+        !isLocalMode() &&
         controleAcaoSegurando("boost") &&
         (!isTutorialMode || tutorialStepRef.current === "boost")
       ) {
@@ -11203,14 +12350,18 @@ export default function JogoPage() {
       }
 
       if (
-        controleAcaoSegurando("strong") &&
+        (isLocalMode()
+          ? teclaControlePressionada("strong")
+          : controleAcaoSegurando("strong")) &&
         (!isTutorialMode || tutorialStepRef.current === "strong")
       ) {
         shootStrong(1, 0);
       }
 
       if (
-        controleAcaoAcionada("dodge") &&
+        (isLocalMode()
+          ? teclaControlePressionada("dodge")
+          : controleAcaoAcionada("dodge")) &&
         (!isTutorialMode || tutorialStepRef.current === "dodge")
       ) {
         keysRef.current[
@@ -11284,11 +12435,15 @@ export default function JogoPage() {
       player.y += player.vy * speedFactor;
 
       if (
-        (controleAcaoSegurando("shot") || mobileShootRef.current) &&
+        ((isLocalMode()
+          ? teclaControlePressionada("shot")
+          : controleAcaoSegurando("shot")) || mobileShootRef.current) &&
         (!isTutorialMode || tutorialStepRef.current === "shot")
       ) {
         shootNormal();
       }
+
+      atualizarPlayer2(delta, canvas);
 
       if (player.x < 0) {
         player.x = 0;
@@ -11492,17 +12647,21 @@ export default function JogoPage() {
         return;
       }
 
-      atualizarWavesInfinitas();
-      atualizarInimigos(delta, canvas);
-      atualizarBoss(delta);
-      atualizarBossProjectiles(delta);
-      atualizarPowerUps(delta, canvas);
+      if (!isLocalPvpMode()) {
+        atualizarWavesInfinitas();
+        atualizarInimigos(delta, canvas);
+        atualizarBoss(delta);
+        atualizarBossProjectiles(delta);
+        atualizarPowerUps(delta, canvas);
+      }
       resolverColisoes();
-      resolverPowerUps();
+      resolverColisoesPlayer2();
+      reviverJogadoresLocais();
+      if (!isLocalPvpMode()) resolverPowerUps();
       atualizarParticulas(delta);
       atualizarPowerUpUi();
       atualizarShockwaves(delta);
-      setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
+      setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing" && !isLocalMode());
     }
 
     function criarParticulasGameOver(
@@ -11681,6 +12840,12 @@ export default function JogoPage() {
         simulationRemaining -= simulationStep;
       } while (simulationRemaining > 0.5);
       atualizarGameOverCutscene();
+      const lowHpAlarmShouldPlay =
+        CONFIG.settings.enableLowHpAlarm &&
+        gameStateRef.current === "playing" &&
+        playerRef.current.hp > 0 &&
+        playerRef.current.hp <= 1;
+      if (!lowHpAlarmShouldPlay) pararAlarmeLowHp(true);
 
       const shake = shakeRef.current;
       const shaking = performance.now() < shake.endAt;
@@ -11716,6 +12881,10 @@ export default function JogoPage() {
         gameStateRef.current === "gameOverCutscene"
       ) {
         desenharPlayer(renderCtx, elapsedSinceRender);
+        desenharPlayer2(renderCtx, elapsedSinceRender);
+        desenharIndicadorJogadorLocal(renderCtx, playerRef.current, "P1", LOCAL_PLAYER_COLORS[0]);
+        desenharIndicadorJogadorLocal(renderCtx, player2Ref.current, "P2", LOCAL_PLAYER_COLORS[1]);
+        desenharReviveLocal(renderCtx);
       }
 
       renderCtx.restore();
@@ -11809,6 +12978,79 @@ export default function JogoPage() {
 
         if (key === "enter" || key === " ") {
           confirmarOpcaoMenuAtual();
+          return;
+        }
+      }
+
+      if (gameStateRef.current === "multiplayerMenu") {
+        if (key === "escape" || key === "q") {
+          voltarDoMultiplayer();
+          return;
+        }
+        if (["arrowup", "w", "arrowleft", "a"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
+          setIndiceMultiplayerBranch(multiplayerBranchIndexRef.current - 1);
+          return;
+        }
+        if (["arrowdown", "s", "arrowright", "d"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
+          setIndiceMultiplayerBranch(multiplayerBranchIndexRef.current + 1);
+          return;
+        }
+        if (key === "enter" || key === " ") {
+          if (multiplayerBranchIndexRef.current === 0) abrirLobbyLocal();
+          else tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
+          return;
+        }
+      }
+
+      if (gameStateRef.current === "localLobby") {
+        if (["u", "i", "j", "k", "l", "o", "p", "h"].includes(key)) {
+          setIndiceLobbyLocal(1);
+          if (!localPlayerSlotsRef.current[1]?.ready) alternarReadySlotLocal(1);
+          return;
+        }
+        if (key === "escape" || key === "q") {
+          setEstado("multiplayerMenu");
+          return;
+        }
+        if (["arrowleft", "a", "arrowup", "w"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndiceLobbyLocal(localLobbyIndexRef.current - 1);
+          return;
+        }
+        if (["arrowright", "d", "arrowdown", "s"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndiceLobbyLocal(localLobbyIndexRef.current + 1);
+          return;
+        }
+        if (key === "enter" || key === " ") {
+          alternarReadySlotLocal();
+          return;
+        }
+        if (key === "tab") {
+          abrirSelecaoModoLocal();
+          return;
+        }
+      }
+
+      if (gameStateRef.current === "localModeSelect") {
+        if (key === "escape" || key === "q") {
+          setEstado("localLobby");
+          return;
+        }
+        if (["arrowleft", "a", "arrowup", "w"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndiceModoLocal(localModeIndexRef.current - 1);
+          return;
+        }
+        if (["arrowright", "d", "arrowdown", "s"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndiceModoLocal(localModeIndexRef.current + 1);
+          return;
+        }
+        if (key === "enter" || key === " ") {
+          iniciarJogo(LOCAL_MODE_OPTIONS[localModeIndexRef.current].mode);
           return;
         }
       }
@@ -11991,6 +13233,23 @@ export default function JogoPage() {
               playerRef.current.x + playerRef.current.w,
               playerRef.current.y + playerRef.current.h / 2,
             );
+        }
+      }
+
+      if (gameStateRef.current === "paused") {
+        if (["arrowup", "w"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndicePause(pauseIndexRef.current - 1);
+          return;
+        }
+        if (["arrowdown", "s"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndicePause(pauseIndexRef.current + 1);
+          return;
+        }
+        if (key === "enter" || key === " ") {
+          executarOpcaoPauseAtual();
+          return;
         }
       }
 
@@ -12219,6 +13478,7 @@ export default function JogoPage() {
       ".game-dialog-box button",
       ".game-tutorial-card button",
       ".game-pause-card button",
+      ".sn-local-panel button",
       ".game-mobile-controls button",
       ".game-mobile-top-actions button",
     ].join(",");
@@ -12256,7 +13516,7 @@ export default function JogoPage() {
 
   return (
     <main
-      className={`game-fullscreen-page game-state-${gameState} ${tutorialLaunchZoom ? "game-tutorial-launch-zoom" : ""} ${bossCinematicStage !== "idle" ? `sn-boss-cinematic sn-boss-cinematic-${bossCinematicStage}` : ""} ${bossDefeatStage !== "idle" && bossDefeatStage !== "done" ? `sn-boss-defeat sn-boss-defeat-${bossDefeatStage}` : ""} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
+      className={`game-fullscreen-page game-state-${gameState} game-mode-${(waveUi.mode ?? currentModeRef.current) ?? "none"} ${isLocalMode(waveUi.mode ?? currentModeRef.current) ? "is-local-multiplayer" : ""} ${tutorialLaunchZoom ? "game-tutorial-launch-zoom" : ""} ${bossCinematicStage !== "idle" ? `sn-boss-cinematic sn-boss-cinematic-${bossCinematicStage}` : ""} ${bossDefeatStage !== "idle" && bossDefeatStage !== "done" ? `sn-boss-defeat sn-boss-defeat-${bossDefeatStage}` : ""} ${CONFIG.settings.enableFlashingLights ? "" : "no-flashing"} ${randomVisualEffect.inverted ? "game-screen-rotated" : ""}`}
       style={gameStyle}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -12510,11 +13770,99 @@ export default function JogoPage() {
         </aside>
       )}
 
+      {isLocalMode() && (gameState === "playing" || gameState === "paused") && (
+        <aside
+          className={`sn-player-hud sn-player-hud-p2 ${player2Hp <= 0 ? "is-ghost" : ""}`}
+          aria-label="Status do player 2"
+        >
+          <div className="sn-player-hud-label">
+            <strong>P2</strong>
+            <span>{player2Hp > 0 ? "ATIVO" : "FANTASMA"}</span>
+          </div>
+          <div className="sn-life-panel">
+            <div className="sn-life-hearts">
+              {Array.from({ length: CONFIG.gameplay.player.maxHp }).map((_, index) => {
+                const heartIsFull = index < player2Hp;
+                const heartSrc = heartIsFull
+                  ? CONFIG.uiImages.lifeFull
+                  : CONFIG.uiImages.lifeEmpty;
+                const heartFallback = heartIsFull
+                  ? CONFIG.uiImages.lifeFullFallback
+                  : CONFIG.uiImages.lifeEmptyFallback;
+                return (
+                  <img
+                    key={`p2-normal-${index}-${heartIsFull ? "full" : "empty"}`}
+                    className={heartIsFull ? "is-full" : "is-empty"}
+                    src={assetUrl(heartSrc)}
+                    alt={heartIsFull ? "vida do player 2" : "vida perdida do player 2"}
+                    draggable={false}
+                    onError={(event) => {
+                      const img = event.currentTarget;
+                      if (img.dataset.fallbackApplied === "true") return;
+                      img.dataset.fallbackApplied = "true";
+                      img.src = assetUrl(heartFallback);
+                    }}
+                  />
+                );
+              })}
+              {Array.from({ length: player2GoldenHp }).map((_, index) => (
+                <img
+                  key={`p2-golden-${index}`}
+                  className="is-golden"
+                  src={assetUrl(CONFIG.uiImages.heartGolden)}
+                  alt="vida dourada do player 2"
+                  draggable={false}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="sn-ability-stack">
+            {[
+              { id: "dodge", label: "DODGE", ratio: player2DodgeReadyRatio, color: "#f4f1de" },
+              { id: "strong", label: "FORTE", ratio: player2StrongReadyRatio, color: "#ffbf3f" },
+              { id: "boost", label: "BOOST", ratio: player2BoostReadyRatio, color: "#42b9ff" },
+            ].map((ability) => {
+              const ratio = clamp(ability.ratio, 0, 1);
+              const ready = ratio >= 0.999;
+              return (
+                <div
+                  className={`sn-ability ${ability.id} ${ready ? "is-ready" : ""}`}
+                  key={`p2-${ability.id}`}
+                >
+                  <span className="sn-ability-label">{ability.label}</span>
+                  <span className="sn-ability-track">
+                    <span
+                      style={{
+                        width: `${ratio * 100}%`,
+                        background: ability.color,
+                      }}
+                    />
+                  </span>
+                  <strong>{ready ? "PRONTO" : `${Math.ceil(ratio * 100)}%`}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
+      )}
+
+      {localModeNotice && (gameState === "playing" || gameState === "paused") && (
+        <div className="sn-local-notice">{localModeNotice}</div>
+      )}
+
       {(gameState === "playing" || gameState === "paused") &&
-        waveUi.mode === "infinite" && (
-          <div className="sn-run-info">
-            <span>WAVE {waveUi.wave || 1}</span>
-            <strong>{score.toString().padStart(6, "0")}</strong>
+        (waveUi.mode === "infinite" || isLocalMode(waveUi.mode)) && (
+          <div className={`sn-run-info ${isLocalMode(waveUi.mode) ? "is-local" : ""}`}>
+            <span>{isLocalPvpMode(waveUi.mode) ? "ARENA" : `WAVE ${waveUi.wave || 1}`}</span>
+            {isLocalMode(waveUi.mode) ? (
+              <strong>
+                {isLocalPvpMode(waveUi.mode) ? `R${localPvpRound} · ` : ""}
+                P1 {localP1Score.toString().padStart(4, "0")} · P2 {localP2Score.toString().padStart(4, "0")}
+              </strong>
+            ) : (
+              <strong>{score.toString().padStart(6, "0")}</strong>
+            )}
           </div>
         )}
 
@@ -12635,6 +13983,11 @@ export default function JogoPage() {
                         return;
                       }
 
+                      if (option.action === "multiplayer") {
+                        abrirMultiplayer();
+                        return;
+                      }
+
                       if (option.action === "extras") {
                         abrirExtras();
                         return;
@@ -12665,6 +14018,111 @@ export default function JogoPage() {
           <div className="game-menu-logo">
             <strong>SPACE NEWS</strong>
           </div>
+        </section>
+      )}
+
+      {gameState === "multiplayerMenu" && (
+        <section className="game-screen sn-multiplayer-screen">
+          <aside className="sn-local-panel">
+            <p className="game-panel-label">MULTIPLAYER</p>
+            <h2>ESCOLHA A CONEXÃO</h2>
+            <div className="sn-multiplayer-options">
+              {MULTIPLAYER_BRANCH_OPTIONS.map((option, index) => {
+                const selected = multiplayerBranchIndex === index;
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={`sn-multiplayer-option ${selected ? "is-selected" : ""} ${option.disabled ? "is-disabled" : ""}`}
+                    onMouseEnter={() => setIndiceMultiplayerBranch(index)}
+                    onFocus={() => setIndiceMultiplayerBranch(index)}
+                    onClick={() => {
+                      if (option.disabled) {
+                        tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
+                        setLocalModeNotice("Online fica para uma próxima atualização.");
+                        window.setTimeout(() => setLocalModeNotice(""), 2000);
+                        return;
+                      }
+                      abrirLobbyLocal();
+                    }}
+                  >
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {localModeNotice && <p className="sn-local-help">{localModeNotice}</p>}
+            <button type="button" className="sn-local-back" onClick={voltarDoMultiplayer}>VOLTAR</button>
+            <p className="game-menu-help">ENTER/A: confirmar · ESC/B: voltar</p>
+          </aside>
+        </section>
+      )}
+
+      {gameState === "localLobby" && (
+        <section className="game-screen sn-local-lobby-screen">
+          <aside className="sn-local-panel is-lobby">
+            <p className="game-panel-label">MULTIPLAYER LOCAL</p>
+            <h2>ENTRADA DE PLAYERS</h2>
+            <p className="sn-local-subtitle">
+              P1 fica ativo. Confirme P2 para iniciar, ou conecte mais controles para preparar P3/P4.
+            </p>
+            <div className="sn-local-slots">
+              {localPlayerSlots.map((slot, index) => {
+                const selected = localLobbyIndex === index;
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    className={`sn-local-slot ${selected ? "is-selected" : ""} ${slot.ready ? "is-ready" : ""}`}
+                    style={{ "--player-color": slot.color } as CSSProperties}
+                    onMouseEnter={() => setIndiceLobbyLocal(index)}
+                    onFocus={() => setIndiceLobbyLocal(index)}
+                    onClick={() => alternarReadySlotLocal(index)}
+                  >
+                    <span className="sn-slot-badge">P{slot.id}</span>
+                    <strong>{slot.ready ? "READY" : index === 0 ? "FIXO" : "ENTRAR"}</strong>
+                    <small>{slot.input}</small>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="sn-local-lobby-actions">
+              <button type="button" onClick={abrirSelecaoModoLocal}>ESCOLHER MODO</button>
+              <button type="button" onClick={() => setEstado("multiplayerMenu")}>VOLTAR</button>
+            </div>
+            {localModeNotice && <p className="sn-local-help">{localModeNotice}</p>}
+            <p className="game-menu-help">Setas/D-pad: selecionar · ENTER/A: ready · TAB/Start: escolher modo</p>
+          </aside>
+        </section>
+      )}
+
+      {gameState === "localModeSelect" && (
+        <section className="game-screen sn-local-mode-screen">
+          <aside className="sn-local-panel">
+            <p className="game-panel-label">LOCAL READY</p>
+            <h2>ESCOLHA O MODO</h2>
+            <div className="sn-multiplayer-options">
+              {LOCAL_MODE_OPTIONS.map((option, index) => {
+                const selected = localModeIndex === index;
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={`sn-multiplayer-option ${selected ? "is-selected" : ""}`}
+                    onMouseEnter={() => setIndiceModoLocal(index)}
+                    onFocus={() => setIndiceModoLocal(index)}
+                    onClick={() => iniciarJogo(option.mode)}
+                  >
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" className="sn-local-back" onClick={() => setEstado("localLobby")}>VOLTAR AO LOBBY</button>
+            <p className="game-menu-help">Players prontos: {totalJogadoresLocaisProntos()}</p>
+          </aside>
         </section>
       )}
 
@@ -13309,9 +14767,9 @@ export default function JogoPage() {
               <>
                 <p className="game-panel-label">JOGO PAUSADO</p>
                 <h2>PAUSADO</h2>
-                <button onClick={pausarOuVoltar}>CONTINUAR</button>
-                <button onClick={abrirConfiguracoes}>CONFIGURAÇÕES</button>
-                <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
+                <button className={pauseIndex === 0 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(0)} onFocus={() => setIndicePause(0)} onClick={pausarOuVoltar}>CONTINUAR</button>
+                <button className={pauseIndex === 1 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(1)} onFocus={() => setIndicePause(1)} onClick={abrirConfiguracoes}>CONFIGURAÇÕES</button>
+                <button className={pauseIndex === 2 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(2)} onFocus={() => setIndicePause(2)} onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
               </>
             ) : (
               <div className="sn-resume-countdown" aria-live="assertive">
