@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import FeedbackButton from "./feedback-button";
 import PWARegister from "./pwa-register";
 
@@ -161,11 +161,42 @@ const FAQ_ITEMS = [
   },
 ];
 
+const ANALYSIS_STEPS = [
+  "Preparando entrada",
+  "Enviando ao servidor",
+  "Aguardando verificação",
+  "Consolidando resposta",
+];
+
+const XO_INTELLIGENCE_CARDS = [
+  {
+    icon: "🕒",
+    title: "Contexto temporal",
+    text: "Assuntos que mudam com o tempo passam por regras extras para evitar resposta desatualizada.",
+  },
+  {
+    icon: "🧭",
+    title: "Leitura responsável",
+    text: "O detector separa fato, rumor, opinião, sátira e informação sem confirmação suficiente.",
+  },
+  {
+    icon: "🛡️",
+    title: "Sem certeza falsa",
+    text: "Quando faltam provas atuais, o resultado deve reconhecer a limitação em vez de inventar conclusão.",
+  },
+];
+
 export default function Home() {
   const [modo, setModo] = useState("pergunta");
   const [texto, setTexto] = useState("");
   const [resultado, setResultado] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [etapaAnalise, setEtapaAnalise] = useState(0);
+  const [inicioAnaliseMs, setInicioAnaliseMs] = useState<number | null>(null);
+  const [tempoAnaliseMs, setTempoAnaliseMs] = useState(0);
+  const [textoEnviadoPreview, setTextoEnviadoPreview] = useState("");
+  const [avisoFerramenta, setAvisoFerramenta] = useState("");
+  const [entradaFocada, setEntradaFocada] = useState(false);
   const [mostrarCreditos, setMostrarCreditos] = useState(false);
   const [somAtivo, setSomAtivo] = useState(true);
   const [tema, setTema] = useState<Tema>("system");
@@ -173,11 +204,16 @@ export default function Home() {
   const [online, setOnline] = useState(true);
   const [textoGrande, setTextoGrande] = useState(false);
   const [reduzirAnimacoes, setReduzirAnimacoes] = useState(false);
+  const [leitorAutomatico, setLeitorAutomatico] = useState(false);
+  const [leituraAtiva, setLeituraAtiva] = useState(false);
   const [animacaoModo, setAnimacaoModo] = useState(false);
   const [copiado, setCopiado] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
   const [creditoAnimando, setCreditoAnimando] = useState("");
   const [spaceSignal, setSpaceSignal] = useState<SpaceNewsPayload | null>(null);
+  const audioElementsRef = useRef<Record<string, HTMLAudioElement>>({});
+  const audioUnlockedRef = useRef(false);
+  const leitorAutomaticoRef = useRef(false);
 
   const equipe = [
     {
@@ -228,6 +264,15 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    try {
+      const salvo = window.localStorage.getItem("xo-falsiane.reader");
+      const ativo = salvo === "on";
+      leitorAutomaticoRef.current = ativo;
+      setLeitorAutomatico(ativo);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
 
     const aplicarTema = () => {
@@ -274,6 +319,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle("xo-drawer-open", menuAberto);
 
@@ -298,17 +351,225 @@ export default function Home() {
     } catch {}
   }, []);
 
+  useEffect(() => {
+    const nomes = [
+      "click",
+      "swoosh",
+      "confiavel",
+      "parcial",
+      "nao-confirmado",
+      "suspeita",
+      "falsa",
+      ...equipe.map((item) => item.som),
+    ];
+
+    nomes.forEach((nome) => {
+      if (audioElementsRef.current[nome]) return;
+      const audio = new Audio(`/sounds/${nome}.mp3`);
+      audio.preload = "auto";
+      audioElementsRef.current[nome] = audio;
+    });
+  }, []);
+
+  function obterAudio(nome: string) {
+    if (!audioElementsRef.current[nome]) {
+      const audio = new Audio(`/sounds/${nome}.mp3`);
+      audio.preload = "auto";
+      audioElementsRef.current[nome] = audio;
+    }
+    return audioElementsRef.current[nome];
+  }
+
+  function destravarAudio() {
+    if (audioUnlockedRef.current || !somAtivo) return;
+    const audio = obterAudio("click");
+    const volumeOriginal = audio.volume;
+    const mutedOriginal = audio.muted;
+    audio.volume = 0;
+    audio.muted = true;
+    const tentativa = audio.play();
+
+    if (!tentativa) {
+      audio.volume = volumeOriginal;
+      audio.muted = mutedOriginal;
+      return;
+    }
+
+    tentativa
+      .then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = volumeOriginal;
+        audio.muted = mutedOriginal;
+        audioUnlockedRef.current = true;
+      })
+      .catch(() => {
+        audio.volume = volumeOriginal;
+        audio.muted = mutedOriginal;
+      });
+  }
+
   const spaceSignalInTextbox = useMemo(
     () => parseSpaceNewsPayload(texto),
     [texto],
   );
   const isSpaceNewsInput = !!spaceSignalInTextbox;
 
+  const textoLimpo = texto.trim();
+  const qualidadeEntrada = useMemo(() => {
+    if (!textoLimpo) {
+      return {
+        label: "Aguardando conteúdo",
+        level: "empty",
+        detail: "Digite uma informação verificável.",
+      };
+    }
+
+    if (modo === "link") {
+      return textoLimpo.startsWith("http://") ||
+        textoLimpo.startsWith("https://")
+        ? {
+            label: "Link pronto para leitura",
+            level: "good",
+            detail: "A página será aberta pelo servidor.",
+          }
+        : {
+            label: "Link incompleto",
+            level: "warn",
+            detail: "Use http:// ou https://.",
+          };
+    }
+
+    const palavras = textoLimpo.split(/\s+/).filter(Boolean).length;
+    if (palavras < 3) {
+      return {
+        label: "Pouco contexto",
+        level: "warn",
+        detail: "Adicione nomes, data ou local.",
+      };
+    }
+
+    if (palavras >= 45 || textoLimpo.length > 260) {
+      return {
+        label: "Conteúdo robusto",
+        level: "good",
+        detail: "Há contexto suficiente para uma análise melhor.",
+      };
+    }
+
+    return {
+      label: "Entrada utilizável",
+      level: "ok",
+      detail: "A análise pode começar.",
+    };
+  }, [modo, textoLimpo]);
+
+  useEffect(() => {
+    if (!resultado || !leitorAutomaticoRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      lerEmVozAlta(resultado);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [resultado]);
+
+  useEffect(() => {
+    leitorAutomaticoRef.current = leitorAutomatico;
+    try {
+      window.localStorage.setItem("xo-falsiane.reader", leitorAutomatico ? "on" : "off");
+    } catch {}
+
+    if (!leitorAutomatico && typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      setLeituraAtiva(false);
+    }
+  }, [leitorAutomatico]);
+
+  useEffect(() => {
+    if (!carregando || inicioAnaliseMs === null) {
+      setEtapaAnalise(0);
+      setTempoAnaliseMs(0);
+      return;
+    }
+
+    const atualizar = () => {
+      const elapsed = Date.now() - inicioAnaliseMs;
+      setTempoAnaliseMs(elapsed);
+
+      if (elapsed < 650) setEtapaAnalise(0);
+      else if (elapsed < 1800) setEtapaAnalise(1);
+      else if (elapsed < 9000) setEtapaAnalise(2);
+      else setEtapaAnalise(3);
+    };
+
+    atualizar();
+    const timer = window.setInterval(atualizar, 250);
+
+    return () => window.clearInterval(timer);
+  }, [carregando, inicioAnaliseMs]);
+
+  function prepararTextoParaLeitura(valor: string) {
+    return valor
+      .replace(/[✅🟡❔⚠️❌🧾🔍🧠📌ℹ️📡💬🧭⏳🛠️🔐🚦]/g, " ")
+      .replace(/#{1,6}/g, " ")
+      .replace(/[-•]{1,2}\s+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 4200);
+  }
+
+  function lerEmVozAlta(valor = resultado || texto) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      mostrarAvisoFerramenta("Leitura por voz não é suportada neste navegador.");
+      return;
+    }
+
+    const conteudo = prepararTextoParaLeitura(valor);
+    if (!conteudo) {
+      mostrarAvisoFerramenta("Não há texto para ler agora.");
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const fala = new SpeechSynthesisUtterance(conteudo);
+    fala.lang = "pt-BR";
+    fala.rate = 0.96;
+    fala.pitch = 1;
+    fala.volume = 1;
+    const vozes = window.speechSynthesis.getVoices();
+    const vozPtBr = vozes.find((voz) => /pt[-_]BR/i.test(voz.lang));
+    const vozPt = vozPtBr || vozes.find((voz) => /^pt/i.test(voz.lang));
+    if (vozPt) fala.voice = vozPt;
+
+    fala.onstart = () => setLeituraAtiva(true);
+    fala.onend = () => setLeituraAtiva(false);
+    fala.onerror = () => setLeituraAtiva(false);
+    window.speechSynthesis.speak(fala);
+  }
+
+  function pararLeitura() {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setLeituraAtiva(false);
+  }
+
   function tocarAudio(nome: string) {
     if (!somAtivo) return;
-    const audio = new Audio(`/sounds/${nome}.mp3`);
+
+    const base = obterAudio(nome);
+    const audio = base.paused ? base : (base.cloneNode(true) as HTMLAudioElement);
     audio.volume = 0.55;
+    try {
+      audio.currentTime = 0;
+    } catch {}
     audio.play().catch(() => {});
+  }
+
+  function tocarClique() {
+    destravarAudio();
+    tocarAudio("click");
   }
 
   function tocarSom(classificacao: string) {
@@ -322,8 +583,66 @@ export default function Home() {
     else if (tipo.includes("falsa")) tocarAudio("falsa");
   }
 
-  function tocarClique() {
-    tocarAudio("click");
+  function mostrarAvisoFerramenta(mensagem: string) {
+    setAvisoFerramenta(mensagem);
+    window.setTimeout(() => setAvisoFerramenta(""), 2200);
+  }
+
+  function detectarModoAutomatico() {
+    tocarClique();
+    const valor = texto.trim();
+
+    if (!valor) {
+      mostrarAvisoFerramenta("Digite ou cole algo primeiro.");
+      return;
+    }
+
+    if (/^https?:\/\//i.test(valor)) {
+      setModo("link");
+      mostrarAvisoFerramenta("Modo alterado para Link da Notícia.");
+      return;
+    }
+
+    const palavras = valor.split(/\s+/).filter(Boolean).length;
+    if (palavras >= 42 || valor.length >= 260) {
+      setModo("noticia");
+      mostrarAvisoFerramenta("Modo alterado para Notícia Escrita.");
+      return;
+    }
+
+    setModo("pergunta");
+    mostrarAvisoFerramenta("Modo alterado para Pergunta Direta.");
+  }
+
+  function limparFormatacaoEntrada() {
+    tocarClique();
+    const normalizado = texto
+      .replace(/\u00a0/g, " ")
+      .replace(/[\t\r ]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    setTexto(normalizado);
+    mostrarAvisoFerramenta(
+      normalizado ? "Formatação limpa sem apagar o conteúdo." : "Nada para limpar.",
+    );
+  }
+
+  async function colarDaAreaDeTransferencia() {
+    tocarClique();
+
+    try {
+      const conteudo = await navigator.clipboard.readText();
+      if (!conteudo.trim()) {
+        mostrarAvisoFerramenta("A área de transferência está vazia.");
+        return;
+      }
+
+      setTexto(conteudo.trim());
+      mostrarAvisoFerramenta("Conteúdo colado no campo de análise.");
+    } catch {
+      mostrarAvisoFerramenta("O navegador bloqueou o acesso à área de transferência.");
+    }
   }
 
   function detectarClassificacao(textoResposta: string) {
@@ -380,6 +699,7 @@ export default function Home() {
   }
 
   async function analisar() {
+    destravarAudio();
     tocarAudio("swoosh");
 
     if (!texto.trim()) {
@@ -390,7 +710,9 @@ export default function Home() {
           "Ainda não há uma notícia para verificar. Cole um trecho com contexto suficiente.",
         link: "Cole o endereço completo da página que você deseja analisar.",
       };
-      setResultado(`⚠️ ${mensagensVazias[modo] || "Digite algo para analisar."}`);
+      setResultado(
+        `⚠️ ${mensagensVazias[modo] || "Digite algo para analisar."}`,
+      );
       return;
     }
 
@@ -403,10 +725,21 @@ export default function Home() {
       return;
     }
 
+    setEtapaAnalise(0);
+    setInicioAnaliseMs(Date.now());
+    setTempoAnaliseMs(0);
+    setTextoEnviadoPreview(texto.trim());
     setCarregando(true);
     setResultado("");
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 50000);
+    const timeoutId = window.setTimeout(() => {
+      controller.abort(
+        new DOMException(
+          "A análise ultrapassou o tempo limite configurado.",
+          "AbortError",
+        ),
+      );
+    }, 50000);
 
     try {
       const payload = parseSpaceNewsPayload(texto);
@@ -485,18 +818,21 @@ export default function Home() {
           ].join("\n")
         : respostaFinal;
 
+      setEtapaAnalise(3);
       setResultado(respostaExibida);
 
       const classificacao = detectarClassificacao(respostaFinal);
       tocarSom(classificacao);
     } catch (erro) {
-      const possibleApiError = erro as ApiRequestError;
-      const possibleStatus = Number(possibleApiError?.status || 0);
-      if (!possibleStatus || possibleStatus >= 500) {
-        console.error("Falha inesperada ao analisar conteúdo:", erro);
-      }
       const foiTimeout =
         erro instanceof DOMException && erro.name === "AbortError";
+      const possibleApiError = erro as ApiRequestError;
+      const possibleStatus = Number(possibleApiError?.status || 0);
+
+      if (!foiTimeout && (!possibleStatus || possibleStatus >= 500)) {
+        console.error("Falha inesperada ao analisar conteúdo:", erro);
+      }
+
       const apiError = erro as ApiRequestError;
       const status = Number(apiError?.status || 0);
       const codigo = String(apiError?.code || "");
@@ -575,6 +911,7 @@ export default function Home() {
     } finally {
       window.clearTimeout(timeoutId);
       setCarregando(false);
+      setInicioAnaliseMs(null);
     }
   }
 
@@ -582,6 +919,8 @@ export default function Home() {
     tocarClique();
     setTexto("");
     setResultado("");
+    setTextoEnviadoPreview("");
+    setAvisoFerramenta("");
     setSpaceSignal(null);
   }
 
@@ -608,9 +947,12 @@ export default function Home() {
         ? "Cole o texto completo ou trecho da notícia para análise."
         : "Cole o link de uma matéria ou portal de notícias.";
 
+  const tempoAnaliseSegundos = Math.max(1, Math.ceil(tempoAnaliseMs / 1000));
+  const textoPreviewAnalise = textoEnviadoPreview || textoLimpo;
+
   return (
     <main
-      className={`checker-bg xo-main-page min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}
+      className={`checker-bg xo-main-page xo-page-mounted min-h-screen text-white ${menuAberto ? "menu-open" : ""}`}
     >
       {!menuAberto && (
         <button
@@ -738,6 +1080,27 @@ export default function Home() {
           <button
             onClick={() => {
               tocarClique();
+              setLeitorAutomatico(!leitorAutomatico);
+            }}
+            className="settings-row"
+          >
+            {leitorAutomatico ? "📖 Leitura automática ligada" : "📖 Leitura automática"}
+          </button>
+
+          <button
+            onClick={() => {
+              tocarClique();
+              if (leituraAtiva) pararLeitura();
+              else lerEmVozAlta(resultado || texto || "Digite um texto ou gere uma análise para ouvir a leitura.");
+            }}
+            className="settings-row"
+          >
+            {leituraAtiva ? "⏹️ Parar leitura" : "🔊 Ler agora"}
+          </button>
+
+          <button
+            onClick={() => {
+              tocarClique();
               if ((window as any).abrirVLibras) {
                 (window as any).abrirVLibras();
               } else {
@@ -836,21 +1199,32 @@ export default function Home() {
       <div className="main-content xo-main-content">
         <section className="glass-panel xo-glass-panel w-full max-w-6xl rounded-3xl p-6 md:p-10 border-2 border-blue-500/40 shadow-2xl shadow-blue-500/20">
           <header className="text-center mb-10 header-enter xo-hero">
-            <p className="xo-hero-kicker">VERIFIQUE.AI apresenta</p>
+            <p className="xo-hero-kicker">Plataforma de verificação educacional</p>
             <h1 className="xo-hero-title">Xô, falsiane!</h1>
             <p className="xo-hero-description">
-              Verifique perguntas, notícias escritas e links suspeitos com ajuda
-              de IA. Um detector educativo com visual moderno, leitura clara e
-              análise rápida.
+              Analise perguntas, textos e links com foco em contexto,
+              clareza e checagem responsável.
             </p>
-
-            <div className="xo-feature-row">
-              <span className="xo-feature-pill">IA de apoio</span>
-              <span className="xo-feature-pill">Leitura de links</span>
-              <span className="xo-feature-pill">Acessibilidade</span>
-              <span className="xo-feature-pill">Integração com Space News</span>
-            </div>
           </header>
+
+          <section
+            className="xo-intelligence-grid"
+            aria-label="Camadas de análise do detector"
+          >
+            {XO_INTELLIGENCE_CARDS.map((card, index) => (
+              <article
+                className="xo-intelligence-card"
+                key={card.title}
+                style={{ animationDelay: `${index * 90}ms` }}
+              >
+                <span>{card.icon}</span>
+                <div>
+                  <strong>{card.title}</strong>
+                  <p>{card.text}</p>
+                </div>
+              </article>
+            ))}
+          </section>
 
           {!online && (
             <div className="xo-offline-banner" role="status">
@@ -900,12 +1274,8 @@ export default function Home() {
           </div>
 
           <section
-            className={`work-card xo-work-card ${animacaoModo ? "mode-switch" : ""}`}
+            className={`work-card xo-work-card ${animacaoModo ? "mode-switch" : ""} ${carregando ? "is-submitting" : ""}`}
           >
-            <div className="mb-4">
-              <h2 className="text-xl font-bold">{tituloModo}</h2>
-              <p className="text-zinc-400 text-sm mt-1">{dicaModo}</p>
-            </div>
 
             {isSpaceNewsInput && spaceSignalInTextbox && (
               <div className="xo-signal-banner">
@@ -920,11 +1290,26 @@ export default function Home() {
               </div>
             )}
 
+            <div
+              className={`xo-input-inspector ${entradaFocada ? "is-focused" : ""} is-${qualidadeEntrada.level}`}
+            >
+              <div>
+                <strong>{qualidadeEntrada.label}</strong>
+                <span>{qualidadeEntrada.detail}</span>
+              </div>
+              <small>
+                {texto.length.toLocaleString("pt-BR")} / 12.000 caracteres
+              </small>
+            </div>
+
             <textarea
+              readOnly={carregando}
               value={texto}
+              onFocus={() => setEntradaFocada(true)}
+              onBlur={() => setEntradaFocada(false)}
               onChange={(e) => setTexto(e.target.value)}
               aria-label="Campo para inserir pergunta, notícia ou link"
-              className="main-textarea"
+              className={`main-textarea xo-main-textarea ${carregando ? "is-text-submitting" : ""}`}
               placeholder={
                 modo === "pergunta"
                   ? "Faça sua pergunta aqui..."
@@ -934,11 +1319,41 @@ export default function Home() {
               }
             />
 
+            <div className="xo-quick-tools" aria-label="Ferramentas rápidas">
+              <button
+                type="button"
+                className="xo-tool-button"
+                onClick={detectarModoAutomatico}
+              >
+                <span aria-hidden="true">◎</span>
+                Detectar modo
+              </button>
+              <button
+                type="button"
+                className="xo-tool-button"
+                onClick={limparFormatacaoEntrada}
+              >
+                <span aria-hidden="true">⌁</span>
+                Limpar conteúdo
+              </button>
+              <button
+                type="button"
+                className="xo-tool-button"
+                onClick={colarDaAreaDeTransferencia}
+              >
+                <span aria-hidden="true">↧</span>
+                Colar conteúdo
+              </button>
+              {avisoFerramenta && (
+                <span className="xo-tool-notice">{avisoFerramenta}</span>
+              )}
+            </div>
+
             <div className="flex flex-wrap gap-3 justify-center mt-6">
               <button
                 onClick={analisar}
                 disabled={carregando}
-                className="primary-btn"
+                className="primary-btn xo-primary-animated"
               >
                 {carregando ? "Analisando..." : "Analisar"}
               </button>
@@ -948,11 +1363,71 @@ export default function Home() {
             </div>
 
             {carregando && (
-              <div className="loading-box">
-                <span></span>
-                <span></span>
-                <span></span>
-                <p>Buscando sinais e verificando contexto...</p>
+              <div
+                className="xo-processing-card"
+                role="status"
+                aria-live="polite"
+                aria-busy="true"
+                data-stage={etapaAnalise}
+              >
+                <div className="xo-processing-topline">
+                  <span>Verificação em andamento</span>
+                  <strong>{tempoAnaliseSegundos}s</strong>
+                </div>
+
+                <div className="xo-processing-main">
+                  <div className="xo-processing-copy">
+                    <strong>{ANALYSIS_STEPS[etapaAnalise]}</strong>
+                    <p>
+                      A análise está aguardando o servidor, leitura de link/RSS
+                      quando necessário e retorno do modelo. O painel acompanha a
+                      requisição real sem inventar progresso.
+                    </p>
+                  </div>
+                  <div className="xo-processing-signal" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                </div>
+
+                <div className="xo-processing-flow" aria-hidden="true">
+                  {ANALYSIS_STEPS.map((step, index) => (
+                    <span
+                      key={step}
+                      className={
+                        index < etapaAnalise
+                          ? "is-done"
+                          : index === etapaAnalise
+                            ? "is-active"
+                            : ""
+                      }
+                    />
+                  ))}
+                </div>
+
+                <div className="xo-processing-steps" aria-label="Etapas da análise">
+                  {ANALYSIS_STEPS.map((step, index) => (
+                    <div
+                      key={step}
+                      className={
+                        index < etapaAnalise
+                          ? "is-done"
+                          : index === etapaAnalise
+                            ? "is-active"
+                            : ""
+                      }
+                    >
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <strong>{step}</strong>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="xo-submitted-preview">
+                  <span>Conteúdo enviado</span>
+                  <p>{textoPreviewAnalise.slice(0, 240)}</p>
+                </div>
               </div>
             )}
           </section>
@@ -966,9 +1441,18 @@ export default function Home() {
                     Resultado da análise
                   </h2>
                 </div>
-                <button onClick={copiarResultado} className="copy-btn">
-                  {copiado ? "Copiado!" : "Copiar"}
-                </button>
+                <div className="xo-result-actions">
+                  <button
+                    type="button"
+                    onClick={() => (leituraAtiva ? pararLeitura() : lerEmVozAlta(resultado))}
+                    className="copy-btn"
+                  >
+                    {leituraAtiva ? "Parar" : "Ouvir"}
+                  </button>
+                  <button onClick={copiarResultado} className="copy-btn">
+                    {copiado ? "Copiado!" : "Copiar"}
+                  </button>
+                </div>
               </div>
               <div className="whitespace-pre-wrap leading-relaxed text-zinc-100">
                 {resultado}

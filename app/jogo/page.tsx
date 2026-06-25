@@ -1187,6 +1187,16 @@ const CONFIG = {
     pcStrongKey: "x",
     pcBoostKey: "shift",
     pcDodgeKey: "control",
+    gamepadEnabled: true,
+    gamepadMoveStick: "left",
+    gamepadDeadzone: 0.18,
+    gamepadShootButton: "1|7",
+    gamepadStrongButton: "2|6",
+    gamepadBoostButton: "0|5",
+    gamepadDodgeButton: "3|4",
+    gamepadPauseButton: "9",
+    gamepadConfirmButton: "0",
+    gamepadBackButton: "1",
 
     // Áudio
     masterVolume: 1,
@@ -1528,7 +1538,7 @@ type GameSettingOption = {
     | "ACESSIBILIDADE"
     | "MOBILE"
     | "CONTROLES";
-  kind: "toggle" | "range" | "select" | "keybind";
+  kind: "toggle" | "range" | "select" | "keybind" | "padbind";
   min?: number;
   max?: number;
   step?: number;
@@ -1556,8 +1566,65 @@ const MOBILE_CONTROL_LABELS: Record<MobileControlId, string> = {
   fullscreen: "TELA CHEIA",
 };
 
-// Controle de videogame pode ser adicionado futuramente com navigator.getGamepads().
-// A arquitetura de ações (tiro, forte, boost e dodge) já permite mapear botões sem reescrever o gameplay.
+const GAMEPAD_BUTTON_LABELS: Record<string, string> = {
+  "0": "A",
+  "1": "B",
+  "2": "X",
+  "3": "Y",
+  "4": "L1",
+  "5": "R1",
+  "6": "L2",
+  "7": "R2",
+  "8": "Select",
+  "9": "Start",
+  "10": "Analógico esquerdo",
+  "11": "Analógico direito",
+  "12": "D-Pad cima",
+  "13": "D-Pad baixo",
+  "14": "D-Pad esquerda",
+  "15": "D-Pad direita",
+};
+
+function normalizarBotoesControle(valor: unknown) {
+  const texto = String(valor ?? "")
+    .trim()
+    .toUpperCase();
+
+  const partes = texto
+    .split(/[|/,]/g)
+    .map((parte) => parte.trim())
+    .filter(Boolean)
+    .map((parte) => parte.replace(/^B(?:OTAO|OTÃO|UTTON)?\s*/i, ""))
+    .map((parte) => {
+      const numero = Number(parte);
+      return Number.isFinite(numero) && numero >= 0
+        ? String(Math.floor(numero))
+        : "";
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(partes.length ? partes : ["0"]));
+}
+
+function normalizarBotaoControleValor(valor: unknown) {
+  return normalizarBotoesControle(valor)[0] || "0";
+}
+
+function formatarBotaoControleLabel(valor: unknown) {
+  return normalizarBotoesControle(valor)
+    .map((key) => GAMEPAD_BUTTON_LABELS[key] || `Botão ${key}`)
+    .join(" ou ");
+}
+
+const GAMEPAD_ACTION_KEYS = [
+  "gamepadShootButton",
+  "gamepadStrongButton",
+  "gamepadBoostButton",
+  "gamepadDodgeButton",
+  "gamepadPauseButton",
+  "gamepadConfirmButton",
+  "gamepadBackButton",
+] as const satisfies readonly GameSettingKey[];
 
 const SETTINGS_SECTIONS = [
   "ÁUDIO",
@@ -1832,6 +1899,79 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
         .replace("CONTROL", "CTRL")
         .replace("SPACE", "ESPAÇO"),
   },
+  {
+    key: "gamepadEnabled" as GameSettingKey,
+    label: "Controle de videogame",
+    category: "CONTROLES",
+    kind: "toggle",
+  },
+  {
+    key: "gamepadMoveStick" as GameSettingKey,
+    label: "Analógico de movimento",
+    category: "CONTROLES",
+    kind: "select",
+    values: ["left", "right"],
+    formatter: (v) => (String(v) === "right" ? "DIREITO" : "ESQUERDO"),
+  },
+  {
+    key: "gamepadDeadzone" as GameSettingKey,
+    label: "Zona morta do analógico",
+    category: "CONTROLES",
+    kind: "range",
+    min: 0.08,
+    max: 0.35,
+    step: 0.03,
+    formatter: (v) => `${Math.round(Number(v) * 100)}%`,
+  },
+  {
+    key: "gamepadShootButton" as GameSettingKey,
+    label: "Tiro normal controle",
+    category: "CONTROLES",
+    kind: "padbind",
+    formatter: (v) => formatarBotaoControleLabel(v),
+  },
+  {
+    key: "gamepadStrongButton" as GameSettingKey,
+    label: "Tiro forte controle",
+    category: "CONTROLES",
+    kind: "padbind",
+    formatter: (v) => formatarBotaoControleLabel(v),
+  },
+  {
+    key: "gamepadBoostButton" as GameSettingKey,
+    label: "Boost controle",
+    category: "CONTROLES",
+    kind: "padbind",
+    formatter: (v) => formatarBotaoControleLabel(v),
+  },
+  {
+    key: "gamepadDodgeButton" as GameSettingKey,
+    label: "Dodge controle",
+    category: "CONTROLES",
+    kind: "padbind",
+    formatter: (v) => formatarBotaoControleLabel(v),
+  },
+  {
+    key: "gamepadPauseButton" as GameSettingKey,
+    label: "Pause controle",
+    category: "CONTROLES",
+    kind: "padbind",
+    formatter: (v) => formatarBotaoControleLabel(v),
+  },
+  {
+    key: "gamepadConfirmButton" as GameSettingKey,
+    label: "Confirmar menu controle",
+    category: "CONTROLES",
+    kind: "padbind",
+    formatter: (v) => formatarBotaoControleLabel(v),
+  },
+  {
+    key: "gamepadBackButton" as GameSettingKey,
+    label: "Voltar menu controle",
+    category: "CONTROLES",
+    kind: "padbind",
+    formatter: (v) => formatarBotaoControleLabel(v),
+  },
 ];
 
 const ASSET_VERSION = "space-news-20260616-v26-audio-flames";
@@ -1870,7 +2010,12 @@ class AssetManager {
   private frameImages = new Map<SpriteKey, (HTMLImageElement | null)[]>();
 
   async loadAll(
-    onProgress?: (loaded: number, total: number, src: string, ok: boolean) => void,
+    onProgress?: (
+      loaded: number,
+      total: number,
+      src: string,
+      ok: boolean,
+    ) => void,
   ) {
     const entries = Object.entries(ASSETS) as [SpriteKey, SpriteConfig][];
     const total = entries.reduce(
@@ -2377,6 +2522,23 @@ export default function JogoPage() {
   const customCursorRef = useRef<HTMLDivElement | null>(null);
 
   const keysRef = useRef<Record<string, boolean>>({});
+  const gamepadButtonsRef = useRef<Record<string, boolean>>({});
+  const gamepadButtonsPressedRef = useRef<Record<string, boolean>>({});
+  const gamepadDirectionsPressedRef = useRef<Record<string, boolean>>({});
+  const gamepadDirectionsHeldRef = useRef<Record<string, boolean>>({});
+  const gamepadAxesRef = useRef({ x: 0, y: 0 });
+  const lastGamepadIdRef = useRef("");
+  const gamepadStatusRef = useRef("Controle não conectado");
+  const gamepadCaptureRef = useRef<GameSettingKey | null>(null);
+  const [gamepadStatus, setGamepadStatus] = useState("Controle não conectado");
+  const menuDirectionHoldRef = useRef({
+    up: { active: false, startedAt: 0, lastRepeatAt: 0 },
+    down: { active: false, startedAt: 0, lastRepeatAt: 0 },
+    left: { active: false, startedAt: 0, lastRepeatAt: 0 },
+    right: { active: false, startedAt: 0, lastRepeatAt: 0 },
+  });
+  const tutorialChoiceIndexRef = useRef(0);
+  const [tutorialChoiceIndex, setTutorialChoiceIndex] = useState(0);
   const mobileShootRef = useRef(false);
   const mobileMoveRef = useRef({ x: 0, y: 0 });
   const mobileStickKnobRef = useRef<HTMLDivElement | null>(null);
@@ -2420,6 +2582,7 @@ export default function JogoPage() {
   const [settingsIndex, setSettingsIndex] = useState(0);
   const [settingsSection, setSettingsSection] =
     useState<(typeof SETTINGS_SECTIONS)[number]>("ÁUDIO");
+  const settingsSectionRef = useRef<(typeof SETTINGS_SECTIONS)[number]>("ÁUDIO");
   const [settingsSnapshot, setSettingsSnapshot] = useState({
     ...CONFIG.settings,
   });
@@ -2430,6 +2593,7 @@ export default function JogoPage() {
     settingKey: GameSettingKey;
     label: string;
     candidate: string | null;
+    kind: "keyboard" | "gamepad";
   } | null>(null);
   const [mobileEditorOpen, setMobileEditorOpen] = useState(false);
   const [selectedMobileControl, setSelectedMobileControl] =
@@ -2674,10 +2838,26 @@ export default function JogoPage() {
   const [gameOverWave, setGameOverWave] = useState(0);
   const [flashSnapshot, setFlashSnapshot] = useState("");
 
+  function resetarRepeticaoDirecionalMenu() {
+    menuDirectionHoldRef.current = {
+      up: { active: false, startedAt: 0, lastRepeatAt: 0 },
+      down: { active: false, startedAt: 0, lastRepeatAt: 0 },
+      left: { active: false, startedAt: 0, lastRepeatAt: 0 },
+      right: { active: false, startedAt: 0, lastRepeatAt: 0 },
+    };
+  }
+
   function setEstado(estado: GameState) {
     if (estado !== "playing") {
       limparTimersRevelacaoBoss();
       setBossDanielLine((current) => ({ ...current, visible: false }));
+    }
+    if (
+      estado !== "mainMenu" &&
+      estado !== "settings" &&
+      estado !== "tutorialChoice"
+    ) {
+      resetarRepeticaoDirecionalMenu();
     }
     gameStateRef.current = estado;
     setGameState(estado);
@@ -2710,15 +2890,30 @@ export default function JogoPage() {
     setSettingsIndex(safeIndex);
   }
 
+  function setIndiceTutorialChoice(index: number) {
+    const total = 2;
+    const safeIndex = ((index % total) + total) % total;
+    tutorialChoiceIndexRef.current = safeIndex;
+    setTutorialChoiceIndex(safeIndex);
+  }
+
   function selecionarSecaoConfiguracoes(
     section: (typeof SETTINGS_SECTIONS)[number],
   ) {
+    settingsSectionRef.current = section;
     setSettingsSection(section);
     const firstIndex = SETTINGS_OPTIONS.findIndex(
       (option) => option.category === section,
     );
     if (firstIndex >= 0) setIndiceConfiguracao(firstIndex);
     tocarSom(CONFIG.sounds.menuMove, 0.22, "menu");
+  }
+
+  function selecionarSecaoConfiguracoesRelativa(direction: -1 | 1) {
+    const currentIndex = SETTINGS_SECTIONS.indexOf(settingsSectionRef.current);
+    const nextIndex =
+      (currentIndex + direction + SETTINGS_SECTIONS.length) % SETTINGS_SECTIONS.length;
+    selecionarSecaoConfiguracoes(SETTINGS_SECTIONS[nextIndex]);
   }
 
   function atualizarConfiguracao(
@@ -2826,13 +3021,26 @@ export default function JogoPage() {
   function iniciarCapturaTecla(settingKey: GameSettingKey, label: string) {
     keyBindDialogOpenRef.current = true;
     keyBindCaptureRef.current = settingKey;
-    setKeyBindPrompt({ settingKey, label, candidate: null });
+    gamepadCaptureRef.current = null;
+    setKeyBindPrompt({ settingKey, label, candidate: null, kind: "keyboard" });
+    tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
+  }
+
+  function iniciarCapturaBotaoControle(
+    settingKey: GameSettingKey,
+    label: string,
+  ) {
+    keyBindDialogOpenRef.current = true;
+    keyBindCaptureRef.current = null;
+    gamepadCaptureRef.current = settingKey;
+    setKeyBindPrompt({ settingKey, label, candidate: null, kind: "gamepad" });
     tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
   }
 
   function cancelarCapturaTecla() {
     keyBindDialogOpenRef.current = false;
     keyBindCaptureRef.current = null;
+    gamepadCaptureRef.current = null;
     setKeyBindPrompt(null);
     tocarSom(CONFIG.sounds.menuBack, 0.24, "menu");
   }
@@ -2842,23 +3050,28 @@ export default function JogoPage() {
     const settingKey = keyBindPrompt.settingKey;
     const candidate = keyBindPrompt.candidate;
     const oldKey = String(CONFIG.settings[settingKey]);
-    const bindKeys: GameSettingKey[] = [
+    const keyboardBindKeys: GameSettingKey[] = [
       "pcShootKey",
       "pcStrongKey",
       "pcBoostKey",
       "pcDodgeKey",
     ];
+    const gamepadBindKeys = [...GAMEPAD_ACTION_KEYS] as GameSettingKey[];
+    const isGamepadBind = gamepadBindKeys.includes(settingKey);
+    const bindKeys = isGamepadBind ? gamepadBindKeys : keyboardBindKeys;
+    const normalizer = isGamepadBind
+      ? normalizarBotaoControle
+      : normalizarTeclaConfig;
     const duplicate = bindKeys.find(
       (key) =>
         key !== settingKey &&
-        normalizarTeclaConfig(CONFIG.settings[key]) ===
-          normalizarTeclaConfig(candidate),
+        normalizer(CONFIG.settings[key]) === normalizer(candidate),
     );
 
     if (duplicate) {
       atualizarConfiguracao(duplicate, oldKey);
     }
-    atualizarConfiguracao(settingKey, candidate);
+    atualizarConfiguracao(settingKey, normalizer(candidate));
     keyBindDialogOpenRef.current = false;
     keyBindCaptureRef.current = null;
     setKeyBindPrompt(null);
@@ -2881,6 +3094,16 @@ export default function JogoPage() {
     return key.toUpperCase();
   }
 
+  function normalizarBotaoControle(valor: unknown) {
+    return normalizarBotoesControle(valor)[0] || "0";
+  }
+
+  function labelBotaoControle(valor: unknown) {
+    return normalizarBotoesControle(valor)
+      .map((key) => GAMEPAD_BUTTON_LABELS[key] || `Botão ${key}`)
+      .join(" ou ");
+  }
+
   function teclaControlePressionada(
     action: "shot" | "strong" | "boost" | "dodge",
   ) {
@@ -2896,6 +3119,53 @@ export default function JogoPage() {
       (CONFIG.settings as Record<string, unknown>)[settingKey],
     );
     return Boolean(keysRef.current[key]);
+  }
+
+  function gamepadSettingKey(
+    action: "shot" | "strong" | "boost" | "dodge",
+  ): GameSettingKey {
+    return action === "shot"
+      ? "gamepadShootButton"
+      : action === "strong"
+        ? "gamepadStrongButton"
+        : action === "boost"
+          ? "gamepadBoostButton"
+          : "gamepadDodgeButton";
+  }
+
+  function botaoControleSegurando(settingKey: GameSettingKey) {
+    if (!CONFIG.settings.gamepadEnabled) return false;
+    return normalizarBotoesControle(CONFIG.settings[settingKey]).some(
+      (button) => Boolean(gamepadButtonsRef.current[button]),
+    );
+  }
+
+  function botaoControleAcionado(settingKey: GameSettingKey) {
+    if (!CONFIG.settings.gamepadEnabled) return false;
+    return normalizarBotoesControle(CONFIG.settings[settingKey]).some(
+      (button) => Boolean(gamepadButtonsPressedRef.current[button]),
+    );
+  }
+
+  function botaoFisicoControleAcionado(...buttons: string[]) {
+    if (!CONFIG.settings.gamepadEnabled) return false;
+    return buttons.some((button) => Boolean(gamepadButtonsPressedRef.current[button]));
+  }
+
+  function controleAcaoSegurando(
+    action: "shot" | "strong" | "boost" | "dodge",
+  ) {
+    return (
+      teclaControlePressionada(action) ||
+      botaoControleSegurando(gamepadSettingKey(action))
+    );
+  }
+
+  function controleAcaoAcionada(action: "shot" | "strong" | "boost" | "dodge") {
+    return (
+      teclaControlePressionada(action) ||
+      botaoControleAcionado(gamepadSettingKey(action))
+    );
   }
 
   function labelControlePc(
@@ -2920,11 +3190,346 @@ export default function JogoPage() {
     return labelTecla((CONFIG.settings as Record<string, unknown>)[settingKey]);
   }
 
+  function labelControleGamepad(
+    action: "move" | "shot" | "strong" | "boost" | "dodge",
+  ) {
+    if (action === "move") {
+      return String(CONFIG.settings.gamepadMoveStick) === "right"
+        ? "ANALÓGICO DIREITO ou D-PAD"
+        : "ANALÓGICO ESQUERDO ou D-PAD";
+    }
+
+    const settingKey =
+      action === "shot"
+        ? "gamepadShootButton"
+        : action === "strong"
+          ? "gamepadStrongButton"
+          : action === "boost"
+            ? "gamepadBoostButton"
+            : "gamepadDodgeButton";
+
+    return labelBotaoControle(CONFIG.settings[settingKey]);
+  }
+
+  function usandoControleNoTutorial() {
+    return (
+      CONFIG.settings.gamepadEnabled &&
+      gamepadStatusRef.current.startsWith("Controle conectado")
+    );
+  }
+
+  function atualizarStatusGamepad(next: string) {
+    if (gamepadStatusRef.current === next) return;
+    gamepadStatusRef.current = next;
+    setGamepadStatus(next);
+  }
+
+  function aplicarDeadzone(valor: number, deadzone: number) {
+    if (Math.abs(valor) < deadzone) return 0;
+    const sinal = Math.sign(valor);
+    const normalizado =
+      (Math.abs(valor) - deadzone) / Math.max(0.01, 1 - deadzone);
+    return clamp(normalizado * sinal, -1, 1);
+  }
+
+  function atualizarEstadoGamepad() {
+    if (typeof navigator === "undefined" || !navigator.getGamepads) {
+      atualizarStatusGamepad("Controle não suportado neste navegador");
+      return;
+    }
+
+    if (!CONFIG.settings.gamepadEnabled) {
+      gamepadButtonsRef.current = {};
+      gamepadButtonsPressedRef.current = {};
+      gamepadDirectionsPressedRef.current = {};
+      gamepadDirectionsHeldRef.current = {};
+      gamepadAxesRef.current = { x: 0, y: 0 };
+      lastGamepadIdRef.current = "";
+      atualizarStatusGamepad("Controle desativado");
+      return;
+    }
+
+    const pads = Array.from(navigator.getGamepads()).filter(Boolean);
+    const pad = pads.find((item): item is Gamepad => Boolean(item?.connected));
+
+    if (!pad) {
+      gamepadButtonsRef.current = {};
+      gamepadButtonsPressedRef.current = {};
+      gamepadDirectionsPressedRef.current = {};
+      gamepadDirectionsHeldRef.current = {};
+      gamepadAxesRef.current = { x: 0, y: 0 };
+      lastGamepadIdRef.current = "";
+      atualizarStatusGamepad("Controle não conectado");
+      return;
+    }
+
+    const previousButtons = gamepadButtonsRef.current;
+    const nextButtons: Record<string, boolean> = {};
+    const pressedButtons: Record<string, boolean> = {};
+
+    pad.buttons.forEach((button, index) => {
+      const pressed = button.pressed || button.value > 0.55;
+      const key = String(index);
+      nextButtons[key] = pressed;
+      pressedButtons[key] = pressed && !previousButtons[key];
+    });
+
+    const stickOffset =
+      String(CONFIG.settings.gamepadMoveStick) === "right" ? 2 : 0;
+    const deadzone = clamp(
+      Number(CONFIG.settings.gamepadDeadzone) || 0.18,
+      0.04,
+      0.5,
+    );
+    const x = aplicarDeadzone(Number(pad.axes[stickOffset] || 0), deadzone);
+    const y = aplicarDeadzone(Number(pad.axes[stickOffset + 1] || 0), deadzone);
+
+    const previousDirections = gamepadDirectionsHeldRef.current;
+    const directions = {
+      up: nextButtons["12"] || y < -0.62,
+      down: nextButtons["13"] || y > 0.62,
+      left: nextButtons["14"] || x < -0.62,
+      right: nextButtons["15"] || x > 0.62,
+    };
+
+    gamepadDirectionsHeldRef.current = directions;
+    gamepadDirectionsPressedRef.current = {
+      up: directions.up && !previousDirections.up,
+      down: directions.down && !previousDirections.down,
+      left: directions.left && !previousDirections.left,
+      right: directions.right && !previousDirections.right,
+    };
+
+    gamepadButtonsRef.current = nextButtons;
+    gamepadButtonsPressedRef.current = pressedButtons;
+    gamepadAxesRef.current = { x, y };
+    atualizarStatusGamepad(`Controle conectado: ${pad.id.slice(0, 46)}`);
+
+    const houveEntrada =
+      Object.values(pressedButtons).some(Boolean) ||
+      Object.values(gamepadDirectionsPressedRef.current).some(Boolean);
+    if (lastGamepadIdRef.current !== pad.id) {
+      lastGamepadIdRef.current = pad.id;
+      retomarAudioDoJogo();
+    } else if (houveEntrada) {
+      retomarAudioDoJogo();
+    }
+
+    if (gamepadCaptureRef.current) {
+      const candidate = Object.keys(pressedButtons).find(
+        (key) => pressedButtons[key],
+      );
+      if (candidate) {
+        const settingKey = gamepadCaptureRef.current;
+        setKeyBindPrompt((current) =>
+          current
+            ? { ...current, settingKey, candidate, kind: "gamepad" }
+            : { settingKey, label: "CONTROLE", candidate, kind: "gamepad" },
+        );
+        gamepadCaptureRef.current = null;
+        tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+      }
+    }
+  }
+
+  function direcaoGamepadAcionada(direction: "up" | "down" | "left" | "right") {
+    return Boolean(gamepadDirectionsPressedRef.current[direction]);
+  }
+
+  function direcaoGamepadSegurando(
+    direction: "up" | "down" | "left" | "right",
+  ) {
+    return Boolean(gamepadDirectionsHeldRef.current[direction]);
+  }
+
+  function consumirDirecaoMenu(direction: "up" | "down" | "left" | "right") {
+    const held = direcaoGamepadSegurando(direction);
+    const justPressed = direcaoGamepadAcionada(direction);
+    const state = menuDirectionHoldRef.current[direction];
+    const now = performance.now();
+
+    if (!held) {
+      state.active = false;
+      state.startedAt = 0;
+      state.lastRepeatAt = 0;
+      return false;
+    }
+
+    if (justPressed || !state.active) {
+      state.active = true;
+      state.startedAt = now;
+      state.lastRepeatAt = now;
+      return true;
+    }
+
+    if (now - state.startedAt >= 1000 && now - state.lastRepeatAt >= 140) {
+      state.lastRepeatAt = now;
+      return true;
+    }
+
+    return false;
+  }
+
+  function confirmarTutorialChoiceAtual() {
+    if (tutorialChoiceIndexRef.current === 0) {
+      iniciarTutorialInterativo();
+      return;
+    }
+    iniciarJogo(currentModeRef.current ?? "story");
+  }
+
+  function processarEntradaGamepadGlobal() {
+    if (!CONFIG.settings.gamepadEnabled) return;
+
+    if (keyBindDialogOpenRef.current) {
+      if (botaoControleAcionado("gamepadBackButton")) cancelarCapturaTecla();
+      if (botaoControleAcionado("gamepadConfirmButton"))
+        confirmarCapturaTecla();
+      return;
+    }
+
+    if (gameStateRef.current === "title") {
+      if (botaoControleAcionado("gamepadConfirmButton")) abrirMenuPrincipal();
+      return;
+    }
+
+    if (gameStateRef.current === "mainMenu") {
+      if (botaoControleAcionado("gamepadBackButton")) {
+        voltarParaTitulo();
+        return;
+      }
+      if (consumirDirecaoMenu("up")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
+        setIndiceMenu(
+          (menuIndexRef.current - 1 + MAIN_MENU_OPTIONS.length) %
+            MAIN_MENU_OPTIONS.length,
+        );
+        return;
+      }
+      if (consumirDirecaoMenu("down")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.32, "menu");
+        setIndiceMenu((menuIndexRef.current + 1) % MAIN_MENU_OPTIONS.length);
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        confirmarOpcaoMenuAtual();
+        return;
+      }
+    }
+
+    if (gameStateRef.current === "settings") {
+      if (botaoControleAcionado("gamepadBackButton")) {
+        voltarDasConfiguracoes();
+        return;
+      }
+      if (botaoFisicoControleAcionado("4")) {
+        selecionarSecaoConfiguracoesRelativa(-1);
+        resetarRepeticaoDirecionalMenu();
+        return;
+      }
+      if (botaoFisicoControleAcionado("5")) {
+        selecionarSecaoConfiguracoesRelativa(1);
+        resetarRepeticaoDirecionalMenu();
+        return;
+      }
+      if (consumirDirecaoMenu("up")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+        setIndiceConfiguracao(settingsIndexRef.current - 1);
+        return;
+      }
+      if (consumirDirecaoMenu("down")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+        setIndiceConfiguracao(settingsIndexRef.current + 1);
+        return;
+      }
+      if (consumirDirecaoMenu("left")) {
+        alterarConfiguracaoAtual(-1);
+        return;
+      }
+      if (consumirDirecaoMenu("right")) {
+        alterarConfiguracaoAtual(1);
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        alterarConfiguracaoAtual(1);
+        return;
+      }
+    }
+
+    if (gameStateRef.current === "extras") {
+      if (botaoControleAcionado("gamepadBackButton")) voltarDosExtras();
+      return;
+    }
+
+    if (gameStateRef.current === "tutorialChoice") {
+      if (consumirDirecaoMenu("left") || consumirDirecaoMenu("up")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndiceTutorialChoice(tutorialChoiceIndexRef.current - 1);
+        return;
+      }
+      if (consumirDirecaoMenu("right") || consumirDirecaoMenu("down")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+        setIndiceTutorialChoice(tutorialChoiceIndexRef.current + 1);
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        confirmarTutorialChoiceAtual();
+        return;
+      }
+      return;
+    }
+
+    if (gameStateRef.current === "storyCutscene") {
+      if (botaoControleAcionado("gamepadConfirmButton")) avancarHistoria();
+      return;
+    }
+
+    if (gameStateRef.current === "playing") {
+      if (botaoControleAcionado("gamepadPauseButton")) pausarOuVoltar();
+      return;
+    }
+
+    if (gameStateRef.current === "paused") {
+      if (botaoControleAcionado("gamepadPauseButton")) pausarOuVoltar();
+      if (botaoControleAcionado("gamepadBackButton")) voltarAoMenuPrincipal();
+      return;
+    }
+
+    if (gameStateRef.current === "gameOver") {
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        iniciarJogo(currentModeRef.current ?? "infinite");
+        return;
+      }
+      if (botaoControleAcionado("gamepadBackButton")) voltarAoMenuPrincipal();
+      return;
+    }
+
+    if (gameStateRef.current === "victory") {
+      if (botaoControleAcionado("gamepadConfirmButton"))
+        voltarAoMenuPrincipal();
+    }
+  }
+
   function textoTutorialDaniel(step: TutorialStep) {
     const isMobile =
       typeof window !== "undefined" &&
       window.matchMedia("(pointer: coarse)").matches;
     if (isMobile) return TUTORIAL_DANIEL_TEXT[step].mobile;
+
+    if (usandoControleNoTutorial()) {
+      if (step === "move")
+        return `Daniel na escuta. Pelo controle, mova a Space News com o ${labelControleGamepad("move")}. Quero ver estabilidade antes de liberar combate.`;
+      if (step === "shot")
+        return `Drone de treino na rota. Aperte ${labelControleGamepad("shot")} para atirar e derrube o alvo.`;
+      if (step === "strong")
+        return `Formação tripla chegando. Use ${labelControleGamepad("strong")} para soltar o tiro forte. O tiro normal fica bloqueado nesta etapa.`;
+      if (step === "boost")
+        return `Unidade pesada à frente. Use ${labelControleGamepad("boost")} para ativar o boost e atravessar com decisão.`;
+      if (step === "dodge")
+        return `Agora é esquiva pura. Aperte ${labelControleGamepad("dodge")} no tempo certo e deixe o inimigo passar.`;
+      return TUTORIAL_DANIEL_TEXT.done.pc;
+    }
+
     if (step === "move")
       return `Daniel na escuta. Controle básico primeiro: mova a Space News com ${labelControlePc("move")}. Preciso confirmar estabilidade antes de liberar combate.`;
     if (step === "shot")
@@ -2945,6 +3550,10 @@ export default function JogoPage() {
       return option.formatter(value);
     }
 
+    if (option.kind === "padbind") {
+      return labelBotaoControle(value);
+    }
+
     if (typeof value === "boolean") {
       return value ? "ON" : "OFF";
     }
@@ -2960,6 +3569,11 @@ export default function JogoPage() {
 
     if (option.kind === "keybind") {
       iniciarCapturaTecla(option.key, option.label);
+      return;
+    }
+
+    if (option.kind === "padbind") {
+      iniciarCapturaBotaoControle(option.key, option.label);
       return;
     }
 
@@ -3600,7 +4214,10 @@ export default function JogoPage() {
     }
   }
 
-  function pararLoopAudio(ref: { current: HTMLAudioElement | null }, reset = true) {
+  function pararLoopAudio(
+    ref: { current: HTMLAudioElement | null },
+    reset = true,
+  ) {
     const audio = ref.current;
     if (!audio) return;
     audio.pause();
@@ -3629,6 +4246,27 @@ export default function JogoPage() {
     ref.current.play().catch(() => {});
   }
 
+  function retomarAudioDoJogo() {
+    obterAudioContext()
+      ?.resume()
+      .catch(() => {});
+
+    const loops = [
+      ambientAudioRef,
+      gameplayMusicAudioRef,
+      bossMusicAudioRef,
+      bossHumAudioRef,
+      alarmAudioRef,
+      flamesLoopAudioRef,
+    ];
+
+    for (const ref of loops) {
+      const audio = ref.current;
+      if (!audio || !audio.src || !audio.paused) continue;
+      audio.play().catch(() => {});
+    }
+  }
+
   function tocarAmbienteEspacial() {
     tocarLoopAudio(ambientAudioRef, CONFIG.sounds.spaceAmbience, 0.16);
   }
@@ -3644,7 +4282,9 @@ export default function JogoPage() {
   function tocarHumChocado(faseDois = false) {
     tocarLoopAudio(
       bossHumAudioRef,
-      faseDois ? CONFIG.sounds.chocadoPhaseTwoLoop : CONFIG.sounds.chocadoIdleLoop,
+      faseDois
+        ? CONFIG.sounds.chocadoPhaseTwoLoop
+        : CONFIG.sounds.chocadoIdleLoop,
       faseDois ? 0.18 : 0.12,
     );
   }
@@ -4585,6 +5225,7 @@ export default function JogoPage() {
       return;
     }
 
+    setIndiceTutorialChoice(0);
     setEstado("tutorialChoice");
   }
 
@@ -6629,7 +7270,7 @@ export default function JogoPage() {
       mobileRuntimeRef.current =
         window.matchMedia("(pointer: coarse)").matches ||
         window.matchMedia("(hover: none)").matches;
-      if (settingsVersion !== "v26-audio-flames") {
+      if (settingsVersion !== "v28-gamepad-menu") {
         const coarsePointer =
           window.matchMedia("(pointer: coarse)").matches ||
           window.matchMedia("(hover: none)").matches;
@@ -6672,14 +7313,24 @@ export default function JogoPage() {
         CONFIG.settings.resumeCountdown = String(
           CONFIG.settings.resumeCountdown ?? "3",
         );
+        CONFIG.settings.gamepadEnabled = true;
+        CONFIG.settings.gamepadMoveStick = String(
+          CONFIG.settings.gamepadMoveStick || "left",
+        );
+        CONFIG.settings.gamepadDeadzone = clamp(
+          Number(CONFIG.settings.gamepadDeadzone) || 0.18,
+          0.08,
+          0.35,
+        );
+        CONFIG.settings.gamepadShootButton = "1|7";
+        CONFIG.settings.gamepadStrongButton = "2|6";
+        CONFIG.settings.gamepadBoostButton = "0|5";
+        CONFIG.settings.gamepadDodgeButton = "3|4";
         window.localStorage.setItem(
           "spaceNews.settings",
           JSON.stringify(CONFIG.settings),
         );
-        window.localStorage.setItem(
-          "spaceNews.settingsVersion",
-          "v26-audio-flames",
-        );
+        window.localStorage.setItem("spaceNews.settingsVersion", "v28-gamepad-menu");
       }
       setSettingsSnapshot({ ...CONFIG.settings });
 
@@ -8012,7 +8663,11 @@ export default function JogoPage() {
         }
       }
 
-      tocarSom(CONFIG.sounds.chocadoLaserCharge || CONFIG.sounds.chocadoLaser, 0.38, "sfx");
+      tocarSom(
+        CONFIG.sounds.chocadoLaserCharge || CONFIG.sounds.chocadoLaser,
+        0.38,
+        "sfx",
+      );
     }
 
     function spawnBossCannonBurst() {
@@ -8320,7 +8975,9 @@ export default function JogoPage() {
         }
       }
       tocarSom(
-        CONFIG.sounds.chocadoCorePulse || CONFIG.sounds.chocadoOrbFan || CONFIG.sounds.chocadoOrb,
+        CONFIG.sounds.chocadoCorePulse ||
+          CONFIG.sounds.chocadoOrbFan ||
+          CONFIG.sounds.chocadoOrb,
         0.37,
         "sfx",
       );
@@ -8359,7 +9016,9 @@ export default function JogoPage() {
         });
       }
       tocarSom(
-        CONFIG.sounds.chocadoMineDeploy || CONFIG.sounds.chocadoBarrier || CONFIG.sounds.chocadoOrb,
+        CONFIG.sounds.chocadoMineDeploy ||
+          CONFIG.sounds.chocadoBarrier ||
+          CONFIG.sounds.chocadoOrb,
         0.36,
         "sfx",
       );
@@ -8409,7 +9068,11 @@ export default function JogoPage() {
           });
         });
       });
-      tocarSom(CONFIG.sounds.chocadoCrossBurst || CONFIG.sounds.chocadoCannon, 0.36, "sfx");
+      tocarSom(
+        CONFIG.sounds.chocadoCrossBurst || CONFIG.sounds.chocadoCannon,
+        0.36,
+        "sfx",
+      );
     }
 
     function spawnBossEnragedCombo() {
@@ -10492,13 +11155,22 @@ export default function JogoPage() {
           ? 1
           : 0);
 
-      let inputX = clamp(keyboardX + mobileMoveRef.current.x, -1, 1);
-      let inputY = clamp(keyboardY + mobileMoveRef.current.y, -1, 1);
+      const gamepadMove = gamepadAxesRef.current;
+      let inputX = clamp(
+        keyboardX + mobileMoveRef.current.x + gamepadMove.x,
+        -1,
+        1,
+      );
+      let inputY = clamp(
+        keyboardY + mobileMoveRef.current.y + gamepadMove.y,
+        -1,
+        1,
+      );
 
       const nowForHold = performance.now();
 
       if (
-        teclaControlePressionada("boost") &&
+        controleAcaoSegurando("boost") &&
         (!isTutorialMode || tutorialStepRef.current === "boost")
       ) {
         iniciarMiraBoost();
@@ -10531,14 +11203,14 @@ export default function JogoPage() {
       }
 
       if (
-        teclaControlePressionada("strong") &&
+        controleAcaoSegurando("strong") &&
         (!isTutorialMode || tutorialStepRef.current === "strong")
       ) {
         shootStrong(1, 0);
       }
 
       if (
-        teclaControlePressionada("dodge") &&
+        controleAcaoAcionada("dodge") &&
         (!isTutorialMode || tutorialStepRef.current === "dodge")
       ) {
         keysRef.current[
@@ -10612,7 +11284,7 @@ export default function JogoPage() {
       player.y += player.vy * speedFactor;
 
       if (
-        (teclaControlePressionada("shot") || mobileShootRef.current) &&
+        (controleAcaoSegurando("shot") || mobileShootRef.current) &&
         (!isTutorialMode || tutorialStepRef.current === "shot")
       ) {
         shootNormal();
@@ -10965,6 +11637,9 @@ export default function JogoPage() {
       const elapsedSinceRender = Math.min(250, Math.max(0, time - lastTime));
       lastTime = time;
 
+      atualizarEstadoGamepad();
+      processarEntradaGamepadGlobal();
+
       const fpsCounter = fpsCounterRef.current;
       fpsCounter.frames += 1;
       if (time - fpsCounter.lastAt >= 650) {
@@ -11071,8 +11746,8 @@ export default function JogoPage() {
         const settingKey = keyBindCaptureRef.current;
         setKeyBindPrompt((current) =>
           current
-            ? { ...current, settingKey, candidate }
-            : { settingKey, label: "CONTROLE", candidate },
+            ? { ...current, settingKey, candidate, kind: "keyboard" }
+            : { settingKey, label: "CONTROLE", candidate, kind: "keyboard" },
         );
         keyBindCaptureRef.current = null;
         tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
@@ -11175,6 +11850,25 @@ export default function JogoPage() {
 
         if (key === "enter" || key === " ") {
           alterarConfiguracaoAtual(1);
+          return;
+        }
+      }
+
+      if (gameStateRef.current === "tutorialChoice") {
+        if (["arrowleft", "a", "arrowup", "w"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndiceTutorialChoice(tutorialChoiceIndexRef.current - 1);
+          return;
+        }
+
+        if (["arrowright", "d", "arrowdown", "s"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.3, "menu");
+          setIndiceTutorialChoice(tutorialChoiceIndexRef.current + 1);
+          return;
+        }
+
+        if (key === "enter" || key === " ") {
+          confirmarTutorialChoiceAtual();
           return;
         }
       }
@@ -11577,7 +12271,8 @@ export default function JogoPage() {
               <span
                 style={{
                   width: `${Math.round(
-                    (assetLoadState.loaded / Math.max(1, assetLoadState.total)) *
+                    (assetLoadState.loaded /
+                      Math.max(1, assetLoadState.total)) *
                       100,
                   )}%`,
                 }}
@@ -11587,7 +12282,8 @@ export default function JogoPage() {
               {Math.round(
                 (assetLoadState.loaded / Math.max(1, assetLoadState.total)) *
                   100,
-              )}%
+              )}
+              %
             </strong>
             <small>
               Carregando imagens essenciais. Depois disso, a partida pode
@@ -12169,6 +12865,19 @@ export default function JogoPage() {
               ))}
             </nav>
 
+            {settingsSection === "CONTROLES" && (
+              <div className="sn-gamepad-status" role="status">
+                <span>🎮</span>
+                <div>
+                  <strong>{gamepadStatus}</strong>
+                  <p>
+                    Use o analógico ou D-Pad para navegar. Selecione uma ação de
+                    controle para capturar o próximo botão pressionado.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="game-settings-list">
               {[settingsSection].map((section) => {
                 const sectionOptions = SETTINGS_OPTIONS.map(
@@ -12213,6 +12922,11 @@ export default function JogoPage() {
                                 setIndiceConfiguracao(index);
                                 if (option.kind === "keybind")
                                   iniciarCapturaTecla(option.key, option.label);
+                                else if (option.kind === "padbind")
+                                  iniciarCapturaBotaoControle(
+                                    option.key,
+                                    option.label,
+                                  );
                                 else if (option.kind === "toggle")
                                   alterarConfiguracaoAtual(1);
                               }}
@@ -12221,7 +12935,8 @@ export default function JogoPage() {
                                 {option.label}
                               </span>
                               {(option.kind === "toggle" ||
-                                option.kind === "keybind") && (
+                                option.kind === "keybind" ||
+                                option.kind === "padbind") && (
                                 <span className="game-setting-control">
                                   {option.kind === "toggle" ? (
                                     <strong
@@ -12302,10 +13017,17 @@ export default function JogoPage() {
             <span>CONFIGURAR CONTROLE</span>
             {keyBindPrompt.candidate ? (
               <>
-                <h2>{labelTecla(keyBindPrompt.candidate)}</h2>
+                <h2>
+                  {keyBindPrompt.kind === "gamepad"
+                    ? labelBotaoControle(keyBindPrompt.candidate)
+                    : labelTecla(keyBindPrompt.candidate)}
+                </h2>
                 <p>
-                  Deseja atribuir esta tecla para{" "}
-                  <strong>{keyBindPrompt.label}</strong>?
+                  Deseja atribuir{" "}
+                  {keyBindPrompt.kind === "gamepad"
+                    ? "este botão"
+                    : "esta tecla"}{" "}
+                  para <strong>{keyBindPrompt.label}</strong>?
                 </p>
                 <div>
                   <button type="button" onClick={confirmarCapturaTecla}>
@@ -12318,10 +13040,15 @@ export default function JogoPage() {
               </>
             ) : (
               <>
-                <h2>PRESSIONE UMA TECLA</h2>
+                <h2>
+                  {keyBindPrompt.kind === "gamepad"
+                    ? "PRESSIONE UM BOTÃO"
+                    : "PRESSIONE UMA TECLA"}
+                </h2>
                 <p>
-                  ESC cancela. Qualquer outra tecla será mostrada antes de
-                  confirmar.
+                  {keyBindPrompt.kind === "gamepad"
+                    ? "Pressione qualquer botão do controle. B/Voltar cancela."
+                    : "ESC cancela. Qualquer outra tecla será mostrada antes de confirmar."}
                 </p>
                 <button type="button" onClick={cancelarCapturaTecla}>
                   CANCELAR
@@ -12504,11 +13231,20 @@ export default function JogoPage() {
             </div>
 
             <div className="game-tutorial-choice-buttons">
-              <button type="button" onClick={iniciarTutorialInterativo}>
+              <button
+                type="button"
+                className={tutorialChoiceIndex === 0 ? "is-selected" : ""}
+                onMouseEnter={() => setIndiceTutorialChoice(0)}
+                onFocus={() => setIndiceTutorialChoice(0)}
+                onClick={iniciarTutorialInterativo}
+              >
                 FAZER TUTORIAL
               </button>
               <button
                 type="button"
+                className={tutorialChoiceIndex === 1 ? "is-selected" : ""}
+                onMouseEnter={() => setIndiceTutorialChoice(1)}
+                onFocus={() => setIndiceTutorialChoice(1)}
                 onClick={() => iniciarJogo(currentModeRef.current ?? "story")}
               >
                 PULAR E COMEÇAR
@@ -12736,7 +13472,8 @@ export default function JogoPage() {
             </div>
             {leaderboard.length === 0 ? (
               <p className="sn-ranking-empty">
-                O ranking está vazio. Seja o primeiro piloto a registrar um recorde.
+                O ranking está vazio. Seja o primeiro piloto a registrar um
+                recorde.
               </p>
             ) : (
               <ol>

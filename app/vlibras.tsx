@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import Script from "next/script";
 
 const loaderCode = String.raw`
@@ -9,6 +13,14 @@ const loaderCode = String.raw`
 
   const wait = (ms) =>
     new Promise((resolve) => window.setTimeout(resolve, ms));
+
+  function isGameRoute() {
+    return (
+      window.location.pathname.startsWith("/jogo") ||
+      document.body.classList.contains("game-page-active") ||
+      document.documentElement.classList.contains("xo-vlibras-route-hidden")
+    );
+  }
 
   function getElements() {
     const root = document.getElementById(ROOT_ID);
@@ -22,13 +34,31 @@ const loaderCode = String.raw`
     return { root, button, wrapper };
   }
 
+  function applyRouteVisibility() {
+    const { root } = getElements();
+    if (!(root instanceof HTMLElement)) return false;
+
+    const hidden = isGameRoute();
+    root.dataset.routeHidden = hidden ? "true" : "false";
+
+    if (hidden) {
+      root.style.setProperty("display", "none", "important");
+    } else {
+      root.style.removeProperty("display");
+    }
+
+    return hidden;
+  }
+
   function restoreVisibility() {
+    const hidden = applyRouteVisibility();
+    if (hidden) return;
+
     const { root, button, wrapper } = getElements();
 
     [root, button, wrapper].forEach((element) => {
       if (!(element instanceof HTMLElement)) return;
 
-      element.style.removeProperty("display");
       element.style.removeProperty("visibility");
       element.style.removeProperty("opacity");
       element.style.removeProperty("pointer-events");
@@ -42,8 +72,10 @@ const loaderCode = String.raw`
     if (button instanceof HTMLElement) {
       button.style.setProperty("pointer-events", "auto", "important");
       button.style.setProperty("touch-action", "manipulation", "important");
+      button.style.setProperty("-webkit-tap-highlight-color", "transparent");
       button.setAttribute("aria-label", "Abrir tradutor VLibras");
       button.setAttribute("title", "Abrir VLibras");
+      if (!button.getAttribute("tabindex")) button.setAttribute("tabindex", "0");
     }
 
     if (wrapper instanceof HTMLElement) {
@@ -64,7 +96,7 @@ const loaderCode = String.raw`
         document.querySelector('script[src*="vlibras-plugin.js"]');
 
       const finishWhenAvailable = async () => {
-        for (let attempt = 0; attempt < 50; attempt += 1) {
+        for (let attempt = 0; attempt < 60; attempt += 1) {
           if (window.VLibras?.Widget) {
             resolve();
             return;
@@ -73,9 +105,7 @@ const loaderCode = String.raw`
           await wait(200);
         }
 
-        reject(
-          new Error("A API oficial do VLibras não ficou disponível."),
-        );
+        reject(new Error("A API oficial do VLibras não ficou disponível."));
       };
 
       if (script) {
@@ -84,13 +114,9 @@ const loaderCode = String.raw`
           return;
         }
 
-        script.addEventListener(
-          "load",
-          () => {
-            void finishWhenAvailable();
-          },
-          { once: true },
-        );
+        script.addEventListener("load", () => void finishWhenAvailable(), {
+          once: true,
+        });
 
         script.addEventListener(
           "error",
@@ -111,14 +137,11 @@ const loaderCode = String.raw`
       script.src = SCRIPT_URL;
       script.async = true;
       script.defer = true;
+      script.crossOrigin = "anonymous";
 
-      script.addEventListener(
-        "load",
-        () => {
-          void finishWhenAvailable();
-        },
-        { once: true },
-      );
+      script.addEventListener("load", () => void finishWhenAvailable(), {
+        once: true,
+      });
 
       script.addEventListener(
         "error",
@@ -141,16 +164,22 @@ const loaderCode = String.raw`
 
   async function initialize() {
     restoreVisibility();
+    if (isGameRoute()) return null;
 
     await loadOfficialScript();
 
-    if (!window.__xoVlibrasWidgetInstance) {
-      window.__xoVlibrasWidgetInstance =
-        new window.VLibras.Widget(BASE_URL);
+    if (isGameRoute()) {
+      applyRouteVisibility();
+      return null;
     }
 
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (!window.__xoVlibrasWidgetInstance) {
+      window.__xoVlibrasWidgetInstance = new window.VLibras.Widget(BASE_URL);
+    }
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
       restoreVisibility();
+      if (isGameRoute()) return null;
 
       const { button } = getElements();
 
@@ -165,7 +194,12 @@ const loaderCode = String.raw`
   }
 
   async function initializeWithRetry() {
-    const delays = [0, 400, 1200, 3000, 6000];
+    if (isGameRoute()) {
+      applyRouteVisibility();
+      return null;
+    }
+
+    const delays = [0, 350, 900, 1800, 3600];
     let lastError = null;
 
     for (const delay of delays) {
@@ -184,11 +218,15 @@ const loaderCode = String.raw`
 
   window.abrirVLibras = async () => {
     try {
+      document.documentElement.classList.remove("xo-vlibras-route-hidden");
+      document.body.classList.remove("xo-vlibras-route-hidden");
       const button = await initializeWithRetry();
       restoreVisibility();
 
-      button.focus({ preventScroll: true });
-      button.click();
+      if (button instanceof HTMLElement) {
+        button.focus({ preventScroll: true });
+        button.click();
+      }
     } catch (error) {
       console.error("[VLibras] falha ao abrir:", error);
       window.alert(
@@ -198,6 +236,9 @@ const loaderCode = String.raw`
   };
 
   const start = () => {
+    applyRouteVisibility();
+    if (isGameRoute()) return;
+
     void initializeWithRetry().catch((error) => {
       console.error("[VLibras] falha na inicialização:", error);
     });
@@ -211,6 +252,10 @@ const loaderCode = String.raw`
 
   window.addEventListener("online", start);
   window.addEventListener("pageshow", start);
+  window.addEventListener("resize", () => void start());
+  window.addEventListener("orientationchange", () => window.setTimeout(start, 250));
+  window.addEventListener("xo:vlibras-route-show", start);
+  window.addEventListener("xo:vlibras-route-hide", applyRouteVisibility);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") start();
   });
@@ -218,9 +263,33 @@ const loaderCode = String.raw`
 `;
 
 export default function VLibras() {
+  const pathname = usePathname();
+  const isGameRoute = pathname?.startsWith("/jogo") ?? false;
+
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      "xo-vlibras-route-hidden",
+      isGameRoute,
+    );
+    document.body.classList.toggle("xo-vlibras-route-hidden", isGameRoute);
+    window.dispatchEvent(
+      new Event(isGameRoute ? "xo:vlibras-route-hide" : "xo:vlibras-route-show"),
+    );
+
+    return () => {
+      document.documentElement.classList.remove("xo-vlibras-route-hidden");
+      document.body.classList.remove("xo-vlibras-route-hidden");
+    };
+  }, [isGameRoute]);
+
   return (
     <>
-      <div id="xo-vlibras-root" {...{ vw: "true" }} className="enabled">
+      <div
+        id="xo-vlibras-root"
+        data-route-hidden={isGameRoute ? "true" : "false"}
+        {...{ vw: "true" }}
+        className="enabled"
+      >
         <div {...{ "vw-access-button": "true" }} className="active" />
         <div {...{ "vw-plugin-wrapper": "true" }}>
           <div className="vw-plugin-top-wrapper" />
