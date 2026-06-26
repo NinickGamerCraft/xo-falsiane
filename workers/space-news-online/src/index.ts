@@ -138,7 +138,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "0.6.0" });
+      return json({ ok: true, service: "Space News Online", version: "0.7.0" });
     }
 
     if (url.pathname === "/create") {
@@ -176,6 +176,7 @@ export class GameRoom extends DurableObject<Env> {
   private pauseRequestedBy: number | null = null;
   private pauseReadySlots = new Set<number>();
   private gameActive = false;
+  private hostSlot = 1;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -184,6 +185,12 @@ export class GameRoom extends DurableObject<Env> {
       const session = ws.deserializeAttachment() as PlayerSession | undefined;
       if (session) this.sessions.set(ws, session);
     }
+  }
+
+  private ensureHost() {
+    const slots = [...this.sessions.values()].map((s) => s.slot).filter((slot) => slot > 0).sort((a, b) => a - b);
+    if (!slots.includes(this.hostSlot)) this.hostSlot = slots[0] || 1;
+    return this.hostSlot;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -276,8 +283,9 @@ export class GameRoom extends DurableObject<Env> {
       session.modeVote = session.modeVote || "localPvp";
       ws.serializeAttachment(session);
       this.sessions.set(ws, session);
+      this.ensureHost();
 
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session) }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, hostSlot: this.hostSlot, player: this.publicPlayer(session) }));
       this.broadcastState();
       return;
     }
@@ -313,7 +321,8 @@ export class GameRoom extends DurableObject<Env> {
       this.pauseRequestedBy = null;
       this.pauseReadySlots.clear();
       this.gameActive = true;
-      this.broadcast({ type: "game_start", room: this.roomCode, mode, hostSlot: 1, t: Date.now() });
+      const hostSlot = this.ensureHost();
+      this.broadcast({ type: "game_start", room: this.roomCode, mode, hostSlot, t: Date.now() });
       return;
     }
 
@@ -343,8 +352,8 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     if (msg.type === "sync") {
-      // Modelo v5: P1/host é a fonte da verdade. Os outros clientes renderizam esse snapshot.
-      if (session.slot !== 1 || !this.gameActive) return;
+      // Modelo v7: host atual é a fonte da verdade. Se o host sair no lobby, o próximo player vira host.
+      if (session.slot !== this.ensureHost() || !this.gameActive) return;
       this.broadcast({
         type: "sync",
         from: session.slot,
@@ -388,7 +397,7 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     if (msg.type === "lobby_return_request") {
-      if (session.slot !== 1 && this.gameActive) {
+      if (session.slot !== this.ensureHost() && this.gameActive) {
         ws.send(JSON.stringify({ type: "error", error: "Só o host pode voltar todos ao lobby por enquanto." }));
         return;
       }
@@ -415,6 +424,9 @@ export class GameRoom extends DurableObject<Env> {
       this.pauseRequestedBy = null;
       this.pauseReadySlots.clear();
       this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+    } else {
+      const nextHost = this.ensureHost();
+      this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, t: Date.now() });
     }
     this.broadcastState();
     if (this.pauseRequestedBy) this.broadcastPauseState();
@@ -426,6 +438,9 @@ export class GameRoom extends DurableObject<Env> {
     if (this.gameActive && session?.slot) {
       this.gameActive = false;
       this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+    } else {
+      const nextHost = this.ensureHost();
+      this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, t: Date.now() });
     }
     this.broadcastState();
   }
@@ -438,6 +453,7 @@ export class GameRoom extends DurableObject<Env> {
       ready: session.ready,
       device: session.device,
       connected: true,
+      host: session.slot === this.ensureHost(),
     };
   }
 
@@ -463,6 +479,9 @@ export class GameRoom extends DurableObject<Env> {
       if (session.slot > 0) counts.set(session.modeVote || "localPvp", (counts.get(session.modeVote || "localPvp") || 0) + 1);
     }
     const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const top = ranked[0]?.[1] ?? 0;
+    const tied = ranked.filter(([, count]) => count === top && count > 0).map(([mode]) => mode);
+    if (tied.length > 1) return tied[Math.floor(Date.now() / 1200) % tied.length];
     return ranked[0]?.[0] || "localPvp";
   }
 
@@ -475,6 +494,7 @@ export class GameRoom extends DurableObject<Env> {
       players,
       modeVotes: this.modeVotes(),
       selectedMode,
+      hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
       t: Date.now(),
     });

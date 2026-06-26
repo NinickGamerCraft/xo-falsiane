@@ -1,13 +1,12 @@
-# Space News Online Worker v6
+# Space News Online Worker v7
 
 Atualizações:
-- Versão 0.6.0.
-- Mantém sync via host para reduzir desync.
-- Adiciona base de retorno ao lobby pelo host (`lobby_return_request` -> `lobby_return`).
-- Mantém `/create`, `/check` e WebSocket por sala.
+- Versão 0.7.0.
+- Host transfer no lobby: se o host sair, o próximo player vira host.
+- Sync usa o host atual, não fixo no P1.
+- Mantém pausa por votação e retorno ao lobby pelo host.
 
-## Deploy
-
+Deploy:
 ```bash
 cd workers/space-news-online
 npm install
