@@ -138,7 +138,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "0.8.0" });
+      return json({ ok: true, service: "Space News Online", version: "0.9.0" });
     }
 
     if (url.pathname === "/create") {
@@ -360,6 +360,7 @@ export class GameRoom extends DurableObject<Env> {
         snapshot: msg.snapshot ?? null,
         serverNow: Date.now(),
         t: Date.now(),
+        priority: "host-frame",
       }, ws);
       return;
     }
