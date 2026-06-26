@@ -1405,7 +1405,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "1.2.3";
+const SPACE_NEWS_VERSION = "1.3.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -2969,6 +2969,7 @@ export default function JogoPage() {
   const player2PowerShotUntilRef = useRef(0);
   const player2HomingShotUntilRef = useRef(0);
   const player2FireRateUntilRef = useRef(0);
+  const player2FlamesUntilRef = useRef(0);
   const player2ShieldUntilRef = useRef(0);
   const playerAnimRef = useRef(
     new AnimatedSprite(
@@ -3389,6 +3390,11 @@ export default function JogoPage() {
     setPlayer2StrongReadyRatio(1);
     setPlayer2BoostReadyRatio(1);
     player2BoostReadyAtRef.current = 0;
+    player2FireRateUntilRef.current = 0;
+    player2PowerShotUntilRef.current = 0;
+    player2HomingShotUntilRef.current = 0;
+    player2FlamesUntilRef.current = 0;
+    player2ShieldUntilRef.current = 0;
     if (isLocalPvpMode()) {
       for (const power of powerUpsRef.current) pararLoopPowerUpTrail(power.id);
       powerUpsRef.current = [];
@@ -3638,8 +3644,8 @@ export default function JogoPage() {
     const now = performance.now();
     const input = inputOnlineLocalAtual();
     const payload = JSON.stringify(input);
-    if (!force && payload === onlineLastInputPayloadRef.current && now - onlineLastInputSentAtRef.current < 42) return;
-    if (!force && now - onlineLastInputSentAtRef.current < 14) return;
+    if (!force && payload === onlineLastInputPayloadRef.current && now - onlineLastInputSentAtRef.current < 60) return;
+    if (!force && now - onlineLastInputSentAtRef.current < 12) return;
     onlineLastInputPayloadRef.current = payload;
     onlineLastInputSentAtRef.current = now;
     enviarOnline({ type: "input", seq: ++onlineInputSeqRef.current, input });
@@ -3679,7 +3685,7 @@ export default function JogoPage() {
       fireRateMs: Math.max(0, player2FireRateUntilRef.current - now),
       powerShotMs: Math.max(0, player2PowerShotUntilRef.current - now),
       homingShotMs: Math.max(0, player2HomingShotUntilRef.current - now),
-      flamesMs: 0,
+      flamesMs: Math.max(0, player2FlamesUntilRef.current - now),
     };
   }
 
@@ -3699,6 +3705,7 @@ export default function JogoPage() {
     player2FireRateUntilRef.current = now + Math.max(0, effects.fireRateMs ?? 0);
     player2PowerShotUntilRef.current = now + Math.max(0, effects.powerShotMs ?? 0);
     player2HomingShotUntilRef.current = now + Math.max(0, effects.homingShotMs ?? 0);
+    player2FlamesUntilRef.current = now + Math.max(0, effects.flamesMs ?? 0);
   }
 
   function aplicarPredicaoOnlineLocal(delta: number, canvas: HTMLCanvasElement) {
@@ -3715,8 +3722,8 @@ export default function JogoPage() {
     const maxSpeedX = CONFIG.gameplay.player.maxSpeedX;
     const maxSpeedY = CONFIG.gameplay.player.maxSpeedY;
     const acceleration = CONFIG.gameplay.player.acceleration;
-    target.vx = clamp((target.vx || 0) + ax * acceleration * speedFactor * 0.72, -maxSpeedX, maxSpeedX);
-    target.vy = clamp((target.vy || 0) + ay * acceleration * speedFactor * 0.72, -maxSpeedY, maxSpeedY);
+    target.vx = clamp((target.vx || 0) + ax * acceleration * speedFactor * 1.05, -maxSpeedX, maxSpeedX);
+    target.vy = clamp((target.vy || 0) + ay * acceleration * speedFactor * 1.05, -maxSpeedY, maxSpeedY);
     target.x = clamp(target.x + target.vx * speedFactor, 0, CONFIG.canvasWidth - target.w);
     target.y = clamp(target.y + target.vy * speedFactor, 0, CONFIG.canvasHeight - target.h);
     target.tilt = clamp((target.tilt || 0) + ax * 0.9, -12, 12);
@@ -3755,11 +3762,11 @@ export default function JogoPage() {
       localP2Score: localP2ScoreRef.current,
       localPvpRound: localPvpRoundRef.current,
       wave: { ...waveStateRef.current },
-      shots: shotsRef.current.slice(-48),
-      enemies: enemiesRef.current.slice(-56),
-      enemyProjectiles: enemyProjectilesRef.current.slice(-72),
-      bossProjectiles: bossProjectilesRef.current.slice(-48),
-      powerUps: powerUpsRef.current.slice(-10),
+      shots: shotsRef.current.slice(-28),
+      enemies: enemiesRef.current.slice(-36),
+      enemyProjectiles: enemyProjectilesRef.current.slice(-42),
+      bossProjectiles: bossProjectilesRef.current.slice(-28),
+      powerUps: powerUpsRef.current.slice(-8),
       boss: { ...bossRef.current },
       p1ShieldActive: shieldActiveRef.current,
       p2ShieldActive: Boolean(player2Ref.current && now < player2ShieldUntilRef.current),
@@ -3770,6 +3777,55 @@ export default function JogoPage() {
       p1BoostActive: now < playerRef.current.boostUntil,
       p2BoostActive: Boolean(player2Ref.current && now < player2Ref.current.boostUntil),
     };
+  }
+
+
+  function aplicarPlayerSnapshotSuave(
+    target: Player,
+    incoming: Partial<Player> | null | undefined,
+    controlledLocally = false,
+  ) {
+    if (!incoming) return;
+    const nextX = typeof incoming.x === "number" ? incoming.x : target.x;
+    const nextY = typeof incoming.y === "number" ? incoming.y : target.y;
+    const dx = nextX - target.x;
+    const dy = nextY - target.y;
+    const dist = Math.hypot(dx, dy);
+    const hardSnap = controlledLocally ? 220 : 160;
+    const blend = controlledLocally ? (dist < 42 ? 0.035 : 0.11) : (dist < 18 ? 0.2 : 0.42);
+
+    const keepUntil = {
+      dodgeUntil: target.dodgeUntil,
+      boostUntil: target.boostUntil,
+      stretchUntil: target.stretchUntil,
+    };
+
+    Object.assign(target, incoming);
+
+    if (dist > hardSnap) {
+      target.x = nextX;
+      target.y = nextY;
+    } else {
+      target.x = target.x - dx + dx * blend;
+      target.y = target.y - dy + dy * blend;
+    }
+
+    // Não deixa snapshot atrasado congelar sprites de dodge/boost no cliente.
+    const now = performance.now();
+    if (typeof incoming.dodgeUntil !== "number" || incoming.dodgeUntil < now - 80) {
+      target.dodgeUntil = keepUntil.dodgeUntil > now ? keepUntil.dodgeUntil : 0;
+    }
+    if (typeof incoming.boostUntil !== "number" || incoming.boostUntil < now - 80) {
+      target.boostUntil = keepUntil.boostUntil > now ? keepUntil.boostUntil : 0;
+    }
+    if (typeof incoming.stretchUntil !== "number" || incoming.stretchUntil < now - 80) {
+      target.stretchUntil = keepUntil.stretchUntil > now ? keepUntil.stretchUntil : target.stretchUntil;
+    }
+
+    target.vx = typeof incoming.vx === "number" ? target.vx * 0.35 + incoming.vx * 0.65 : target.vx;
+    target.vy = typeof incoming.vy === "number" ? target.vy * 0.35 + incoming.vy * 0.65 : target.vy;
+    target.x = clamp(target.x, 0, CONFIG.canvasWidth - target.w);
+    target.y = clamp(target.y, 0, CONFIG.canvasHeight - target.h);
   }
 
   function aplicarSnapshotOnline(snapshot: OnlineGameplaySnapshot) {
@@ -3799,10 +3855,10 @@ export default function JogoPage() {
     if (projectedPvp) {
       const localPlayer = espelharPlayerOnline(snapshot.p2 || null);
       const rivalPlayer = espelharPlayerOnline(snapshot.p1 || null);
-      if (localPlayer) Object.assign(playerRef.current, localPlayer);
+      if (localPlayer) aplicarPlayerSnapshotSuave(playerRef.current, localPlayer, true);
       if (rivalPlayer) {
         if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
-        Object.assign(player2Ref.current, rivalPlayer);
+        aplicarPlayerSnapshotSuave(player2Ref.current, rivalPlayer, false);
       }
       if (typeof snapshot.p2Hp === "number") { playerRef.current.hp = snapshot.p2Hp; setPlayerHp(snapshot.p2Hp); }
       if (typeof snapshot.p1Hp === "number") { if (player2Ref.current) player2Ref.current.hp = snapshot.p1Hp; setPlayer2Hp(snapshot.p1Hp); }
@@ -3817,10 +3873,10 @@ export default function JogoPage() {
       if (snapshot.p1DodgeActive && player2Ref.current) player2Ref.current.dodgeUntil = localNow + 120;
       else if (player2Ref.current && player2Ref.current.dodgeUntil > localNow + 180) player2Ref.current.dodgeUntil = 0;
     } else {
-      if (snapshot.p1) Object.assign(playerRef.current, snapshot.p1);
+      if (snapshot.p1) aplicarPlayerSnapshotSuave(playerRef.current, snapshot.p1, onlineSlotRef.current === 1);
       if (snapshot.p2) {
         if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
-        Object.assign(player2Ref.current, snapshot.p2);
+        aplicarPlayerSnapshotSuave(player2Ref.current, snapshot.p2, onlineSlotRef.current === 2);
       }
       if (typeof snapshot.p1Hp === "number") { playerRef.current.hp = snapshot.p1Hp; setPlayerHp(snapshot.p1Hp); }
       if (typeof snapshot.p2Hp === "number") { if (player2Ref.current) player2Ref.current.hp = snapshot.p2Hp; setPlayer2Hp(snapshot.p2Hp); }
@@ -3845,7 +3901,7 @@ export default function JogoPage() {
     if (Array.isArray(snapshot.enemies)) enemiesRef.current = projectedPvp ? snapshot.enemies.map((enemy) => espelharObjetoOnline(enemy)) : snapshot.enemies;
     if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = projectedPvp ? snapshot.enemyProjectiles.map((bullet) => espelharObjetoOnline(bullet)) : snapshot.enemyProjectiles;
     if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = projectedPvp ? snapshot.bossProjectiles.map((projectile) => espelharObjetoOnline(projectile)) : snapshot.bossProjectiles;
-    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = projectedPvp ? snapshot.powerUps.map((power) => espelharObjetoOnline(power)) : snapshot.powerUps;
+    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = snapshot.powerUps;
     if (snapshot.boss) {
       const bossSnapshot = projectedPvp ? espelharObjetoOnline({ ...(snapshot.boss as Partial<BossState>), x: Number(snapshot.boss.x ?? bossRef.current.x), w: Number(snapshot.boss.w ?? bossRef.current.w), vx: 0 }) : snapshot.boss;
       bossRef.current = { ...bossRef.current, ...bossSnapshot };
@@ -3913,7 +3969,8 @@ export default function JogoPage() {
     const now = performance.now();
 
     if (souHostOnline()) {
-      if (now - onlineLastSyncSentAtRef.current < 16) return;
+      // Menos snapshots gigantes = menos fila no WebSocket e menos efeito "voltar no tempo" no não-host.
+      if (now - onlineLastSyncSentAtRef.current < 45) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -4125,11 +4182,13 @@ export default function JogoPage() {
         return;
       }
 
-      if (msg.type === "host_changed") {
+      if (msg.type === "host_changed" || msg.type === "host_migrated") {
         const hostSlot = Number(msg.hostSlot || 1) || 1;
         onlineHostSlotRef.current = hostSlot;
         setOnlineHostSlot(hostSlot);
-        feedbackOnline("success", hostSlot === onlineSlotRef.current ? "Você virou o host da sala." : `P${hostSlot} virou host da sala.`);
+        const migrated = Boolean(msg.migrated || msg.type === "host_migrated");
+        feedbackOnline("success", hostSlot === onlineSlotRef.current ? (migrated ? "Host saiu. Você assumiu a sala." : "Você virou o host da sala.") : `P${hostSlot} virou host da sala.`);
+        setOnlineStatus(hostSlot === onlineSlotRef.current ? "Você é o host: seu jogo agora envia o quadro principal." : `Host atual: P${hostSlot}. Sincronizando pelo quadro dele.`);
         return;
       }
 
@@ -8970,6 +9029,9 @@ export default function JogoPage() {
     if (player2HomingShotUntilRef.current > now) {
       p2Active.push({ kind: "homingShot", label: "HOMING", icon: CONFIG.uiImages.powerHomingShot, remainingMs: player2HomingShotUntilRef.current - now });
     }
+    if (player2FlamesUntilRef.current > now) {
+      p2Active.push({ kind: "flames", label: "FLAMES", icon: CONFIG.uiImages.powerFlames, remainingMs: player2FlamesUntilRef.current - now });
+    }
 
     const signature = active
       .map(
@@ -10555,6 +10617,22 @@ export default function JogoPage() {
           if (nowPvp < player.boostUntil && rectsCollide(getPlayerHitbox(player), getPlayerHitbox(p1))) {
             aplicarFlingPlayerLocal(p1, player.boostVx || -1, player.boostVy || 0, 14);
             receberDanoPlayer1Local(isLocalPvpMode() ? danoPvpPorTipo("boost") : 1);
+          }
+        }
+
+        if (isLocalPvpMode() && p1.hp > 0 && player.hp > 0 && nowPvp < player2FlamesUntilRef.current) {
+          const flameBox = {
+            x: player.x - 92,
+            y: player.y + player.h * 0.12,
+            w: 118,
+            h: player.h * 0.76,
+          };
+          if (rectsCollide(flameBox, p1Hitbox) && nowPvp - lastFlamesHitSoundAtRef.current > 230) {
+            receberDanoPlayer1Local(Math.max(1, Math.round(danoPvpPorTipo("normal") * 0.42)));
+            aplicarFlingPlayerLocal(p1, -1, 0, 3.2);
+            criarParticulasHit(p1.x + p1.w / 2, p1.y + p1.h / 2, "#fb923c", 8);
+            tocarSom(CONFIG.sounds.flamesHit || CONFIG.sounds.playerDamage, 0.26, "hit");
+            lastFlamesHitSoundAtRef.current = nowPvp;
           }
         }
 
@@ -12500,7 +12578,8 @@ export default function JogoPage() {
         player2HomingShotUntilRef.current = now + CONFIG.gameplay.powerups.homingShotDurationMs;
         player.strongReadyAt = 0;
       } else if (kind === "flames") {
-        player2FireRateUntilRef.current = now + Math.max(4200, CONFIG.gameplay.powerups.fireRateDurationMs * 0.7);
+        player2FlamesUntilRef.current = now + Math.max(5200, CONFIG.gameplay.powerups.fireRateDurationMs * 0.78);
+        player2FireRateUntilRef.current = now + Math.max(2800, CONFIG.gameplay.powerups.fireRateDurationMs * 0.55);
         player.strongReadyAt = 0;
       } else if (kind === "randomBox") {
         if (Math.random() < 0.68) {

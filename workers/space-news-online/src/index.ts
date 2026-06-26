@@ -138,7 +138,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "0.9.0" });
+      return json({ ok: true, service: "Space News Online", version: "1.0.0" });
     }
 
     if (url.pathname === "/create") {
@@ -352,7 +352,7 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     if (msg.type === "sync") {
-      // Modelo v7: host atual é a fonte da verdade. Se o host sair no lobby, o próximo player vira host.
+      // Modelo v10: host atual é a fonte da verdade. O Worker só relaya o quadro mais recente.
       if (session.slot !== this.ensureHost() || !this.gameActive) return;
       this.broadcast({
         type: "sync",
@@ -361,6 +361,7 @@ export class GameRoom extends DurableObject<Env> {
         serverNow: Date.now(),
         t: Date.now(),
         priority: "host-frame",
+        netModel: "snapshot-45ms-predictive",
       }, ws);
       return;
     }
@@ -420,12 +421,19 @@ export class GameRoom extends DurableObject<Env> {
     const session = this.sessions.get(ws);
     if (session?.slot) this.pauseReadySlots.delete(session.slot);
     if (session?.slot === this.pauseRequestedBy) this.pauseRequestedBy = null;
+    const wasHost = Boolean(session?.slot && session.slot === this.hostSlot);
     this.sessions.delete(ws);
     if (this.gameActive && session?.slot) {
-      this.gameActive = false;
-      this.pauseRequestedBy = null;
-      this.pauseReadySlots.clear();
-      this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+      const nextHost = this.ensureHost();
+      if (wasHost && this.players().length > 0) {
+        this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
+        this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: session.slot, hostSlot: nextHost, t: Date.now() });
+      } else {
+        this.gameActive = false;
+        this.pauseRequestedBy = null;
+        this.pauseReadySlots.clear();
+        this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+      }
     } else {
       const nextHost = this.ensureHost();
       this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, t: Date.now() });
@@ -436,10 +444,17 @@ export class GameRoom extends DurableObject<Env> {
 
   async webSocketError(ws: WebSocket) {
     const session = this.sessions.get(ws);
+    const wasHost = Boolean(session?.slot && session.slot === this.hostSlot);
     this.sessions.delete(ws);
     if (this.gameActive && session?.slot) {
-      this.gameActive = false;
-      this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+      const nextHost = this.ensureHost();
+      if (wasHost && this.players().length > 0) {
+        this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
+        this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: session.slot, hostSlot: nextHost, t: Date.now() });
+      } else {
+        this.gameActive = false;
+        this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+      }
     } else {
       const nextHost = this.ensureHost();
       this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, t: Date.now() });
