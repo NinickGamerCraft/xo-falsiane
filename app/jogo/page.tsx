@@ -3599,15 +3599,16 @@ export default function JogoPage() {
     if (snapshot.mode) {
       currentModeRef.current = snapshot.mode;
     }
-    if (snapshot.wave) {
-      waveStateRef.current = { ...waveStateRef.current, ...snapshot.wave } as WaveState;
+    const waveSnapshot = snapshot.wave;
+    if (waveSnapshot) {
+      waveStateRef.current = { ...waveStateRef.current, ...waveSnapshot } as WaveState;
       setWaveUi((current) => ({
         ...current,
-        mode: (snapshot.wave.mode ?? waveStateRef.current.mode) as GameMode | null,
-        wave: Number(snapshot.wave.wave ?? waveStateRef.current.wave ?? 0),
-        active: Boolean(snapshot.wave.active ?? waveStateRef.current.active),
-        bossWave: Boolean(snapshot.wave.bossWave ?? waveStateRef.current.bossWave ?? current.bossWave),
-        message: String(snapshot.wave.message ?? waveStateRef.current.message ?? current.message ?? ""),
+        mode: (waveSnapshot.mode ?? waveStateRef.current.mode) as GameMode | null,
+        wave: Number(waveSnapshot.wave ?? waveStateRef.current.wave ?? 0),
+        active: Boolean(waveSnapshot.active ?? waveStateRef.current.active),
+        bossWave: Boolean(waveSnapshot.bossWave ?? waveStateRef.current.bossWave ?? current.bossWave),
+        message: String(waveSnapshot.message ?? waveStateRef.current.message ?? current.message ?? ""),
       }));
     }
 
