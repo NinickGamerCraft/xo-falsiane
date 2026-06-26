@@ -61,7 +61,7 @@ function json(data: unknown, init: ResponseInit = {}) {
 function randomRoomCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     code += alphabet[Math.floor(Math.random() * alphabet.length)];
   }
   return code;
@@ -71,7 +71,7 @@ function cleanRoomCode(value: string | null) {
   return String(value || "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 8);
+    .slice(0, 10);
 }
 
 function cleanName(value: unknown, fallback: string) {
@@ -112,7 +112,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "0.1.0" });
+      return json({ ok: true, service: "Space News Online", version: "0.2.0" });
     }
 
     if (url.pathname === "/create") {
@@ -120,7 +120,7 @@ export default {
       return json({ room, wsUrl: websocketUrl(request, room) });
     }
 
-    const match = url.pathname.match(/^\/room\/([A-Z0-9]{3,8})\/ws$/i);
+    const match = url.pathname.match(/^\/room\/([A-Z0-9]{3,10})\/ws$/i);
     if (match) {
       const room = cleanRoomCode(match[1]);
       const id = env.GAME_ROOM.idFromName(room);
@@ -148,7 +148,7 @@ export class GameRoom extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const roomMatch = url.pathname.match(/^\/room\/([A-Z0-9]{3,8})\/ws$/i);
+    const roomMatch = url.pathname.match(/^\/room\/([A-Z0-9]{3,10})\/ws$/i);
     this.roomCode = cleanRoomCode(roomMatch?.[1] || "ROOM") || "ROOM";
 
     if (request.headers.get("Upgrade") !== "websocket") {

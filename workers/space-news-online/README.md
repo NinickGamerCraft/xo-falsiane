@@ -1,4 +1,4 @@
-# Space News Online Worker
+# Space News Online Worker v2
 
 Servidor gratuito inicial para o modo online do Space News usando Cloudflare Workers + Durable Objects + WebSocket.
 
@@ -19,7 +19,7 @@ http://localhost:8787/create
 Ele retorna:
 
 ```json
-{ "room": "ABCDE", "wsUrl": "ws://localhost:8787/room/ABCDE/ws" }
+{ "room": "AB7K2Q", "wsUrl": "ws://localhost:8787/room/AB7K2Q/ws" }
 ```
 
 ## Deploy
@@ -66,3 +66,10 @@ Input:
   }
 }
 ```
+
+
+## v2
+
+- Código de sala maior com 6 caracteres.
+- Aceita códigos de até 10 caracteres no WebSocket.
+- Mantém o endpoint `/create` e as mensagens antigas.

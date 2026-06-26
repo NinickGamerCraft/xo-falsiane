@@ -3317,7 +3317,7 @@ export default function JogoPage() {
   }
 
   function limparCodigoSalaOnline(value: string) {
-    return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+    return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
   }
 
   function obterOnlineHttpBase() {
@@ -3504,6 +3504,47 @@ export default function JogoPage() {
     }
     tocarSom(CONFIG.sounds.menuConfirm, 0.3, "menu");
     enviarOnline({ type: "ready", ready: !onlineIsReady });
+  }
+
+  function sairSalaOnline() {
+    if (!onlineConnected && !onlineRoomCode) {
+      setOnlineStatus("Você ainda não está em uma sala.");
+      return;
+    }
+    tocarSom(CONFIG.sounds.menuBack, 0.34, "menu");
+    enviarOnline({ type: "leave" });
+    limparConexaoOnline();
+    setOnlineRoomCode("");
+    setOnlineWsUrl("");
+    setOnlinePlayers([]);
+    setOnlineCanStart(false);
+    setOnlineIsReady(false);
+    setOnlineJoinCode("");
+    setOnlineStatus("Você saiu da sala. Crie outra sala ou entre com código.");
+  }
+
+  async function copiarCodigoSalaOnline() {
+    if (!onlineRoomCode) {
+      setOnlineStatus("Crie uma sala primeiro para copiar o código.");
+      return;
+    }
+    try {
+      await navigator.clipboard?.writeText(onlineRoomCode);
+      tocarSom(CONFIG.sounds.menuConfirm, 0.28, "menu");
+      setOnlineStatus(`Código ${onlineRoomCode} copiado. Envie para seu amigo entrar.`);
+    } catch {
+      setOnlineStatus(`Código da sala: ${onlineRoomCode}`);
+    }
+  }
+
+  function fecharLobbyOnline() {
+    limparConexaoOnline();
+    setOnlinePlayers([]);
+    setOnlineRoomCode("");
+    setOnlineWsUrl("");
+    setOnlineStatus("Crie uma sala ou entre com código.");
+    tocarSom(CONFIG.sounds.menuBack, 0.36, "menu");
+    setEstado("multiplayerMenu");
   }
 
   function abrirLobbyOnline() {
@@ -14491,101 +14532,147 @@ export default function JogoPage() {
 
       {gameState === "onlineLobby" && (
         <section className="game-screen sn-online-lobby-screen">
-          <aside className="sn-local-panel sn-online-panel">
-            <p className="game-panel-label">MULTIPLAYER ONLINE</p>
-            <h2>SPACE LINK</h2>
-            <p className="sn-local-subtitle">
-              Online v1: sala por código, WebSocket, READY e sincronização de presença.
-              O combate online entra depois que a conexão estiver estável.
-            </p>
+          <aside className="sn-online-panel sn-online-panel-v2">
+            <button
+              type="button"
+              className="sn-online-close"
+              onClick={fecharLobbyOnline}
+              aria-label="Fechar multiplayer online"
+              title="Voltar ao multiplayer"
+            >
+              ×
+            </button>
 
-            <div className="sn-online-status-card">
-              <strong>{onlineConnected ? `SALA ${onlineRoomCode}` : "DESCONECTADO"}</strong>
-              <span>{onlineStatus}</span>
-              <small>Servidor: {obterOnlineHttpBase()}</small>
+            <header className="sn-online-header-v2">
+              <div>
+                <p className="game-panel-label">MULTIPLAYER ONLINE</p>
+                <h2>SPACE LINK</h2>
+                <p>
+                  Crie uma sala, mande o código para seu amigo e deixe todo mundo em READY.
+                  O PvP online entra depois que a conexão estiver estável.
+                </p>
+              </div>
+              <div className={`sn-online-signal ${onlineConnected ? "is-on" : "is-off"}`}>
+                <span />
+                <strong>{onlineConnected ? "ONLINE" : "OFFLINE"}</strong>
+                <small>{onlinePing === null ? "PING --" : `PING ${onlinePing}ms`}</small>
+              </div>
+            </header>
+
+            <div className="sn-online-stage-v2">
+              <section className="sn-online-command-card">
+                <div className="sn-online-step-row">
+                  <span className={onlineConnected ? "is-done" : "is-active"}>1 · CONECTAR</span>
+                  <span className={onlinePlayers.length >= 2 ? "is-done" : onlineConnected ? "is-active" : ""}>2 · ESPERAR PLAYER</span>
+                  <span className={onlineCanStart ? "is-done" : onlinePlayers.length >= 2 ? "is-active" : ""}>3 · READY</span>
+                </div>
+
+                <div className="sn-online-status-card sn-online-status-card-v2">
+                  <strong>{onlineConnected ? `SALA ${onlineRoomCode}` : "DESCONECTADO"}</strong>
+                  <span>{onlineStatus}</span>
+                  <small>Servidor: {obterOnlineHttpBase()}</small>
+                </div>
+
+                <div className="sn-online-code-display" aria-live="polite">
+                  <span>CÓDIGO DA SALA</span>
+                  <strong>{onlineRoomCode || "------"}</strong>
+                  <button type="button" onClick={copiarCodigoSalaOnline} className={!onlineRoomCode ? "is-disabled" : ""}>
+                    COPIAR
+                  </button>
+                </div>
+
+                <div className="sn-online-controls sn-online-controls-v2">
+                  <label className="sn-online-name-field">
+                    NOME
+                    <input
+                      value={onlinePlayerName}
+                      maxLength={3}
+                      onChange={(event) => setOnlinePlayerName(limparNomeOnline(event.target.value))}
+                      placeholder="NIC"
+                    />
+                  </label>
+
+                  <button type="button" className="sn-online-primary-action" onClick={criarSalaOnline}>
+                    CRIAR SALA
+                    <small>gera um código novo</small>
+                  </button>
+
+                  <label className="sn-online-code-field">
+                    ENTRAR COM CÓDIGO
+                    <input
+                      value={onlineJoinCode}
+                      maxLength={10}
+                      onChange={(event) => setOnlineJoinCode(limparCodigoSalaOnline(event.target.value))}
+                      placeholder="ABC123"
+                    />
+                  </label>
+
+                  <button type="button" onClick={entrarSalaOnline}>
+                    ENTRAR
+                    <small>usa o código do amigo</small>
+                  </button>
+                </div>
+              </section>
+
+              <section className="sn-online-players-panel">
+                <div className="sn-online-section-title">
+                  <strong>TRIPULAÇÃO</strong>
+                  <span>{onlinePlayers.length}/4 conectados</span>
+                </div>
+                <div className="sn-online-room-grid sn-online-room-grid-v2">
+                  {[1, 2, 3, 4].map((slot) => {
+                    const player = onlinePlayers.find((item) => item.slot === slot);
+                    return (
+                      <div
+                        key={slot}
+                        className={`sn-online-player-card ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""}`}
+                        style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
+                      >
+                        <span>P{slot}</span>
+                        <strong>{player?.name || "---"}</strong>
+                        <small>{player ? (player.ready ? "READY" : "AGUARDANDO") : "VAZIO"}</small>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
 
-            <div className="sn-online-controls">
-              <label>
-                NOME 3 LETRAS
-                <input
-                  value={onlinePlayerName}
-                  maxLength={3}
-                  onChange={(event) => setOnlinePlayerName(limparNomeOnline(event.target.value))}
-                  placeholder="NIC"
-                />
-              </label>
-
-              <button type="button" onClick={criarSalaOnline}>
-                CRIAR SALA
-              </button>
-
-              <label>
-                CÓDIGO
-                <input
-                  value={onlineJoinCode}
-                  maxLength={8}
-                  onChange={(event) => setOnlineJoinCode(limparCodigoSalaOnline(event.target.value))}
-                  placeholder="HURCH"
-                />
-              </label>
-
-              <button type="button" onClick={entrarSalaOnline}>
-                ENTRAR
-              </button>
-            </div>
-
-            <div className="sn-online-room-grid">
-              {[1, 2, 3, 4].map((slot) => {
-                const player = onlinePlayers.find((item) => item.slot === slot);
-                return (
-                  <div
-                    key={slot}
-                    className={`sn-online-player-card ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""}`}
-                    style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
-                  >
-                    <span>P{slot}</span>
-                    <strong>{player?.name || "---"}</strong>
-                    <small>{player ? (player.ready ? "READY" : "NO READY") : "VAZIO"}</small>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="sn-local-lobby-actions sn-online-actions">
+            <footer className="sn-online-footer-v2">
               <button
                 type="button"
                 className={!onlineConnected ? "is-disabled" : ""}
                 onClick={alternarReadyOnline}
               >
-                {onlineIsReady ? "CANCELAR READY" : "READY"}
+                {onlineIsReady ? "CANCELAR READY" : "FICAR READY"}
               </button>
               <button
                 type="button"
-                className={!onlineCanStart ? "is-disabled" : ""}
+                className={!onlineCanStart ? "is-disabled" : "sn-online-start-ready"}
                 onClick={() => {
                   if (!onlineCanStart) {
-                    setOnlineStatus("Precisa de 2+ players conectados e READY.");
+                    setOnlineStatus("Precisa de 2+ players conectados e todo mundo em READY.");
                     return;
                   }
-                  setOnlineStatus("Conexão pronta. Próxima etapa: ligar esse lobby no PvP Core.");
+                  setOnlineStatus("Conexão pronta. Próxima etapa: iniciar o PvP online.");
                 }}
               >
                 INICIAR ONLINE
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  limparConexaoOnline();
-                  setEstado("multiplayerMenu");
-                }}
+                className={!onlineConnected ? "is-disabled" : "sn-online-danger"}
+                onClick={sairSalaOnline}
               >
+                SAIR DA SALA
+              </button>
+              <button type="button" onClick={fecharLobbyOnline}>
                 VOLTAR
               </button>
-            </div>
+            </footer>
 
-            <p className="game-menu-help">
-              Ping: {onlinePing === null ? "--" : `${onlinePing}ms`} · Você: {onlineSlot ? `P${onlineSlot}` : "--"} · R: ready · ESC/Q: voltar
+            <p className="game-menu-help sn-online-help-v2">
+              Dica: abre duas abas para testar. Uma cria a sala, a outra entra com o código. ESC/Q volta.
             </p>
           </aside>
         </section>
