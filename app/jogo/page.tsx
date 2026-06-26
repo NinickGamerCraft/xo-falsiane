@@ -59,6 +59,7 @@ type GameState =
   | "multiplayerMenu"
   | "localLobby"
   | "localModeSelect"
+  | "onlineLobby"
   | "settings"
   | "extras"
   | "storyCutscene"
@@ -80,6 +81,15 @@ type LeaderboardEntry = {
   score: number;
   wave: number;
   createdAt: number;
+};
+
+type OnlinePlayer = {
+  id?: string;
+  slot: number;
+  name: string;
+  ready: boolean;
+  device?: string;
+  connected?: boolean;
 };
 
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
@@ -268,6 +278,8 @@ type PowerUp = {
   life: number;
   wavePhase: number;
   bornAt: number;
+  blockedPlayer?: 1 | 2 | 3 | 4;
+  blockedUntil?: number;
 };
 
 type StatusEffectKind = PowerUpKind | "badFlashbang" | "badInvert" | "badSlow";
@@ -1309,13 +1321,13 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
 
 const MULTIPLAYER_BRANCH_OPTIONS = [
   { label: "LOCAL", description: "Mesmo aparelho: teclado, touch e controles." },
-  { label: "ONLINE", description: "Em breve: salas por código e luta/co-op pela internet.", disabled: true },
+  { label: "ONLINE", description: "Criar sala ou entrar com código pelo Worker.", disabled: false },
 ];
 
 const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: string }> = [
   { label: "COOP", mode: "localCoop", description: "Modo infinito com jogadores unidos contra as waves." },
   { label: "PVP", mode: "localPvp", description: "Arena local, pontos por nocaute e respawn." },
-  { label: "DISPUTA", mode: "localScore", description: "Protótipo: pontos separados nas waves." },
+  { label: "DISPUTA", mode: "localScore", description: "Experimental: sobrevive junto, mas disputa pontos." },
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
@@ -2674,11 +2686,22 @@ export default function JogoPage() {
   const [localModeIndex, setLocalModeIndex] = useState(0);
   const [pauseIndex, setPauseIndex] = useState(0);
   const [localPlayerSlots, setLocalPlayerSlots] = useState([
-    { id: 1, ready: true, input: "P1", color: LOCAL_PLAYER_COLORS[0] },
-    { id: 2, ready: false, input: "CONTROLE/TECLADO", color: LOCAL_PLAYER_COLORS[1] },
-    { id: 3, ready: false, input: "CONTROLE EXTRA", color: LOCAL_PLAYER_COLORS[2] },
-    { id: 4, ready: false, input: "CONTROLE EXTRA", color: LOCAL_PLAYER_COLORS[3] },
+    { id: 1, name: "P1", ready: true, input: "TECLADO/TOUCH", device: "primary", color: LOCAL_PLAYER_COLORS[0] },
+    { id: 2, name: "P2", ready: false, input: "APERTE U OU A", device: "", color: LOCAL_PLAYER_COLORS[1] },
+    { id: 3, name: "P3", ready: false, input: "AGUARDANDO", device: "", color: LOCAL_PLAYER_COLORS[2] },
+    { id: 4, name: "P4", ready: false, input: "AGUARDANDO", device: "", color: LOCAL_PLAYER_COLORS[3] },
   ]);
+  const [onlineRoomCode, setOnlineRoomCode] = useState("");
+  const [onlineJoinCode, setOnlineJoinCode] = useState("");
+  const [onlinePlayerName, setOnlinePlayerName] = useState("NIC");
+  const [onlineStatus, setOnlineStatus] = useState("Crie uma sala ou entre com código.");
+  const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayer[]>([]);
+  const [onlineConnected, setOnlineConnected] = useState(false);
+  const [onlineCanStart, setOnlineCanStart] = useState(false);
+  const [onlineIsReady, setOnlineIsReady] = useState(false);
+  const [onlinePing, setOnlinePing] = useState<number | null>(null);
+  const [onlineWsUrl, setOnlineWsUrl] = useState("");
+  const [onlineSlot, setOnlineSlot] = useState(0);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
     flashWhite: false,
     flashBlur: false,
@@ -2806,6 +2829,10 @@ export default function JogoPage() {
   const localLobbyIndexRef = useRef(1);
   const localModeIndexRef = useRef(0);
   const pauseIndexRef = useRef(0);
+  const onlineSocketRef = useRef<WebSocket | null>(null);
+  const onlinePingTimerRef = useRef<number | null>(null);
+  const onlinePingStartedAtRef = useRef(0);
+  const onlineSlotRef = useRef(0);
   const playerAnimRef = useRef(
     new AnimatedSprite(
       "player",
@@ -2912,6 +2939,7 @@ export default function JogoPage() {
       estado !== "multiplayerMenu" &&
       estado !== "localLobby" &&
       estado !== "localModeSelect" &&
+      estado !== "onlineLobby" &&
       estado !== "settings" &&
       estado !== "paused" &&
       estado !== "tutorialChoice"
@@ -2962,7 +2990,15 @@ export default function JogoPage() {
 
 
   function vidaMaximaLocal() {
-    return CONFIG.gameplay.player.maxHp;
+    return isLocalPvpMode() ? 100 : CONFIG.gameplay.player.maxHp;
+  }
+
+  function danoPvpPorTipo(tipo: "normal" | "strong" | "boost" | "bump" | "power") {
+    if (tipo === "strong") return 22;
+    if (tipo === "boost") return 16;
+    if (tipo === "power") return 12;
+    if (tipo === "bump") return 0;
+    return 7;
   }
 
   function resetarReviveLocal() {
@@ -3007,29 +3043,55 @@ export default function JogoPage() {
     return table[Math.floor(Math.random() * table.length)];
   }
 
-  function spawnPowerUpPvp(force = false) {
+  function spawnPowerUpPvp(
+    force = false,
+    origin?: { x: number; y: number },
+    blockedPlayer?: 1 | 2,
+  ) {
     if (!isLocalPvpMode()) return;
+
     const now = performance.now();
-    if (!force && now - lastPvpPowerDropAtRef.current < 1450) return;
+    const pvpPowerUps = powerUpsRef.current.filter(
+      (power) => power.kind !== "goldenHeart",
+    );
+
+    // Evita o “muro de power-ups” que travava a arena.
+    const maxAlive = origin ? 7 : 5;
+    if (pvpPowerUps.length >= maxAlive) return;
+
+    const minDelay = origin ? 560 : 2400;
+    if (!force && now - lastPvpPowerDropAtRef.current < minDelay) return;
     lastPvpPowerDropAtRef.current = now;
+
     const cfg = CONFIG.gameplay.powerups;
     const id = powerUpIdRef.current++;
-    const fromRight = Math.random() > 0.5;
+    const fromHit = Boolean(origin);
+    const startX = fromHit
+      ? clamp(origin!.x - cfg.width / 2 + rand(-18, 18), 58, CONFIG.canvasWidth - cfg.width - 58)
+      : rand(90, CONFIG.canvasWidth - cfg.width - 90);
+    const startY = fromHit
+      ? clamp(origin!.y - cfg.height / 2 + rand(-18, 18), 72, CONFIG.canvasHeight - cfg.height - 78)
+      : -cfg.height - rand(12, 95);
+
     powerUpsRef.current.push({
       id,
       kind: escolherPowerUpPvp(),
-      x: fromRight ? CONFIG.canvasWidth - cfg.width - 70 : 70,
-      y: 76,
+      x: startX,
+      y: startY,
       w: cfg.width,
       h: cfg.height,
-      vx: fromRight ? -2.35 : 2.35,
-      vy: 2.05,
+      // No PvP os drops do mapa caem de cima para baixo. Drops de dano saem do player e escorrem na arena.
+      vx: fromHit ? rand(-0.75, 0.75) : rand(-0.28, 0.28),
+      vy: fromHit ? rand(0.9, 1.35) : rand(1.15, 1.75),
       age: 0,
-      life: Math.min(cfg.lifeMs, 11000),
+      life: Math.min(cfg.lifeMs, fromHit ? 7200 : 10500),
       wavePhase: rand(0, Math.PI * 2),
       bornAt: now,
+      blockedPlayer,
+      blockedUntil: blockedPlayer ? now + 1450 : undefined,
     });
-    tocarSom(CONFIG.sounds.powerUpSpawn || CONFIG.sounds.abilityReady, 0.32, "ability");
+
+    tocarSom(CONFIG.sounds.powerUpSpawn || CONFIG.sounds.abilityReady, 0.28, "ability");
     tocarLoopPowerUpTrail(id);
   }
 
@@ -3094,7 +3156,7 @@ export default function JogoPage() {
     p1.y = CONFIG.canvasHeight / 2 - 112;
     p1.vx = 0;
     p1.vy = 0;
-    p1.hp = CONFIG.gameplay.player.maxHp;
+    p1.hp = vidaMaximaLocal();
     p1.goldenHp = 0;
     p1.normalCooldown = 0;
     p1.strongReadyAt = 0;
@@ -3107,7 +3169,7 @@ export default function JogoPage() {
     p2.y = isLocalPvpMode() ? CONFIG.canvasHeight / 2 - p2.h / 2 : CONFIG.canvasHeight / 2 + 42;
     p2.vx = 0;
     p2.vy = 0;
-    p2.hp = CONFIG.gameplay.player.maxHp;
+    p2.hp = vidaMaximaLocal();
     p2.goldenHp = 0;
     p2.normalCooldown = 0;
     p2.strongReadyAt = 0;
@@ -3119,7 +3181,12 @@ export default function JogoPage() {
     setPlayer2StrongReadyRatio(1);
     setPlayer2BoostReadyRatio(1);
     player2BoostReadyAtRef.current = 0;
-    if (isLocalPvpMode()) spawnPowerUpPvp(true);
+    if (isLocalPvpMode()) {
+      for (const power of powerUpsRef.current) pararLoopPowerUpTrail(power.id);
+      powerUpsRef.current = [];
+      spawnPowerUpPvp(true);
+      window.setTimeout(() => spawnPowerUpPvp(true), 850);
+    }
     limparRoundPvp();
   }
 
@@ -3190,15 +3257,14 @@ export default function JogoPage() {
   function abrirLobbyLocal() {
     tocarSom(CONFIG.sounds.menuConfirm, 0.38, "menu");
     setIndiceLobbyLocal(1);
-    atualizarSlotsLocais((current) =>
-      current.map((slot, index) =>
-        index === 0
-          ? { ...slot, ready: true, input: "TECLADO/TOUCH" }
-          : { ...slot, ready: false, input: index === 1 ? "APERTE U OU A" : "AGUARDANDO" },
-      ),
-    );
-    setLocalModeNotice("P2 precisa confirmar com teclado/controle para liberar o modo local.");
-    window.setTimeout(() => setLocalModeNotice(""), 2600);
+    atualizarSlotsLocais([
+      { id: 1, name: "P1", ready: true, input: "TECLADO/TOUCH", device: "primary", color: LOCAL_PLAYER_COLORS[0] },
+      { id: 2, name: "P2", ready: false, input: "APERTE U OU A", device: "", color: LOCAL_PLAYER_COLORS[1] },
+      { id: 3, name: "P3", ready: false, input: "CONECTE OUTRO CONTROLE", device: "", color: LOCAL_PLAYER_COLORS[2] },
+      { id: 4, name: "P4", ready: false, input: "CONECTE OUTRO CONTROLE", device: "", color: LOCAL_PLAYER_COLORS[3] },
+    ]);
+    setLocalModeNotice("P2 precisa dar input próprio. O mesmo dispositivo não entra duas vezes.");
+    window.setTimeout(() => setLocalModeNotice(""), 3000);
     setEstado("localLobby");
   }
 
@@ -3209,9 +3275,13 @@ export default function JogoPage() {
       current.map((slot, slotIndex) => {
         if (slotIndex !== index) return slot;
         const nextReady = !slot.ready;
+        const device = index === 1 ? "p2-keyboard-or-pad1" : `pad-${index}`;
+        const alreadyTaken = nextReady && current.some((item, itemIndex) => itemIndex !== slotIndex && item.device === device && item.ready);
+        if (alreadyTaken) return { ...slot, input: "DISPOSITIVO EM USO" };
         return {
           ...slot,
           ready: nextReady,
+          device: nextReady ? device : "",
           input: nextReady
             ? index === 1
               ? "TECLADO P2 / CONTROLE 1"
@@ -3236,7 +3306,214 @@ export default function JogoPage() {
     setEstado("localModeSelect");
   }
 
+  function limparNomeOnline(value: string) {
+    const clean = value
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 3);
+    return clean.padEnd(3, "X").slice(0, 3);
+  }
+
+  function limparCodigoSalaOnline(value: string) {
+    return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  }
+
+  function obterOnlineHttpBase() {
+    const raw = (process.env.NEXT_PUBLIC_SPACE_NEWS_WS_URL || "http://localhost:8787").trim();
+    return raw
+      .replace(/\/$/, "")
+      .replace(/^wss:/i, "https:")
+      .replace(/^ws:/i, "http:");
+  }
+
+  function obterOnlineWsBase() {
+    return obterOnlineHttpBase()
+      .replace(/^https:/i, "wss:")
+      .replace(/^http:/i, "ws:");
+  }
+
+  function montarWsUrlOnline(room: string) {
+    return `${obterOnlineWsBase()}/room/${limparCodigoSalaOnline(room)}/ws`;
+  }
+
+  function limparConexaoOnline() {
+    if (onlinePingTimerRef.current !== null) {
+      window.clearInterval(onlinePingTimerRef.current);
+      onlinePingTimerRef.current = null;
+    }
+    const ws = onlineSocketRef.current;
+    onlineSocketRef.current = null;
+    if (ws && ws.readyState <= 1) {
+      try {
+        ws.close(1000, "Saiu do online");
+      } catch {
+        // ignora fechamento duplicado
+      }
+    }
+    onlineSlotRef.current = 0;
+    setOnlineConnected(false);
+    setOnlineCanStart(false);
+    setOnlineIsReady(false);
+    setOnlineSlot(0);
+    setOnlinePing(null);
+  }
+
+  function enviarOnline(payload: unknown) {
+    const ws = onlineSocketRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    ws.send(JSON.stringify(payload));
+    return true;
+  }
+
+  function iniciarPingOnline() {
+    if (onlinePingTimerRef.current !== null) {
+      window.clearInterval(onlinePingTimerRef.current);
+    }
+    onlinePingTimerRef.current = window.setInterval(() => {
+      if (!onlineSocketRef.current || onlineSocketRef.current.readyState !== WebSocket.OPEN) return;
+      onlinePingStartedAtRef.current = performance.now();
+      enviarOnline({ type: "ping", t: Date.now() });
+    }, 1800);
+  }
+
+  function conectarSalaOnline(wsUrl: string, room: string) {
+    limparConexaoOnline();
+    const safeRoom = limparCodigoSalaOnline(room);
+    const safeName = limparNomeOnline(onlinePlayerName || "NIC");
+    setOnlinePlayerName(safeName);
+    setOnlineRoomCode(safeRoom);
+    setOnlineWsUrl(wsUrl);
+    setOnlinePlayers([]);
+    setOnlineStatus(`Conectando na sala ${safeRoom}...`);
+
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      setOnlineStatus("URL de WebSocket inválida. Confira NEXT_PUBLIC_SPACE_NEWS_WS_URL.");
+      return;
+    }
+
+    onlineSocketRef.current = ws;
+
+    ws.onopen = () => {
+      setOnlineConnected(true);
+      setOnlineStatus("Conectado. Entrando na sala...");
+      enviarOnline({ type: "join", name: safeName, device: "browser" });
+      iniciarPingOnline();
+    };
+
+    ws.onmessage = (event) => {
+      let msg: any;
+      try {
+        msg = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+
+      if (msg.type === "hello") {
+        setOnlineStatus("Servidor respondeu. Registrando jogador...");
+        return;
+      }
+
+      if (msg.type === "joined") {
+        const slot = Number(msg.player?.slot || 0);
+        onlineSlotRef.current = slot;
+        setOnlineSlot(slot);
+        setOnlineStatus(`Você entrou como P${slot || "?"}. Aperte READY quando o outro player entrar.`);
+        return;
+      }
+
+      if (msg.type === "room_state") {
+        const players = Array.isArray(msg.players) ? msg.players : [];
+        setOnlinePlayers(players);
+        setOnlineCanStart(Boolean(msg.canStart));
+        const mySlot = onlineSlotRef.current;
+        const me = players.find((player: OnlinePlayer) => player.slot === mySlot);
+        setOnlineIsReady(Boolean(me?.ready));
+        if (players.length < 2) {
+          setOnlineStatus("Aguardando outro jogador entrar com o código.");
+        } else if (!msg.canStart) {
+          setOnlineStatus("Sala com jogadores. Falta todo mundo ficar READY.");
+        } else {
+          setOnlineStatus("Tudo pronto. PvP online core será iniciado na próxima etapa.");
+        }
+        return;
+      }
+
+      if (msg.type === "pong") {
+        const ping = Math.max(0, Math.round(performance.now() - onlinePingStartedAtRef.current));
+        setOnlinePing(ping);
+        return;
+      }
+
+      if (msg.type === "error") {
+        setOnlineStatus(String(msg.error || "Erro na sala online."));
+      }
+    };
+
+    ws.onerror = () => {
+      setOnlineStatus("Erro no WebSocket. Veja se o Worker está rodando/deployado.");
+    };
+
+    ws.onclose = () => {
+      if (onlinePingTimerRef.current !== null) {
+        window.clearInterval(onlinePingTimerRef.current);
+        onlinePingTimerRef.current = null;
+      }
+      onlineSocketRef.current = null;
+      setOnlineConnected(false);
+      setOnlineCanStart(false);
+      setOnlineIsReady(false);
+      setOnlineStatus("Conexão online fechada.");
+    };
+  }
+
+  async function criarSalaOnline() {
+    tocarSom(CONFIG.sounds.menuConfirm, 0.34, "menu");
+    setOnlineStatus("Criando sala no Worker...");
+    try {
+      const response = await fetch(`${obterOnlineHttpBase()}/create`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as { room?: string; wsUrl?: string };
+      const room = limparCodigoSalaOnline(data.room || "");
+      if (!room || !data.wsUrl) throw new Error("Resposta sem sala/wsUrl");
+      conectarSalaOnline(data.wsUrl, room);
+    } catch {
+      setOnlineStatus("Não consegui criar sala. Rode npm run dev no Worker ou configure o subdomínio workers.dev.");
+    }
+  }
+
+  function entrarSalaOnline() {
+    const room = limparCodigoSalaOnline(onlineJoinCode);
+    if (room.length < 3) {
+      tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
+      setOnlineStatus("Digite um código de sala válido.");
+      return;
+    }
+    tocarSom(CONFIG.sounds.menuConfirm, 0.34, "menu");
+    conectarSalaOnline(montarWsUrlOnline(room), room);
+  }
+
+  function alternarReadyOnline() {
+    if (!onlineConnected) {
+      setOnlineStatus("Entre/crie uma sala antes de dar READY.");
+      return;
+    }
+    tocarSom(CONFIG.sounds.menuConfirm, 0.3, "menu");
+    enviarOnline({ type: "ready", ready: !onlineIsReady });
+  }
+
+  function abrirLobbyOnline() {
+    tocarSom(CONFIG.sounds.menuConfirm, 0.38, "menu");
+    setOnlineStatus("Crie uma sala ou entre com código.");
+    setEstado("onlineLobby");
+  }
+
   function voltarDoMultiplayer() {
+    limparConexaoOnline();
     tocarSom(CONFIG.sounds.menuBack, 0.36, "menu");
     setEstado("mainMenu");
     setIndiceMenu(2);
@@ -3792,7 +4069,20 @@ export default function JogoPage() {
       }
       if (botaoControleAcionado("gamepadConfirmButton")) {
         if (multiplayerBranchIndexRef.current === 0) abrirLobbyLocal();
-        else tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
+        else abrirLobbyOnline();
+        return;
+      }
+    }
+
+    if (gameStateRef.current === "onlineLobby") {
+      if (botaoControleAcionado("gamepadBackButton")) {
+        limparConexaoOnline();
+        setEstado("multiplayerMenu");
+        return;
+      }
+      if (botaoControleAcionado("gamepadConfirmButton")) {
+        if (!onlineConnected) criarSalaOnline();
+        else alternarReadyOnline();
         return;
       }
     }
@@ -5024,7 +5314,7 @@ export default function JogoPage() {
     } else {
       setPlayerHp(player.hp);
       setGoldenHp(player.goldenHp);
-      setPlayer2Hp(CONFIG.gameplay.player.maxHp);
+      setPlayer2Hp(vidaMaximaLocal());
       setLocalModeNotice("");
     }
     setRandomVisualEffect({
@@ -5177,7 +5467,7 @@ export default function JogoPage() {
         player.goldenHp - Math.max(1, Math.ceil(dano)),
       );
       setGoldenHp(player.goldenHp);
-      player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+      player.invincibleUntil = now + (isLocalPvpMode() ? 80 : CONFIG.gameplay.player.invincibleMs);
       tocarSom(
         CONFIG.sounds.goldenHeart || CONFIG.sounds.playerDamage,
         0.45,
@@ -9058,20 +9348,20 @@ export default function JogoPage() {
       const player = player2Ref.current;
       if (!player || player.hp <= 0) return;
       const now = performance.now();
-      if (now < player.invincibleUntil || now < player.dodgeUntil) return;
+      if ((isLocalPvpMode() ? now < player.dodgeUntil : now < player.invincibleUntil || now < player.dodgeUntil)) return;
       if (player.goldenHp > 0) {
         player.goldenHp = Math.max(0, player.goldenHp - Math.max(1, Math.ceil(dano)));
         setPlayer2GoldenHp(player.goldenHp);
-        player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+        player.invincibleUntil = now + (isLocalPvpMode() ? 80 : CONFIG.gameplay.player.invincibleMs);
         tocarSom(CONFIG.sounds.goldenHeart || CONFIG.sounds.playerDamage, 0.42, "ability");
         return;
       }
       player.hp = Math.max(0, player.hp - dano);
-      player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+      player.invincibleUntil = now + (isLocalPvpMode() ? 80 : CONFIG.gameplay.player.invincibleMs);
       setPlayer2Hp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#60a5fa", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode()) spawnPowerUpPvp(false);
+      if (isLocalPvpMode()) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -9087,13 +9377,13 @@ export default function JogoPage() {
     function receberDanoPlayer1Local(dano: number) {
       const player = playerRef.current;
       const now = performance.now();
-      if (now < player.invincibleUntil || now < player.dodgeUntil || player.hp <= 0) return;
+      if ((isLocalPvpMode() ? now < player.dodgeUntil : now < player.invincibleUntil || now < player.dodgeUntil) || player.hp <= 0) return;
       player.hp = Math.max(0, player.hp - dano);
-      player.invincibleUntil = now + CONFIG.gameplay.player.invincibleMs;
+      player.invincibleUntil = now + (isLocalPvpMode() ? 80 : CONFIG.gameplay.player.invincibleMs);
       setPlayerHp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode()) spawnPowerUpPvp(false);
+      if (isLocalPvpMode()) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -9199,7 +9489,7 @@ export default function JogoPage() {
         }
       }
 
-      if (isLocalPvpMode()) {
+      if (isLocalMode()) {
         const p1 = playerRef.current;
         const p1Hitbox = getPlayerHitbox(p1);
         const p2Hitbox = getPlayerHitbox(player);
@@ -9223,28 +9513,28 @@ export default function JogoPage() {
         }
 
         const shotsToRemove = new Set<number>();
-        for (const shot of shotsRef.current) {
+        if (isLocalPvpMode()) for (const shot of shotsRef.current) {
           if (shot.ownerId === 1 && player.hp > 0 && rectsCollide(shot, p2Hitbox)) {
             const force = shot.type === "strong" ? 12 : 4.5;
             aplicarFlingPlayerLocal(player, shot.vx ?? 1, shot.vy ?? 0, force);
-            receberDanoPlayer2(shot.type === "strong" ? 2 : 1);
+            receberDanoPlayer2(isLocalPvpMode() ? danoPvpPorTipo(shot.type === "strong" ? "strong" : "normal") : shot.type === "strong" ? 2 : 1);
             shotsToRemove.add(shot.id);
           } else if (shot.ownerId === 2 && p1.hp > 0 && rectsCollide(shot, p1Hitbox)) {
             const force = shot.type === "strong" ? 12 : 4.5;
             aplicarFlingPlayerLocal(p1, shot.vx ?? -1, shot.vy ?? 0, force);
-            receberDanoPlayer1Local(shot.type === "strong" ? 2 : 1);
+            receberDanoPlayer1Local(isLocalPvpMode() ? danoPvpPorTipo(shot.type === "strong" ? "strong" : "normal") : shot.type === "strong" ? 2 : 1);
             shotsToRemove.add(shot.id);
           }
         }
 
-        if (p1.hp > 0 && player.hp > 0) {
+        if (isLocalPvpMode() && p1.hp > 0 && player.hp > 0) {
           if (nowPvp < p1.boostUntil && rectsCollide(getPlayerHitbox(p1), getPlayerHitbox(player))) {
             aplicarFlingPlayerLocal(player, p1.boostVx || 1, p1.boostVy || 0, 14);
-            receberDanoPlayer2(1);
+            receberDanoPlayer2(isLocalPvpMode() ? danoPvpPorTipo("boost") : 1);
           }
           if (nowPvp < player.boostUntil && rectsCollide(getPlayerHitbox(player), getPlayerHitbox(p1))) {
             aplicarFlingPlayerLocal(p1, player.boostVx || -1, player.boostVy || 0, 14);
-            receberDanoPlayer1Local(1);
+            receberDanoPlayer1Local(isLocalPvpMode() ? danoPvpPorTipo("boost") : 1);
           }
         }
 
@@ -9291,7 +9581,7 @@ export default function JogoPage() {
       const now = performance.now();
       const ghostLocal = isLocalWaveMode() && player.hp <= 0;
       if (!ghostLocal && player.hp <= 0 && Math.floor(now / 180) % 2 === 0) return;
-      if (!ghostLocal && now < player.invincibleUntil && Math.floor(now / 100) % 2 === 0) return;
+      if (!isLocalPvpMode() && !ghostLocal && now < player.invincibleUntil && Math.floor(now / 100) % 2 === 0) return;
 
       const anim = playerAnimRef.current;
       anim.update(delta);
@@ -9304,29 +9594,23 @@ export default function JogoPage() {
       if (isLocalPvpMode()) ctx.scale(-1, 1);
       const pulse = getStretchPulse(player.stretchUntil, "player");
       applyVelocityStretch(ctx, player.stretchVx, player.stretchVy, getStretchSettings("player").multiplier, pulse);
-      ctx.globalAlpha = ghostLocal ? 0.34 : player.hp <= 0 ? 0.35 : 0.96;
+      ctx.globalAlpha = ghostLocal ? 0.36 : player.hp <= 0 ? 0.34 : 1;
       ctx.shadowColor = LOCAL_PLAYER_COLORS[1];
-      ctx.shadowBlur = ghostLocal ? 22 : 16;
-      if (img) {
-        ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+      ctx.shadowBlur = ghostLocal ? 24 : 16;
 
-        const tintCanvas = document.createElement("canvas");
-        tintCanvas.width = Math.max(1, Math.floor(player.w));
-        tintCanvas.height = Math.max(1, Math.floor(player.h));
-        const tintCtx = tintCanvas.getContext("2d");
-        if (tintCtx) {
-          tintCtx.imageSmoothingEnabled = false;
-          tintCtx.drawImage(img, 0, 0, tintCanvas.width, tintCanvas.height);
-          tintCtx.globalCompositeOperation = "source-atop";
-          tintCtx.globalAlpha = ghostLocal ? 0.24 : 0.44;
-          tintCtx.fillStyle = LOCAL_PLAYER_COLORS[1];
-          tintCtx.fillRect(0, 0, tintCanvas.width, tintCanvas.height);
-          ctx.drawImage(tintCanvas, -player.w / 2, -player.h / 2, player.w, player.h);
-        }
+      if (img) {
+        ctx.save();
+        ctx.filter = ghostLocal
+          ? "saturate(0.35) brightness(1.25) opacity(0.72)"
+          : "sepia(0.55) saturate(1.8) hue-rotate(-22deg) brightness(1.08)";
+        ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+        ctx.restore();
 
         ctx.save();
         ctx.globalCompositeOperation = "screen";
-        ctx.globalAlpha = ghostLocal ? 0.12 : 0.18;
+        ctx.globalAlpha = ghostLocal ? 0.18 : 0.24;
+        ctx.shadowColor = LOCAL_PLAYER_COLORS[1];
+        ctx.shadowBlur = 18;
         ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
         ctx.restore();
       } else {
@@ -9339,7 +9623,6 @@ export default function JogoPage() {
         ctx.fill();
       }
       ctx.restore();
-
     }
 
     function desenharTiro(ctx: CanvasRenderingContext2D, shot: Shot) {
@@ -10953,6 +11236,7 @@ export default function JogoPage() {
           x: power.x + power.vx * speedFactor,
           y:
             power.y +
+            power.vy * speedFactor +
             Math.sin(
               (power.age + delta) * cfg.waveFrequency + power.wavePhase,
             ) *
@@ -11183,7 +11467,7 @@ export default function JogoPage() {
         p1.x + p1.w / 2 - (p2.x + p2.w / 2),
         p1.y + p1.h / 2 - (p2.y + p2.h / 2),
       );
-      const inRange = distancia <= 120;
+      const inRange = distancia <= 112;
 
       const p1Interagiu =
         teclaControlePressionada("shot") ||
@@ -11195,18 +11479,18 @@ export default function JogoPage() {
         p2Segurando("0", "1", "5", "7");
 
       let target = 0;
-      let holding = false;
+      let boosted = false;
       if (p1.hp <= 0 && p2.hp > 0 && inRange) {
         target = 1;
-        holding = Boolean(p2Interagiu);
+        boosted = Boolean(p2Interagiu);
       } else if (p2.hp <= 0 && p1.hp > 0 && inRange) {
         target = 2;
-        holding = Boolean(p1Interagiu);
+        boosted = Boolean(p1Interagiu);
       }
 
-      if (!target || !holding) {
-        reviveRef.target = target;
-        reviveRef.progress = target && inRange ? Math.max(0, reviveRef.progress - 0.018) : 0;
+      if (!target) {
+        reviveRef.target = 0;
+        reviveRef.progress = Math.max(0, reviveRef.progress - 0.026);
         reviveRef.lastAt = now;
         return;
       }
@@ -11215,7 +11499,8 @@ export default function JogoPage() {
       reviveRef.target = target;
       const elapsed = reviveRef.lastAt ? now - reviveRef.lastAt : 16;
       reviveRef.lastAt = now;
-      reviveRef.progress = clamp(reviveRef.progress + elapsed / 1450, 0, 1);
+      const duration = boosted ? 1900 : 3150;
+      reviveRef.progress = clamp(reviveRef.progress + elapsed / duration, 0, 1);
 
       if (reviveRef.progress < 1) return;
 
@@ -11291,7 +11576,11 @@ export default function JogoPage() {
           h: power.h * 0.72,
         };
 
-        if (player.hp > 0 && rectsCollide(playerHitbox, pickupBox)) {
+        const nowPickup = performance.now();
+        const p1Blocked = power.blockedPlayer === 1 && (power.blockedUntil ?? 0) > nowPickup;
+        const p2Blocked = power.blockedPlayer === 2 && (power.blockedUntil ?? 0) > nowPickup;
+
+        if (player.hp > 0 && !p1Blocked && rectsCollide(playerHitbox, pickupBox)) {
           collected.add(power.id);
           pararLoopPowerUpTrail(power.id);
           aplicarPowerUp(power.kind);
@@ -11307,6 +11596,7 @@ export default function JogoPage() {
         if (
           p2 &&
           p2.hp > 0 &&
+          !p2Blocked &&
           p2Hitbox &&
           isLocalMode() &&
           rectsCollide(p2Hitbox, pickupBox)
@@ -12264,8 +12554,8 @@ export default function JogoPage() {
         atualizarBossProjectiles(delta);
         atualizarCapturaAlien(delta, canvas);
         atualizarPowerUps(delta, canvas);
-      if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 5200) {
-        spawnPowerUpPvp(true);
+      if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 4800) {
+        spawnPowerUpPvp(false);
       }
         resolverPowerUps();
         atualizarParticulas(delta);
@@ -12999,7 +13289,19 @@ export default function JogoPage() {
         }
         if (key === "enter" || key === " ") {
           if (multiplayerBranchIndexRef.current === 0) abrirLobbyLocal();
-          else tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
+          else abrirLobbyOnline();
+          return;
+        }
+      }
+
+      if (gameStateRef.current === "onlineLobby") {
+        if (key === "escape" || key === "q") {
+          limparConexaoOnline();
+          setEstado("multiplayerMenu");
+          return;
+        }
+        if (key === "r") {
+          alternarReadyOnline();
           return;
         }
       }
@@ -13025,7 +13327,8 @@ export default function JogoPage() {
           return;
         }
         if (key === "enter" || key === " ") {
-          alternarReadySlotLocal();
+          setLocalModeNotice("Confirme cada player com o próprio input. Use TAB para avançar.");
+          window.setTimeout(() => setLocalModeNotice(""), 1500);
           return;
         }
         if (key === "tab") {
@@ -13450,6 +13753,12 @@ export default function JogoPage() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      limparConexaoOnline();
+    };
+  }, []);
+
+  useEffect(() => {
     const root = document.documentElement;
 
     const isTouchDevice =
@@ -13667,6 +13976,17 @@ export default function JogoPage() {
 
       {(gameState === "playing" || gameState === "paused") && (
         <aside className="sn-player-hud" aria-label="Status do jogador">
+          {isLocalMode() && (
+            <div className="sn-player-hud-label sn-player-hud-label-p1">
+              <strong>P1</strong>
+              <span>{isLocalPvpMode(waveUi.mode ?? currentModeRef.current) ? `${playerHp}/100 HP` : playerHp > 0 ? "ATIVO" : "FANTASMA"}</span>
+            </div>
+          )}
+          {isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (
+            <div className="sn-pvp-hp-meter" aria-label="HP do player 1">
+              <span style={{ width: `${clamp(playerHp / 100, 0, 1) * 100}%` }} />
+            </div>
+          )}
           <div className="sn-life-panel">
             <div className="sn-life-hearts">
               {normalLifeSlots.map((_, index) => {
@@ -13777,8 +14097,13 @@ export default function JogoPage() {
         >
           <div className="sn-player-hud-label">
             <strong>P2</strong>
-            <span>{player2Hp > 0 ? "ATIVO" : "FANTASMA"}</span>
+            <span>{isLocalPvpMode(waveUi.mode ?? currentModeRef.current) ? `${player2Hp}/100 HP` : player2Hp > 0 ? "ATIVO" : "FANTASMA"}</span>
           </div>
+          {isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (
+            <div className="sn-pvp-hp-meter is-p2" aria-label="HP do player 2">
+              <span style={{ width: `${clamp(player2Hp / 100, 0, 1) * 100}%` }} />
+            </div>
+          )}
           <div className="sn-life-panel">
             <div className="sn-life-hearts">
               {Array.from({ length: CONFIG.gameplay.player.maxHp }).map((_, index) => {
@@ -13854,15 +14179,36 @@ export default function JogoPage() {
       {(gameState === "playing" || gameState === "paused") &&
         (waveUi.mode === "infinite" || isLocalMode(waveUi.mode)) && (
           <div className={`sn-run-info ${isLocalMode(waveUi.mode) ? "is-local" : ""}`}>
-            <span>{isLocalPvpMode(waveUi.mode) ? "ARENA" : `WAVE ${waveUi.wave || 1}`}</span>
+            <span>{isLocalPvpMode(waveUi.mode ?? currentModeRef.current) ? "ARENA" : `WAVE ${waveUi.wave || 1}`}</span>
             {isLocalMode(waveUi.mode) ? (
               <strong>
-                {isLocalPvpMode(waveUi.mode) ? `R${localPvpRound} · ` : ""}
+                {isLocalPvpMode(waveUi.mode ?? currentModeRef.current) ? `R${localPvpRound} · ` : ""}
                 P1 {localP1Score.toString().padStart(4, "0")} · P2 {localP2Score.toString().padStart(4, "0")}
               </strong>
             ) : (
               <strong>{score.toString().padStart(6, "0")}</strong>
             )}
+          </div>
+        )}
+
+      {(gameState === "playing" || gameState === "paused") &&
+        isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (
+          <div className="sn-pvp-scoreboard" aria-label="Placar e vida do PVP">
+            <div className="sn-pvp-side is-p1">
+              <strong>P1</strong>
+              <span>{playerHp}/100 HP</span>
+              <div className="sn-pvp-life-track"><i style={{ width: `${clamp(playerHp / 100, 0, 1) * 100}%` }} /></div>
+            </div>
+            <div className="sn-pvp-round-core">
+              <small>ROUND {localPvpRound}</small>
+              <b>{localP1Score} × {localP2Score}</b>
+              <span>melhor de 5</span>
+            </div>
+            <div className="sn-pvp-side is-p2">
+              <strong>P2</strong>
+              <span>{player2Hp}/100 HP</span>
+              <div className="sn-pvp-life-track"><i style={{ width: `${clamp(player2Hp / 100, 0, 1) * 100}%` }} /></div>
+            </div>
           </div>
         )}
 
@@ -14039,11 +14385,12 @@ export default function JogoPage() {
                     onClick={() => {
                       if (option.disabled) {
                         tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
-                        setLocalModeNotice("Online fica para uma próxima atualização.");
+                        setLocalModeNotice("Online bloqueado nesta build.");
                         window.setTimeout(() => setLocalModeNotice(""), 2000);
                         return;
                       }
-                      abrirLobbyLocal();
+                      if (index === 0) abrirLobbyLocal();
+                      else abrirLobbyOnline();
                     }}
                   >
                     <strong>{option.label}</strong>
@@ -14063,10 +14410,14 @@ export default function JogoPage() {
         <section className="game-screen sn-local-lobby-screen">
           <aside className="sn-local-panel is-lobby">
             <p className="game-panel-label">MULTIPLAYER LOCAL</p>
-            <h2>ENTRADA DE PLAYERS</h2>
+            <h2>ARCADE LINK</h2>
             <p className="sn-local-subtitle">
-              P1 fica ativo. Confirme P2 para iniciar, ou conecte mais controles para preparar P3/P4.
+              Cada jogador precisa confirmar com o próprio dispositivo. P1 usa teclado/touch; P2 entra por teclado secundário ou controle. P3/P4 ficam preparados para controles extras.
             </p>
+            <div className="sn-local-join-banner">
+              <strong>APERTE INPUT PARA ENTRAR</strong>
+              <span>U/I/J/K/L/O/P/H para P2 · controles extras entram como P3/P4 · TAB/START para escolher modo</span>
+            </div>
             <div className="sn-local-slots">
               {localPlayerSlots.map((slot, index) => {
                 const selected = localLobbyIndex === index;
@@ -14078,21 +14429,33 @@ export default function JogoPage() {
                     style={{ "--player-color": slot.color } as CSSProperties}
                     onMouseEnter={() => setIndiceLobbyLocal(index)}
                     onFocus={() => setIndiceLobbyLocal(index)}
-                    onClick={() => alternarReadySlotLocal(index)}
+                    onClick={() => {
+                      if (index === 0) return;
+                      setIndiceLobbyLocal(index);
+                      setLocalModeNotice("Use o teclado/controle do jogador para confirmar. Mouse não registra player.");
+                      window.setTimeout(() => setLocalModeNotice(""), 1700);
+                    }}
                   >
                     <span className="sn-slot-badge">P{slot.id}</span>
-                    <strong>{slot.ready ? "READY" : index === 0 ? "FIXO" : "ENTRAR"}</strong>
+                    <span className="sn-slot-name">{slot.name}</span>
+                    <strong>{slot.ready ? "READY" : index === 0 ? "FIXO" : "JOIN"}</strong>
                     <small>{slot.input}</small>
                   </button>
                 );
               })}
             </div>
             <div className="sn-local-lobby-actions">
-              <button type="button" onClick={abrirSelecaoModoLocal}>ESCOLHER MODO</button>
+              <button
+                type="button"
+                className={totalJogadoresLocaisProntos() < 2 ? "is-disabled" : ""}
+                onClick={abrirSelecaoModoLocal}
+              >
+                COMEÇAR COM {totalJogadoresLocaisProntos()}P
+              </button>
               <button type="button" onClick={() => setEstado("multiplayerMenu")}>VOLTAR</button>
             </div>
             {localModeNotice && <p className="sn-local-help">{localModeNotice}</p>}
-            <p className="game-menu-help">Setas/D-pad: selecionar · ENTER/A: ready · TAB/Start: escolher modo</p>
+            <p className="game-menu-help">O modo só libera com 2+ players. Online será a próxima fase.</p>
           </aside>
         </section>
       )}
@@ -14122,6 +14485,108 @@ export default function JogoPage() {
             </div>
             <button type="button" className="sn-local-back" onClick={() => setEstado("localLobby")}>VOLTAR AO LOBBY</button>
             <p className="game-menu-help">Players prontos: {totalJogadoresLocaisProntos()}</p>
+          </aside>
+        </section>
+      )}
+
+      {gameState === "onlineLobby" && (
+        <section className="game-screen sn-online-lobby-screen">
+          <aside className="sn-local-panel sn-online-panel">
+            <p className="game-panel-label">MULTIPLAYER ONLINE</p>
+            <h2>SPACE LINK</h2>
+            <p className="sn-local-subtitle">
+              Online v1: sala por código, WebSocket, READY e sincronização de presença.
+              O combate online entra depois que a conexão estiver estável.
+            </p>
+
+            <div className="sn-online-status-card">
+              <strong>{onlineConnected ? `SALA ${onlineRoomCode}` : "DESCONECTADO"}</strong>
+              <span>{onlineStatus}</span>
+              <small>Servidor: {obterOnlineHttpBase()}</small>
+            </div>
+
+            <div className="sn-online-controls">
+              <label>
+                NOME 3 LETRAS
+                <input
+                  value={onlinePlayerName}
+                  maxLength={3}
+                  onChange={(event) => setOnlinePlayerName(limparNomeOnline(event.target.value))}
+                  placeholder="NIC"
+                />
+              </label>
+
+              <button type="button" onClick={criarSalaOnline}>
+                CRIAR SALA
+              </button>
+
+              <label>
+                CÓDIGO
+                <input
+                  value={onlineJoinCode}
+                  maxLength={8}
+                  onChange={(event) => setOnlineJoinCode(limparCodigoSalaOnline(event.target.value))}
+                  placeholder="HURCH"
+                />
+              </label>
+
+              <button type="button" onClick={entrarSalaOnline}>
+                ENTRAR
+              </button>
+            </div>
+
+            <div className="sn-online-room-grid">
+              {[1, 2, 3, 4].map((slot) => {
+                const player = onlinePlayers.find((item) => item.slot === slot);
+                return (
+                  <div
+                    key={slot}
+                    className={`sn-online-player-card ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""}`}
+                    style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
+                  >
+                    <span>P{slot}</span>
+                    <strong>{player?.name || "---"}</strong>
+                    <small>{player ? (player.ready ? "READY" : "NO READY") : "VAZIO"}</small>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="sn-local-lobby-actions sn-online-actions">
+              <button
+                type="button"
+                className={!onlineConnected ? "is-disabled" : ""}
+                onClick={alternarReadyOnline}
+              >
+                {onlineIsReady ? "CANCELAR READY" : "READY"}
+              </button>
+              <button
+                type="button"
+                className={!onlineCanStart ? "is-disabled" : ""}
+                onClick={() => {
+                  if (!onlineCanStart) {
+                    setOnlineStatus("Precisa de 2+ players conectados e READY.");
+                    return;
+                  }
+                  setOnlineStatus("Conexão pronta. Próxima etapa: ligar esse lobby no PvP Core.");
+                }}
+              >
+                INICIAR ONLINE
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  limparConexaoOnline();
+                  setEstado("multiplayerMenu");
+                }}
+              >
+                VOLTAR
+              </button>
+            </div>
+
+            <p className="game-menu-help">
+              Ping: {onlinePing === null ? "--" : `${onlinePing}ms`} · Você: {onlineSlot ? `P${onlineSlot}` : "--"} · R: ready · ESC/Q: voltar
+            </p>
           </aside>
         </section>
       )}
