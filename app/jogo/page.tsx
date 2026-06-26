@@ -92,6 +92,15 @@ type OnlinePlayer = {
   connected?: boolean;
 };
 
+type OnlineFlow = "choose" | "create" | "join";
+type OnlineFeedback = "idle" | "loading" | "success" | "error";
+type InputDeviceChoice = {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+};
+
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
 
 type DanielExpression = "normal" | "alert" | "happy" | "fear" | "serious";
@@ -1331,6 +1340,28 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
+
+const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
+  { id: "keyboard", label: "TECLADO", description: "WASD/SETAS + binds atuais", icon: "⌨" },
+  { id: "touch", label: "TOUCH", description: "Controles na tela do celular", icon: "☝" },
+  { id: "gamepad", label: "CONTROLE", description: "Gamepad detectado pelo navegador", icon: "🎮" },
+  { id: "auto", label: "AUTO", description: "Usa o último input ativo", icon: "✦" },
+];
+
+function labelModoMultiplayer(mode: GameMode) {
+  if (mode === "localCoop") return "COOP";
+  if (mode === "localScore") return "DISPUTA";
+  if (mode === "localPvp") return "PVP";
+  if (mode === "infinite") return "INFINITO";
+  return "HISTÓRIA";
+}
+
+function descricaoModoMultiplayer(mode: GameMode) {
+  if (mode === "localCoop") return "Todos contra as waves.";
+  if (mode === "localScore") return "Coop com disputa de pontos.";
+  if (mode === "localPvp") return "Arena, rounds e caos.";
+  return "Modo especial.";
+}
 
 const LEADERBOARD_KEY = "spaceNews.infiniteLeaderboard.v2";
 const DEBUG_SEQUENCE = "170626";
@@ -2702,6 +2733,13 @@ export default function JogoPage() {
   const [onlinePing, setOnlinePing] = useState<number | null>(null);
   const [onlineWsUrl, setOnlineWsUrl] = useState("");
   const [onlineSlot, setOnlineSlot] = useState(0);
+  const [onlineFlow, setOnlineFlow] = useState<OnlineFlow>("choose");
+  const [onlineFeedback, setOnlineFeedback] = useState<OnlineFeedback>("idle");
+  const [onlineCheckingRoom, setOnlineCheckingRoom] = useState(false);
+  const [onlineSelectedMode, setOnlineSelectedMode] = useState<GameMode>("localPvp");
+  const [onlineModeVotes, setOnlineModeVotes] = useState<Record<number, GameMode>>({});
+  const [onlineDeviceIndex, setOnlineDeviceIndex] = useState(0);
+  const [onlineMenuIndex, setOnlineMenuIndex] = useState(0);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
     flashWhite: false,
     flashBlur: false,
@@ -2833,6 +2871,10 @@ export default function JogoPage() {
   const onlinePingTimerRef = useRef<number | null>(null);
   const onlinePingStartedAtRef = useRef(0);
   const onlineSlotRef = useRef(0);
+  const onlineMenuIndexRef = useRef(0);
+  const onlineFlowRef = useRef<OnlineFlow>("choose");
+  const onlineSelectedModeRef = useRef<GameMode>("localPvp");
+  const onlineDeviceIndexRef = useRef(0);
   const playerAnimRef = useRef(
     new AnimatedSprite(
       "player",
@@ -3233,6 +3275,31 @@ export default function JogoPage() {
     setPauseIndex(safeIndex);
   }
 
+  function setIndiceOnlineMenu(index: number) {
+    const max = onlineConnected ? 8 : 6;
+    const safeIndex = ((index % max) + max) % max;
+    onlineMenuIndexRef.current = safeIndex;
+    setOnlineMenuIndex(safeIndex);
+  }
+
+  function setFluxoOnline(flow: OnlineFlow) {
+    onlineFlowRef.current = flow;
+    setOnlineFlow(flow);
+    setIndiceOnlineMenu(0);
+    tocarSom(CONFIG.sounds.menuMove, 0.25, "menu");
+  }
+
+  function setDispositivoOnline(index: number) {
+    const safeIndex = ((index % INPUT_DEVICE_CHOICES.length) + INPUT_DEVICE_CHOICES.length) % INPUT_DEVICE_CHOICES.length;
+    onlineDeviceIndexRef.current = safeIndex;
+    setOnlineDeviceIndex(safeIndex);
+    tocarSom(CONFIG.sounds.menuMove, 0.25, "menu");
+  }
+
+  function dispositivoOnlineAtual() {
+    return INPUT_DEVICE_CHOICES[onlineDeviceIndexRef.current] ?? INPUT_DEVICE_CHOICES[0];
+  }
+
   function atualizarSlotsLocais(
     updater: typeof localPlayerSlots | ((current: typeof localPlayerSlots) => typeof localPlayerSlots),
   ) {
@@ -3310,14 +3377,20 @@ export default function JogoPage() {
     const clean = value
       .normalize("NFKD")
       .replace(/[\u0300-\u036f]/g, "")
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "")
-      .slice(0, 3);
-    return clean.padEnd(3, "X").slice(0, 3);
+      .replace(/[^\p{L}0-9 _.-]/gu, "")
+      .replace(/\s+/g, " ")
+      .trimStart()
+      .slice(0, 16);
+    return clean;
+  }
+
+  function nomeOnlineSeguro() {
+    const clean = limparNomeOnline(onlinePlayerName || "").trim();
+    return clean.length >= 2 ? clean : "Player";
   }
 
   function limparCodigoSalaOnline(value: string) {
-    return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
+    return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
   }
 
   function obterOnlineHttpBase() {
@@ -3336,6 +3409,16 @@ export default function JogoPage() {
 
   function montarWsUrlOnline(room: string) {
     return `${obterOnlineWsBase()}/room/${limparCodigoSalaOnline(room)}/ws`;
+  }
+
+  function feedbackOnline(kind: OnlineFeedback, message: string) {
+    setOnlineFeedback(kind);
+    setOnlineStatus(message);
+    if (kind === "success") tocarSom(CONFIG.sounds.menuConfirm, 0.36, "menu");
+    if (kind === "error") tocarSom(CONFIG.sounds.menuBack, 0.42, "menu");
+    window.setTimeout(() => {
+      setOnlineFeedback((current) => (current === kind ? "idle" : current));
+    }, kind === "loading" ? 900 : 1800);
   }
 
   function limparConexaoOnline() {
@@ -3378,21 +3461,42 @@ export default function JogoPage() {
     }, 1800);
   }
 
+  function aplicarEstadoSalaOnline(msg: any) {
+    const players = Array.isArray(msg.players) ? msg.players : [];
+    setOnlinePlayers(players);
+    setOnlineCanStart(Boolean(msg.canStart));
+    const selected = (msg.selectedMode || "localPvp") as GameMode;
+    onlineSelectedModeRef.current = selected;
+    setOnlineSelectedMode(selected);
+    setOnlineModeVotes(msg.modeVotes || {});
+    const mySlot = onlineSlotRef.current;
+    const me = players.find((player: OnlinePlayer) => player.slot === mySlot);
+    setOnlineIsReady(Boolean(me?.ready));
+    if (players.length < 2) {
+      setOnlineStatus("Sala aberta. Mande o código e espere outro player entrar.");
+    } else if (!msg.canStart) {
+      setOnlineStatus("Escolham o modo e deixem todo mundo em READY.");
+    } else {
+      setOnlineStatus("Tudo pronto. Confirme INICIAR para disparar a partida.");
+      setOnlineFeedback("success");
+    }
+  }
+
   function conectarSalaOnline(wsUrl: string, room: string) {
     limparConexaoOnline();
     const safeRoom = limparCodigoSalaOnline(room);
-    const safeName = limparNomeOnline(onlinePlayerName || "NIC");
+    const safeName = nomeOnlineSeguro();
     setOnlinePlayerName(safeName);
     setOnlineRoomCode(safeRoom);
     setOnlineWsUrl(wsUrl);
     setOnlinePlayers([]);
-    setOnlineStatus(`Conectando na sala ${safeRoom}...`);
+    feedbackOnline("loading", `Conectando na sala ${safeRoom}...`);
 
     let ws: WebSocket;
     try {
       ws = new WebSocket(wsUrl);
     } catch {
-      setOnlineStatus("URL de WebSocket inválida. Confira NEXT_PUBLIC_SPACE_NEWS_WS_URL.");
+      feedbackOnline("error", "URL de WebSocket inválida. Confira NEXT_PUBLIC_SPACE_NEWS_WS_URL.");
       return;
     }
 
@@ -3400,8 +3504,12 @@ export default function JogoPage() {
 
     ws.onopen = () => {
       setOnlineConnected(true);
-      setOnlineStatus("Conectado. Entrando na sala...");
-      enviarOnline({ type: "join", name: safeName, device: "browser" });
+      feedbackOnline("success", "Sala encontrada. Registrando jogador...");
+      enviarOnline({
+        type: "join",
+        name: safeName,
+        device: dispositivoOnlineAtual().label,
+      });
       iniciarPingOnline();
     };
 
@@ -3414,7 +3522,7 @@ export default function JogoPage() {
       }
 
       if (msg.type === "hello") {
-        setOnlineStatus("Servidor respondeu. Registrando jogador...");
+        setOnlineStatus("Servidor respondeu. Entrando na sala...");
         return;
       }
 
@@ -3422,24 +3530,19 @@ export default function JogoPage() {
         const slot = Number(msg.player?.slot || 0);
         onlineSlotRef.current = slot;
         setOnlineSlot(slot);
-        setOnlineStatus(`Você entrou como P${slot || "?"}. Aperte READY quando o outro player entrar.`);
+        feedbackOnline("success", `Você entrou como P${slot || "?"}. Escolha modo e READY.`);
         return;
       }
 
       if (msg.type === "room_state") {
-        const players = Array.isArray(msg.players) ? msg.players : [];
-        setOnlinePlayers(players);
-        setOnlineCanStart(Boolean(msg.canStart));
-        const mySlot = onlineSlotRef.current;
-        const me = players.find((player: OnlinePlayer) => player.slot === mySlot);
-        setOnlineIsReady(Boolean(me?.ready));
-        if (players.length < 2) {
-          setOnlineStatus("Aguardando outro jogador entrar com o código.");
-        } else if (!msg.canStart) {
-          setOnlineStatus("Sala com jogadores. Falta todo mundo ficar READY.");
-        } else {
-          setOnlineStatus("Tudo pronto. PvP online core será iniciado na próxima etapa.");
-        }
+        aplicarEstadoSalaOnline(msg);
+        return;
+      }
+
+      if (msg.type === "game_start") {
+        const mode = (msg.mode || onlineSelectedModeRef.current || "localPvp") as GameMode;
+        feedbackOnline("success", `Iniciando ${labelModoMultiplayer(mode)} online...`);
+        window.setTimeout(() => iniciarJogo(mode), 520);
         return;
       }
 
@@ -3450,12 +3553,12 @@ export default function JogoPage() {
       }
 
       if (msg.type === "error") {
-        setOnlineStatus(String(msg.error || "Erro na sala online."));
+        feedbackOnline("error", String(msg.error || "Erro na sala online."));
       }
     };
 
     ws.onerror = () => {
-      setOnlineStatus("Erro no WebSocket. Veja se o Worker está rodando/deployado.");
+      feedbackOnline("error", "Erro no WebSocket. Veja se o Worker está rodando/deployado.");
     };
 
     ws.onclose = () => {
@@ -3473,42 +3576,89 @@ export default function JogoPage() {
 
   async function criarSalaOnline() {
     tocarSom(CONFIG.sounds.menuConfirm, 0.34, "menu");
-    setOnlineStatus("Criando sala no Worker...");
+    setFluxoOnline("create");
+    setOnlineCheckingRoom(true);
+    feedbackOnline("loading", "Criando sala no Worker...");
     try {
       const response = await fetch(`${obterOnlineHttpBase()}/create`, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json() as { room?: string; wsUrl?: string };
       const room = limparCodigoSalaOnline(data.room || "");
       if (!room || !data.wsUrl) throw new Error("Resposta sem sala/wsUrl");
+      feedbackOnline("success", `Sala ${room} criada. Conectando...`);
       conectarSalaOnline(data.wsUrl, room);
     } catch {
-      setOnlineStatus("Não consegui criar sala. Rode npm run dev no Worker ou configure o subdomínio workers.dev.");
+      feedbackOnline("error", "Não consegui criar sala. Confira o Worker/URL workers.dev.");
+    } finally {
+      setOnlineCheckingRoom(false);
     }
   }
 
-  function entrarSalaOnline() {
+  async function conferirSalaOnline(room: string) {
+    const code = limparCodigoSalaOnline(room);
+    if (!code) return false;
+    const response = await fetch(`${obterOnlineHttpBase()}/check?room=${encodeURIComponent(code)}`, { cache: "no-store" });
+    if (!response.ok) return false;
+    const data = await response.json() as { exists?: boolean };
+    return Boolean(data.exists);
+  }
+
+  async function entrarSalaOnline() {
     const room = limparCodigoSalaOnline(onlineJoinCode);
-    if (room.length < 3) {
-      tocarSom(CONFIG.sounds.menuBack, 0.35, "menu");
-      setOnlineStatus("Digite um código de sala válido.");
+    if (room.length < 4) {
+      feedbackOnline("error", "Digite um código de sala válido.");
       return;
     }
-    tocarSom(CONFIG.sounds.menuConfirm, 0.34, "menu");
-    conectarSalaOnline(montarWsUrlOnline(room), room);
+    setFluxoOnline("join");
+    setOnlineCheckingRoom(true);
+    feedbackOnline("loading", `Procurando sala ${room}...`);
+    try {
+      const exists = await conferirSalaOnline(room);
+      if (!exists) {
+        feedbackOnline("error", `Sala ${room} não existe ou expirou.`);
+        return;
+      }
+      feedbackOnline("success", `Sala ${room} encontrada! Entrando...`);
+      conectarSalaOnline(montarWsUrlOnline(room), room);
+    } catch {
+      feedbackOnline("error", "Não consegui verificar a sala. Confira sua internet/Worker.");
+    } finally {
+      setOnlineCheckingRoom(false);
+    }
   }
 
   function alternarReadyOnline() {
     if (!onlineConnected) {
-      setOnlineStatus("Entre/crie uma sala antes de dar READY.");
+      feedbackOnline("error", "Entre/crie uma sala antes de dar READY.");
       return;
     }
     tocarSom(CONFIG.sounds.menuConfirm, 0.3, "menu");
     enviarOnline({ type: "ready", ready: !onlineIsReady });
   }
 
+  function votarModoOnline(mode: GameMode) {
+    onlineSelectedModeRef.current = mode;
+    setOnlineSelectedMode(mode);
+    tocarSom(CONFIG.sounds.menuMove, 0.26, "menu");
+    if (onlineConnected) enviarOnline({ type: "vote_mode", mode });
+  }
+
+  function iniciarPartidaOnline() {
+    if (!onlineConnected) {
+      feedbackOnline("error", "Entre em uma sala antes de iniciar.");
+      return;
+    }
+    if (!onlineCanStart) {
+      feedbackOnline("error", "Precisa de 2+ players e todo mundo em READY.");
+      return;
+    }
+    tocarSom(CONFIG.sounds.menuConfirm, 0.42, "menu");
+    enviarOnline({ type: "start", mode: onlineSelectedModeRef.current });
+  }
+
   function sairSalaOnline() {
     if (!onlineConnected && !onlineRoomCode) {
-      setOnlineStatus("Você ainda não está em uma sala.");
+      feedbackOnline("error", "Você ainda não está em uma sala.");
       return;
     }
     tocarSom(CONFIG.sounds.menuBack, 0.34, "menu");
@@ -3520,18 +3670,18 @@ export default function JogoPage() {
     setOnlineCanStart(false);
     setOnlineIsReady(false);
     setOnlineJoinCode("");
+    setOnlineFeedback("idle");
     setOnlineStatus("Você saiu da sala. Crie outra sala ou entre com código.");
   }
 
   async function copiarCodigoSalaOnline() {
     if (!onlineRoomCode) {
-      setOnlineStatus("Crie uma sala primeiro para copiar o código.");
+      feedbackOnline("error", "Crie uma sala primeiro para copiar o código.");
       return;
     }
     try {
       await navigator.clipboard?.writeText(onlineRoomCode);
-      tocarSom(CONFIG.sounds.menuConfirm, 0.28, "menu");
-      setOnlineStatus(`Código ${onlineRoomCode} copiado. Envie para seu amigo entrar.`);
+      feedbackOnline("success", `Código ${onlineRoomCode} copiado. Envie para seu amigo entrar.`);
     } catch {
       setOnlineStatus(`Código da sala: ${onlineRoomCode}`);
     }
@@ -3542,6 +3692,7 @@ export default function JogoPage() {
     setOnlinePlayers([]);
     setOnlineRoomCode("");
     setOnlineWsUrl("");
+    setOnlineFeedback("idle");
     setOnlineStatus("Crie uma sala ou entre com código.");
     tocarSom(CONFIG.sounds.menuBack, 0.36, "menu");
     setEstado("multiplayerMenu");
@@ -3549,7 +3700,9 @@ export default function JogoPage() {
 
   function abrirLobbyOnline() {
     tocarSom(CONFIG.sounds.menuConfirm, 0.38, "menu");
-    setOnlineStatus("Crie uma sala ou entre com código.");
+    setOnlineStatus("Escolha criar ou entrar em uma sala.");
+    setOnlineFeedback("idle");
+    setFluxoOnline("choose");
     setEstado("onlineLobby");
   }
 
@@ -4117,13 +4270,37 @@ export default function JogoPage() {
 
     if (gameStateRef.current === "onlineLobby") {
       if (botaoControleAcionado("gamepadBackButton")) {
-        limparConexaoOnline();
-        setEstado("multiplayerMenu");
+        fecharLobbyOnline();
+        return;
+      }
+      if (consumirDirecaoMenu("up") || consumirDirecaoMenu("left")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+        setIndiceOnlineMenu(onlineMenuIndexRef.current - 1);
+        return;
+      }
+      if (consumirDirecaoMenu("down") || consumirDirecaoMenu("right")) {
+        tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+        setIndiceOnlineMenu(onlineMenuIndexRef.current + 1);
         return;
       }
       if (botaoControleAcionado("gamepadConfirmButton")) {
-        if (!onlineConnected) criarSalaOnline();
-        else alternarReadyOnline();
+        const index = onlineMenuIndexRef.current;
+        if (!onlineConnected) {
+          if (index === 0) setFluxoOnline("create");
+          else if (index === 1) setFluxoOnline("join");
+          else if (index === 2) setDispositivoOnline(onlineDeviceIndexRef.current + 1);
+          else if (onlineFlowRef.current === "create") criarSalaOnline();
+          else if (onlineFlowRef.current === "join") entrarSalaOnline();
+          return;
+        }
+        if (index === 0) alternarReadyOnline();
+        else if (index === 1) iniciarPartidaOnline();
+        else if (index === 2) votarModoOnline("localPvp");
+        else if (index === 3) votarModoOnline("localCoop");
+        else if (index === 4) votarModoOnline("localScore");
+        else if (index === 5) setDispositivoOnline(onlineDeviceIndexRef.current + 1);
+        else if (index === 6) copiarCodigoSalaOnline();
+        else if (index === 7) sairSalaOnline();
         return;
       }
     }
@@ -13337,12 +13514,41 @@ export default function JogoPage() {
 
       if (gameStateRef.current === "onlineLobby") {
         if (key === "escape" || key === "q") {
-          limparConexaoOnline();
-          setEstado("multiplayerMenu");
+          fecharLobbyOnline();
+          return;
+        }
+        if (["arrowleft", "a", "arrowup", "w"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+          setIndiceOnlineMenu(onlineMenuIndexRef.current - 1);
+          return;
+        }
+        if (["arrowright", "d", "arrowdown", "s"].includes(key)) {
+          tocarSom(CONFIG.sounds.menuMove, 0.28, "menu");
+          setIndiceOnlineMenu(onlineMenuIndexRef.current + 1);
           return;
         }
         if (key === "r") {
           alternarReadyOnline();
+          return;
+        }
+        if (key === "enter" || key === " ") {
+          const index = onlineMenuIndexRef.current;
+          if (!onlineConnected) {
+            if (index === 0) setFluxoOnline("create");
+            else if (index === 1) setFluxoOnline("join");
+            else if (index === 2) setDispositivoOnline(onlineDeviceIndexRef.current + 1);
+            else if (onlineFlowRef.current === "create") criarSalaOnline();
+            else if (onlineFlowRef.current === "join") entrarSalaOnline();
+            return;
+          }
+          if (index === 0) alternarReadyOnline();
+          else if (index === 1) iniciarPartidaOnline();
+          else if (index === 2) votarModoOnline("localPvp");
+          else if (index === 3) votarModoOnline("localCoop");
+          else if (index === 4) votarModoOnline("localScore");
+          else if (index === 5) setDispositivoOnline(onlineDeviceIndexRef.current + 1);
+          else if (index === 6) copiarCodigoSalaOnline();
+          else if (index === 7) sairSalaOnline();
           return;
         }
       }
@@ -14505,174 +14711,287 @@ export default function JogoPage() {
         <section className="game-screen sn-local-mode-screen">
           <aside className="sn-local-panel">
             <p className="game-panel-label">LOCAL READY</p>
-            <h2>ESCOLHA O MODO</h2>
-            <div className="sn-multiplayer-options">
+            <h2 className="sn-wobble-title">VOTAÇÃO DE MODO</h2>
+            <p className="sn-local-subtitle">Escolha o modo como se fosse uma votação arcade. ENTER/A inicia o card selecionado.</p>
+            <div className="sn-mode-vote-grid-v3 is-local-vote">
               {LOCAL_MODE_OPTIONS.map((option, index) => {
                 const selected = localModeIndex === index;
                 return (
                   <button
                     key={option.label}
                     type="button"
-                    className={`sn-multiplayer-option ${selected ? "is-selected" : ""}`}
+                    className={`sn-mode-vote-card-v3 sn-squish-ui ${selected ? "is-selected" : ""}`}
+                    style={{ "--vote-color": LOCAL_PLAYER_COLORS[index] } as CSSProperties}
                     onMouseEnter={() => setIndiceModoLocal(index)}
                     onFocus={() => setIndiceModoLocal(index)}
                     onClick={() => iniciarJogo(option.mode)}
                   >
                     <strong>{option.label}</strong>
-                    <span>{option.description}</span>
+                    <small>{option.description}</small>
+                    <span className="sn-vote-dots-v3">
+                      {localPlayerSlots.filter((slot) => slot.ready).map((slot) => (
+                        <b key={slot.id} style={{ backgroundColor: slot.color }}>P{slot.id}</b>
+                      ))}
+                    </span>
                   </button>
                 );
               })}
             </div>
-            <button type="button" className="sn-local-back" onClick={() => setEstado("localLobby")}>VOLTAR AO LOBBY</button>
-            <p className="game-menu-help">Players prontos: {totalJogadoresLocaisProntos()}</p>
+            <button type="button" className="sn-local-back sn-squish-ui" onClick={() => setEstado("localLobby")}>VOLTAR AO LOBBY</button>
+            <p className="game-menu-help">Players prontos: {totalJogadoresLocaisProntos()} · o modo selecionado vira a arena inicial.</p>
           </aside>
         </section>
       )}
 
       {gameState === "onlineLobby" && (
-        <section className="game-screen sn-online-lobby-screen">
-          <aside className="sn-online-panel sn-online-panel-v2">
+        <section className="game-screen sn-online-lobby-screen sn-online-lobby-screen-v3">
+          <aside className={`sn-online-panel sn-online-panel-v3 is-${onlineFlow} is-${onlineFeedback}`}>
             <button
               type="button"
-              className="sn-online-close"
+              className="sn-online-close sn-squish-ui"
               onClick={fecharLobbyOnline}
               aria-label="Fechar multiplayer online"
-              title="Voltar ao multiplayer"
+              title="Voltar"
             >
               ×
             </button>
 
-            <header className="sn-online-header-v2">
+            <header className="sn-online-hero-v3">
               <div>
                 <p className="game-panel-label">MULTIPLAYER ONLINE</p>
-                <h2>SPACE LINK</h2>
+                <h2 className="sn-wobble-title">SPACE LINK</h2>
                 <p>
-                  Crie uma sala, mande o código para seu amigo e deixe todo mundo em READY.
-                  O PvP online entra depois que a conexão estiver estável.
+                  Crie uma sala, compartilhe o código ou entre na sala de um amigo.
+                  Quando todos estiverem em READY, a votação decide o modo.
                 </p>
               </div>
-              <div className={`sn-online-signal ${onlineConnected ? "is-on" : "is-off"}`}>
+              <div className={`sn-online-signal sn-squish-ui ${onlineConnected ? "is-on" : "is-off"}`}>
                 <span />
                 <strong>{onlineConnected ? "ONLINE" : "OFFLINE"}</strong>
                 <small>{onlinePing === null ? "PING --" : `PING ${onlinePing}ms`}</small>
               </div>
             </header>
 
-            <div className="sn-online-stage-v2">
-              <section className="sn-online-command-card">
-                <div className="sn-online-step-row">
-                  <span className={onlineConnected ? "is-done" : "is-active"}>1 · CONECTAR</span>
-                  <span className={onlinePlayers.length >= 2 ? "is-done" : onlineConnected ? "is-active" : ""}>2 · ESPERAR PLAYER</span>
-                  <span className={onlineCanStart ? "is-done" : onlinePlayers.length >= 2 ? "is-active" : ""}>3 · READY</span>
-                </div>
+            <div className={`sn-online-feedback-v3 is-${onlineFeedback}`} aria-live="polite">
+              <span className="sn-online-feedback-orb" />
+              <strong>{onlineFeedback === "loading" ? "CARREGANDO" : onlineFeedback === "success" ? "ACHOU!" : onlineFeedback === "error" ? "OPS!" : onlineConnected ? `SALA ${onlineRoomCode}` : "SPACE LINK"}</strong>
+              <p>{onlineStatus}</p>
+            </div>
 
-                <div className="sn-online-status-card sn-online-status-card-v2">
-                  <strong>{onlineConnected ? `SALA ${onlineRoomCode}` : "DESCONECTADO"}</strong>
-                  <span>{onlineStatus}</span>
-                  <small>Servidor: {obterOnlineHttpBase()}</small>
-                </div>
+            <div className="sn-online-layout-v3">
+              <section className="sn-online-left-v3">
+                {!onlineConnected && (
+                  <>
+                    <div className="sn-online-choice-v3" role="tablist" aria-label="Escolha criar ou entrar">
+                      <button
+                        type="button"
+                        className={`sn-online-choice-card sn-squish-ui ${onlineFlow === "create" ? "is-active" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
+                        onMouseEnter={() => setIndiceOnlineMenu(0)}
+                        onFocus={() => setIndiceOnlineMenu(0)}
+                        onClick={() => setFluxoOnline("create")}
+                      >
+                        <span>＋</span>
+                        <strong>VOU CRIAR</strong>
+                        <small>gera um código novo</small>
+                      </button>
+                      <button
+                        type="button"
+                        className={`sn-online-choice-card sn-squish-ui ${onlineFlow === "join" ? "is-active" : ""} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
+                        onMouseEnter={() => setIndiceOnlineMenu(1)}
+                        onFocus={() => setIndiceOnlineMenu(1)}
+                        onClick={() => setFluxoOnline("join")}
+                      >
+                        <span>⌁</span>
+                        <strong>VOU ENTRAR</strong>
+                        <small>usa o código do amigo</small>
+                      </button>
+                    </div>
 
-                <div className="sn-online-code-display" aria-live="polite">
-                  <span>CÓDIGO DA SALA</span>
-                  <strong>{onlineRoomCode || "------"}</strong>
-                  <button type="button" onClick={copiarCodigoSalaOnline} className={!onlineRoomCode ? "is-disabled" : ""}>
-                    COPIAR
-                  </button>
-                </div>
+                    <div className="sn-online-form-v3">
+                      <label className="sn-online-name-field-v3">
+                        <span>NOME DO PLAYER</span>
+                        <input
+                          value={onlinePlayerName}
+                          maxLength={16}
+                          onChange={(event) => setOnlinePlayerName(limparNomeOnline(event.target.value))}
+                          placeholder="Ninick"
+                          autoComplete="nickname"
+                        />
+                      </label>
 
-                <div className="sn-online-controls sn-online-controls-v2">
-                  <label className="sn-online-name-field">
-                    NOME
-                    <input
-                      value={onlinePlayerName}
-                      maxLength={3}
-                      onChange={(event) => setOnlinePlayerName(limparNomeOnline(event.target.value))}
-                      placeholder="NIC"
-                    />
-                  </label>
+                      <div className={`sn-device-picker sn-squish-ui ${onlineMenuIndex === 2 ? "is-gamepad-selected" : ""}`}>
+                        <span>DISPOSITIVO</span>
+                        <button type="button" onClick={() => setDispositivoOnline(onlineDeviceIndex - 1)} aria-label="Dispositivo anterior">‹</button>
+                        <strong>{INPUT_DEVICE_CHOICES[onlineDeviceIndex]?.icon} {INPUT_DEVICE_CHOICES[onlineDeviceIndex]?.label}</strong>
+                        <button type="button" onClick={() => setDispositivoOnline(onlineDeviceIndex + 1)} aria-label="Próximo dispositivo">›</button>
+                        <small>{INPUT_DEVICE_CHOICES[onlineDeviceIndex]?.description}</small>
+                      </div>
 
-                  <button type="button" className="sn-online-primary-action" onClick={criarSalaOnline}>
-                    CRIAR SALA
-                    <small>gera um código novo</small>
-                  </button>
+                      {onlineFlow === "choose" && (
+                        <div className="sn-online-empty-action-v3">
+                          <strong>ESCOLHA UMA OPÇÃO</strong>
+                          <span>Você pode criar uma sala ou entrar com o código de alguém.</span>
+                        </div>
+                      )}
 
-                  <label className="sn-online-code-field">
-                    ENTRAR COM CÓDIGO
-                    <input
-                      value={onlineJoinCode}
-                      maxLength={10}
-                      onChange={(event) => setOnlineJoinCode(limparCodigoSalaOnline(event.target.value))}
-                      placeholder="ABC123"
-                    />
-                  </label>
+                      {onlineFlow === "create" && (
+                        <div className="sn-online-action-zone-v3">
+                          <div className="sn-online-big-code-v3">
+                            <span>CÓDIGO DA SALA</span>
+                            <strong>{onlineRoomCode || "------"}</strong>
+                          </div>
+                          <button
+                            type="button"
+                            className={`sn-online-main-button-v3 sn-squish-ui ${onlineMenuIndex === 3 ? "is-gamepad-selected" : ""}`}
+                            onMouseEnter={() => setIndiceOnlineMenu(3)}
+                            onFocus={() => setIndiceOnlineMenu(3)}
+                            onClick={criarSalaOnline}
+                            disabled={onlineCheckingRoom}
+                          >
+                            {onlineCheckingRoom ? "CRIANDO..." : "CRIAR SALA"}
+                          </button>
+                        </div>
+                      )}
 
-                  <button type="button" onClick={entrarSalaOnline}>
-                    ENTRAR
-                    <small>usa o código do amigo</small>
-                  </button>
-                </div>
+                      {onlineFlow === "join" && (
+                        <div className="sn-online-action-zone-v3">
+                          <label className="sn-online-code-field-v3">
+                            <span>CÓDIGO DO AMIGO</span>
+                            <input
+                              value={onlineJoinCode}
+                              maxLength={12}
+                              onChange={(event) => setOnlineJoinCode(limparCodigoSalaOnline(event.target.value))}
+                              placeholder="ABC123"
+                              inputMode="text"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className={`sn-online-main-button-v3 sn-squish-ui ${onlineMenuIndex === 3 ? "is-gamepad-selected" : ""}`}
+                            onMouseEnter={() => setIndiceOnlineMenu(3)}
+                            onFocus={() => setIndiceOnlineMenu(3)}
+                            onClick={entrarSalaOnline}
+                            disabled={onlineCheckingRoom}
+                          >
+                            {onlineCheckingRoom ? "PROCURANDO..." : "ENTRAR NA SALA"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {onlineConnected && (
+                  <>
+                    <div className="sn-online-room-banner-v3">
+                      <span>SALA</span>
+                      <strong>{onlineRoomCode}</strong>
+                      <button
+                        type="button"
+                        className={`sn-squish-ui ${onlineMenuIndex === 6 ? "is-gamepad-selected" : ""}`}
+                        onMouseEnter={() => setIndiceOnlineMenu(6)}
+                        onFocus={() => setIndiceOnlineMenu(6)}
+                        onClick={copiarCodigoSalaOnline}
+                      >
+                        COPIAR
+                      </button>
+                    </div>
+
+                    <div className="sn-mode-vote-panel-v3">
+                      <header>
+                        <strong>VOTAÇÃO DE MODO</strong>
+                        <span>{labelModoMultiplayer(onlineSelectedMode)} selecionado</span>
+                      </header>
+                      <div className="sn-mode-vote-grid-v3">
+                        {LOCAL_MODE_OPTIONS.map((option, index) => {
+                          const votes = Object.entries(onlineModeVotes).filter(([, mode]) => mode === option.mode);
+                          const selected = onlineSelectedMode === option.mode;
+                          return (
+                            <button
+                              key={option.mode}
+                              type="button"
+                              className={`sn-mode-vote-card-v3 sn-squish-ui ${selected ? "is-selected" : ""} ${onlineMenuIndex === index + 2 ? "is-gamepad-selected" : ""}`}
+                              style={{ "--vote-color": LOCAL_PLAYER_COLORS[index] } as CSSProperties}
+                              onMouseEnter={() => setIndiceOnlineMenu(index + 2)}
+                              onFocus={() => setIndiceOnlineMenu(index + 2)}
+                              onClick={() => votarModoOnline(option.mode)}
+                            >
+                              <strong>{option.label}</strong>
+                              <small>{option.description}</small>
+                              <span className="sn-vote-dots-v3">
+                                {votes.length === 0 ? <em>sem votos</em> : votes.map(([slot]) => (
+                                  <b key={slot} style={{ backgroundColor: LOCAL_PLAYER_COLORS[Number(slot) - 1] }}>P{slot}</b>
+                                ))}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </section>
 
-              <section className="sn-online-players-panel">
-                <div className="sn-online-section-title">
+              <section className="sn-online-right-v3">
+                <div className="sn-online-section-title-v3">
                   <strong>TRIPULAÇÃO</strong>
                   <span>{onlinePlayers.length}/4 conectados</span>
                 </div>
-                <div className="sn-online-room-grid sn-online-room-grid-v2">
+                <div className="sn-online-room-grid-v3">
                   {[1, 2, 3, 4].map((slot) => {
                     const player = onlinePlayers.find((item) => item.slot === slot);
                     return (
                       <div
                         key={slot}
-                        className={`sn-online-player-card ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""}`}
+                        className={`sn-online-player-card-v3 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""}`}
                         style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
                       >
                         <span>P{slot}</span>
                         <strong>{player?.name || "---"}</strong>
-                        <small>{player ? (player.ready ? "READY" : "AGUARDANDO") : "VAZIO"}</small>
+                        <small>{player ? (player.ready ? "READY" : "UNREADY") : "VAZIO"}</small>
+                        <em>{player?.device || "sem dispositivo"}</em>
                       </div>
                     );
                   })}
                 </div>
+
+                <div className="sn-online-actions-v3">
+                  <button
+                    type="button"
+                    className={`sn-squish-ui ${!onlineConnected ? "is-disabled" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
+                    onMouseEnter={() => setIndiceOnlineMenu(0)}
+                    onFocus={() => setIndiceOnlineMenu(0)}
+                    onClick={alternarReadyOnline}
+                    disabled={!onlineConnected}
+                  >
+                    {onlineIsReady ? "UNREADY" : "READY"}
+                  </button>
+                  <button
+                    type="button"
+                    className={`sn-squish-ui ${!onlineCanStart ? "is-disabled" : "sn-online-start-ready"} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
+                    onMouseEnter={() => setIndiceOnlineMenu(1)}
+                    onFocus={() => setIndiceOnlineMenu(1)}
+                    onClick={iniciarPartidaOnline}
+                    disabled={!onlineCanStart}
+                  >
+                    INICIAR {labelModoMultiplayer(onlineSelectedMode)}
+                  </button>
+                  <button
+                    type="button"
+                    className={`sn-squish-ui ${!onlineConnected ? "is-disabled" : "sn-online-danger"} ${onlineMenuIndex === 7 ? "is-gamepad-selected" : ""}`}
+                    onMouseEnter={() => setIndiceOnlineMenu(7)}
+                    onFocus={() => setIndiceOnlineMenu(7)}
+                    onClick={sairSalaOnline}
+                    disabled={!onlineConnected}
+                  >
+                    SAIR DA SALA
+                  </button>
+                </div>
               </section>
             </div>
 
-            <footer className="sn-online-footer-v2">
-              <button
-                type="button"
-                className={!onlineConnected ? "is-disabled" : ""}
-                onClick={alternarReadyOnline}
-              >
-                {onlineIsReady ? "CANCELAR READY" : "FICAR READY"}
-              </button>
-              <button
-                type="button"
-                className={!onlineCanStart ? "is-disabled" : "sn-online-start-ready"}
-                onClick={() => {
-                  if (!onlineCanStart) {
-                    setOnlineStatus("Precisa de 2+ players conectados e todo mundo em READY.");
-                    return;
-                  }
-                  setOnlineStatus("Conexão pronta. Próxima etapa: iniciar o PvP online.");
-                }}
-              >
-                INICIAR ONLINE
-              </button>
-              <button
-                type="button"
-                className={!onlineConnected ? "is-disabled" : "sn-online-danger"}
-                onClick={sairSalaOnline}
-              >
-                SAIR DA SALA
-              </button>
-              <button type="button" onClick={fecharLobbyOnline}>
-                VOLTAR
-              </button>
-            </footer>
-
-            <p className="game-menu-help sn-online-help-v2">
-              Dica: abre duas abas para testar. Uma cria a sala, a outra entra com o código. ESC/Q volta.
+            <p className="game-menu-help sn-online-help-v3">
+              Gamepad: D-Pad/analógico navega · A confirma · B volta. No online você só muda seu nome, seu dispositivo e seu READY.
             </p>
           </aside>
         </section>
