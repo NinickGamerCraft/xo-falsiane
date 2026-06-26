@@ -42,6 +42,7 @@ type ClientMessage =
   | { type: "pause_request" }
   | { type: "pause_ready"; ready?: boolean }
   | { type: "ping"; t?: number }
+  | { type: "lobby_return_request" }
   | { type: "leave" };
 
 const EMPTY_INPUT: Required<PlayerInput> = {
@@ -137,7 +138,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "0.5.0" });
+      return json({ ok: true, service: "Space News Online", version: "0.6.0" });
     }
 
     if (url.pathname === "/create") {
@@ -383,6 +384,19 @@ export class GameRoom extends DurableObject<Env> {
 
     if (msg.type === "ping") {
       ws.send(JSON.stringify({ type: "pong", t: msg.t ?? Date.now(), serverTime: Date.now() }));
+      return;
+    }
+
+    if (msg.type === "lobby_return_request") {
+      if (session.slot !== 1 && this.gameActive) {
+        ws.send(JSON.stringify({ type: "error", error: "Só o host pode voltar todos ao lobby por enquanto." }));
+        return;
+      }
+      this.gameActive = false;
+      this.pauseRequestedBy = null;
+      this.pauseReadySlots.clear();
+      this.broadcast({ type: "lobby_return", room: this.roomCode, requestedBy: session.slot, t: Date.now() });
+      this.broadcastState();
       return;
     }
 

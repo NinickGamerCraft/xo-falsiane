@@ -225,6 +225,7 @@ type SpriteKey =
 type Shot = {
   id: number;
   ownerId?: 1 | 2;
+  bornAt?: number;
   stretchUntil: number;
   x: number;
   y: number;
@@ -1386,6 +1387,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
+const SPACE_NEWS_VERSION = "1.1.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -3085,6 +3087,22 @@ export default function JogoPage() {
     return onlineGameplayActiveRef.current && isLocalMode(currentModeRef.current);
   }
 
+  function espelharOnlinePvpVisual() {
+    return onlineGameplayActiveRef.current && onlineSlotRef.current > 1 && isLocalPvpMode(currentModeRef.current);
+  }
+
+  function hpPvpVisual(slot: 1 | 2) {
+    if (onlineGameplayActive && onlineSlot === 2) return slot === 1 ? player2Hp : playerHp;
+    return slot === 1 ? playerHp : player2Hp;
+  }
+
+  function labelPvpVisual(slot: 1 | 2) {
+    if (!onlineGameplayActive) return slot === 1 ? "P1" : "P2";
+    const mySlot = onlineSlot || 1;
+    if (slot === 1) return `VOCÊ · P${mySlot}`;
+    return `RIVAL · P${mySlot === 1 ? 2 : 1}`;
+  }
+
 
   function danoLocalPorJogador() {
     if (!isLocalWaveMode()) return 1;
@@ -3106,12 +3124,12 @@ export default function JogoPage() {
   }
 
   function danoPvpPorTipo(tipo: "normal" | "strong" | "boost" | "bump" | "power") {
-    // PvP agora usa 100 HP. Dano menor = mais troca de golpe, mais chance de comeback e menos round instantâneo.
-    if (tipo === "strong") return 9;
-    if (tipo === "boost") return 7;
-    if (tipo === "power") return 5;
+    // PvP 100 HP: dano mais baixo para rounds mais caóticos, com espaço para comeback e power-up.
+    if (tipo === "strong") return 7;
+    if (tipo === "boost") return 5;
+    if (tipo === "power") return 3;
     if (tipo === "bump") return 0;
-    return 2;
+    return 1;
   }
 
   function resetarReviveLocal() {
@@ -3172,19 +3190,20 @@ export default function JogoPage() {
     const maxAlive = mobileRuntimeRef.current ? (origin ? 3 : 2) : (origin ? 4 : 3);
     if (pvpPowerUps.length >= maxAlive) return;
 
-    const minDelay = origin ? 1350 : 5200;
+    const minDelay = origin ? 2400 : 6800;
     if (!force && now - lastPvpPowerDropAtRef.current < minDelay) return;
     lastPvpPowerDropAtRef.current = now;
 
     const cfg = CONFIG.gameplay.powerups;
     const id = powerUpIdRef.current++;
     const fromHit = Boolean(origin);
+    const hitDir = blockedPlayer === 2 ? -1 : 1;
     const startX = fromHit
-      ? clamp(origin!.x - cfg.width / 2 + rand(-18, 18), 58, CONFIG.canvasWidth - cfg.width - 58)
-      : rand(90, CONFIG.canvasWidth - cfg.width - 90);
+      ? clamp(origin!.x - cfg.width / 2 + rand(-12, 12), 58, CONFIG.canvasWidth - cfg.width - 58)
+      : rand(130, CONFIG.canvasWidth - cfg.width - 130);
     const startY = fromHit
-      ? clamp(origin!.y - cfg.height / 2 + rand(-18, 18), 72, CONFIG.canvasHeight - cfg.height - 78)
-      : -cfg.height - rand(12, 95);
+      ? clamp(origin!.y - cfg.height / 2 + rand(-16, 16), 86, CONFIG.canvasHeight - cfg.height - 86)
+      : -cfg.height - rand(24, 140);
 
     powerUpsRef.current.push({
       id,
@@ -3193,15 +3212,15 @@ export default function JogoPage() {
       y: startY,
       w: cfg.width,
       h: cfg.height,
-      // No PvP os drops do mapa caem de cima para baixo. Drops de dano saem do player e escorrem na arena.
-      vx: fromHit ? rand(-0.75, 0.75) : rand(-0.28, 0.28),
-      vy: fromHit ? rand(0.75, 1.15) : rand(1.05, 1.45),
+      // Drop automático: cai de cima. Drop por dano: sai do player atingido para fora dele.
+      vx: fromHit ? rand(1.15, 1.95) * hitDir : rand(-0.1, 0.1),
+      vy: fromHit ? rand(-0.2, 0.55) : rand(1.15, 1.65),
       age: 0,
-      life: Math.min(cfg.lifeMs, fromHit ? 7200 : 10500),
+      life: Math.min(cfg.lifeMs, fromHit ? 6200 : 9800),
       wavePhase: rand(0, Math.PI * 2),
       bornAt: now,
       blockedPlayer,
-      blockedUntil: blockedPlayer ? now + 1450 : undefined,
+      blockedUntil: blockedPlayer ? now + 1650 : undefined,
     });
 
     tocarSom(CONFIG.sounds.powerUpSpawn || CONFIG.sounds.abilityReady, 0.28, "ability");
@@ -3582,11 +3601,11 @@ export default function JogoPage() {
       localP2Score: localP2ScoreRef.current,
       localPvpRound: localPvpRoundRef.current,
       wave: { ...waveStateRef.current },
-      shots: shotsRef.current.slice(-80),
-      enemies: enemiesRef.current.slice(-80),
-      enemyProjectiles: enemyProjectilesRef.current.slice(-120),
-      bossProjectiles: bossProjectilesRef.current.slice(-80),
-      powerUps: powerUpsRef.current.slice(-18),
+      shots: shotsRef.current.slice(-48),
+      enemies: enemiesRef.current.slice(-56),
+      enemyProjectiles: enemyProjectilesRef.current.slice(-72),
+      bossProjectiles: bossProjectilesRef.current.slice(-48),
+      powerUps: powerUpsRef.current.slice(-10),
       boss: { ...bossRef.current },
     };
   }
@@ -3649,7 +3668,7 @@ export default function JogoPage() {
     const now = performance.now();
 
     if (onlineSlotRef.current === 1) {
-      if (now - onlineLastSyncSentAtRef.current < 80) return;
+      if (now - onlineLastSyncSentAtRef.current < 115) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -3882,7 +3901,17 @@ export default function JogoPage() {
 
       if (msg.type === "player_left") {
         const slot = Number(msg.slot || 0);
-        feedbackOnline("error", slot ? `P${slot} saiu da partida. Voltando ao lobby...` : "Um jogador saiu da partida. Voltando ao lobby...");
+        feedbackOnline("error", slot ? `P${slot} saiu da partida. Partida encerrada.` : "Um jogador saiu da partida. Partida encerrada.");
+        encerrarGameplayOnline();
+        limparCombate();
+        setOnlineCanStart(false);
+        setOnlineIsReady(false);
+        setEstado("onlineLobby");
+        return;
+      }
+
+      if (msg.type === "lobby_return") {
+        feedbackOnline("success", "Host voltou todos ao lobby online.");
         encerrarGameplayOnline();
         limparCombate();
         setEstado("onlineLobby");
@@ -9438,6 +9467,7 @@ export default function JogoPage() {
       shotsRef.current.push({
         id: shotIdRef.current++,
         ownerId: 1,
+        bornAt: now,
         stretchUntil:
           performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: player.x + player.w - 2,
@@ -9666,7 +9696,7 @@ export default function JogoPage() {
       const ghostLocal = isLocalWaveMode() && player.hp <= 0;
       const invincible = now < player.invincibleUntil;
 
-      if (!ghostLocal && invincible && Math.floor(now / 100) % 2 === 0) {
+      if (!ghostLocal && invincible && !onlineGameplayActiveRef.current && Math.floor(now / 100) % 2 === 0) {
         return;
       }
 
@@ -9920,6 +9950,7 @@ export default function JogoPage() {
       shotsRef.current.push({
         id: shotIdRef.current++,
         ownerId: 2,
+        bornAt: now,
         stretchUntil: performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: isLocalPvpMode() ? player.x - shotW + 2 : player.x + player.w - 2,
         y: player.y + player.h / 2 - shotH / 2,
@@ -10020,7 +10051,7 @@ export default function JogoPage() {
       setPlayer2Hp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#60a5fa", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode() && Math.random() < 0.12) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
+      if (isLocalPvpMode() && Math.random() < 0.055) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -10042,7 +10073,7 @@ export default function JogoPage() {
       setPlayerHp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode() && Math.random() < 0.12) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
+      if (isLocalPvpMode() && Math.random() < 0.055) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -10230,7 +10261,14 @@ export default function JogoPage() {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#fff";
-      ctx.fillText(label, centerX, arrowY - 12);
+      if (espelharOnlinePvpVisual()) {
+        ctx.save();
+        ctx.scale(-1, 1);
+        ctx.fillText(label, -centerX, arrowY - 12);
+        ctx.restore();
+      } else {
+        ctx.fillText(label, centerX, arrowY - 12);
+      }
       ctx.restore();
     }
 
@@ -10239,8 +10277,9 @@ export default function JogoPage() {
       if (!player || !isLocalMode()) return;
       const now = performance.now();
       const ghostLocal = isLocalWaveMode() && player.hp <= 0;
+      const shieldVisual = player.hp > 0 && now < player.invincibleUntil;
       if (!ghostLocal && player.hp <= 0 && Math.floor(now / 180) % 2 === 0) return;
-      if (!isLocalPvpMode() && !ghostLocal && now < player.invincibleUntil && Math.floor(now / 100) % 2 === 0) return;
+      if (!isLocalPvpMode() && !ghostLocal && shieldVisual && !onlineGameplayActiveRef.current && Math.floor(now / 100) % 2 === 0) return;
 
       const anim = playerAnimRef.current;
       anim.update(delta);
@@ -10280,6 +10319,22 @@ export default function JogoPage() {
         ctx.lineTo(-player.w / 2, player.h / 2);
         ctx.closePath();
         ctx.fill();
+      }
+      if (shieldVisual) {
+        const t = now * 0.006;
+        ctx.save();
+        ctx.globalAlpha = 0.38 + Math.sin(t * 2) * 0.1;
+        ctx.strokeStyle = LOCAL_PLAYER_COLORS[1];
+        ctx.lineWidth = 4;
+        ctx.shadowColor = "#67e8f9";
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, player.w * 0.7, player.h * 0.76, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = "#67e8f9";
+        ctx.fill();
+        ctx.restore();
       }
       ctx.restore();
     }
@@ -13215,7 +13270,7 @@ export default function JogoPage() {
       if (onlineGameplayActiveRef.current && onlineSlotRef.current !== 1 && gameStateRef.current === "playing") {
         // Cliente não-host renderiza o estado do host. Isso evita waves/random/game over diferentes e reduz lag no celular.
         aplicarSnapshotOnline(onlineLatestSnapshotRef.current as OnlineGameplaySnapshot);
-        atualizarParticulas(delta);
+        if (!mobileRuntimeRef.current && !adaptivePerformanceRef.current.reduced) atualizarParticulas(delta);
         atualizarPowerUpUi();
         setIsLowHp(false);
         return;
@@ -13230,7 +13285,7 @@ export default function JogoPage() {
         atualizarBossProjectiles(delta);
         atualizarCapturaAlien(delta, canvas);
         atualizarPowerUps(delta, canvas);
-      if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 7200) {
+      if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 9800) {
         spawnPowerUpPvp(false);
       }
         resolverPowerUps();
@@ -13471,17 +13526,23 @@ export default function JogoPage() {
           let vy = shot.vy ?? 0;
 
           if (shot.variant === "homing" || shot.variant === "powerHoming") {
-            const target = encontrarAlvoMaisProximo(
-              shot.x + shot.w / 2,
-              shot.y + shot.h / 2,
-            );
+            const homingAge = performance.now() - (shot.bornAt ?? performance.now());
+            const homingAllowed = !isLocalPvpMode() || homingAge < 1150;
+            const target = homingAllowed
+              ? encontrarAlvoMaisProximo(
+                  shot.x + shot.w / 2,
+                  shot.y + shot.h / 2,
+                )
+              : null;
             if (target) {
               const dx = target.x - (shot.x + shot.w / 2);
               const dy = target.y - (shot.y + shot.h / 2);
               const len = Math.max(0.001, Math.hypot(dx, dy));
               const desiredVx = (dx / len) * shot.speed;
               const desiredVy = (dy / len) * shot.speed;
-              const turn = CONFIG.gameplay.powerups.homingTurnRate;
+              const turn = isLocalPvpMode()
+                ? Math.min(0.045, CONFIG.gameplay.powerups.homingTurnRate * 0.42)
+                : CONFIG.gameplay.powerups.homingTurnRate;
               vx += (desiredVx - vx) * turn;
               vy += (desiredVy - vy) * turn;
               const currentLen = Math.max(0.001, Math.hypot(vx, vy));
@@ -13634,7 +13695,7 @@ export default function JogoPage() {
         atualizarInimigos(delta, canvas);
         atualizarBoss(delta);
         atualizarBossProjectiles(delta);
-      } else if (performance.now() - lastPvpPowerDropAtRef.current > 8500) {
+      } else if (performance.now() - lastPvpPowerDropAtRef.current > 9800) {
         spawnPowerUpPvp(false);
       }
       atualizarPowerUps(delta, canvas);
@@ -13847,6 +13908,13 @@ export default function JogoPage() {
 
       desenharFundo(renderCtx, renderCanvas, elapsedSinceRender);
 
+      const mirrorOnlinePvp = espelharOnlinePvpVisual();
+      if (mirrorOnlinePvp) {
+        renderCtx.save();
+        renderCtx.translate(renderCanvas.width, 0);
+        renderCtx.scale(-1, 1);
+      }
+
       for (const shot of shotsRef.current) desenharTiro(renderCtx, shot);
       for (const enemy of enemiesRef.current) desenharEnemy(renderCtx, enemy);
       desenharBoss(renderCtx);
@@ -13873,6 +13941,8 @@ export default function JogoPage() {
         desenharIndicadorJogadorLocal(renderCtx, player2Ref.current, "P2", LOCAL_PLAYER_COLORS[1]);
         desenharReviveLocal(renderCtx);
       }
+
+      if (mirrorOnlinePvp) renderCtx.restore();
 
       renderCtx.restore();
       desenharHUD(renderCtx);
@@ -14706,21 +14776,23 @@ export default function JogoPage() {
         </div>
       </div>
 
+      <div className="sn-version-badge">v{SPACE_NEWS_VERSION}</div>
+
       {onlineGameplayActive && isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (gameState === "playing" || gameState === "paused") && onlineMatchIntroUntil > Date.now() && (
         <div className="sn-online-vs-intro" aria-hidden="true">
           <div className="sn-online-vs-side is-p1">
-            <span>{`P${onlineSlot || 1} VOCÊ`}</span>
+            <span>{`P${onlineSlot || 1} · VOCÊ`}</span>
             <strong>{onlinePlayers.find((p) => p.slot === (onlineSlot || 1))?.name || `P${onlineSlot || 1}`}</strong>
           </div>
           <div className="sn-online-vs-core">VS</div>
           <div className="sn-online-vs-side is-p2">
-            <span>{`P${(onlineSlot || 1) === 1 ? 2 : 1}`}</span>
+            <span>{`P${(onlineSlot || 1) === 1 ? 2 : 1} · RIVAL`}</span>
             <strong>{onlinePlayers.find((p) => p.slot === ((onlineSlot || 1) === 1 ? 2 : 1))?.name || `P${(onlineSlot || 1) === 1 ? 2 : 1}`}</strong>
           </div>
         </div>
       )}
 
-      {onlineGameplayActive && onlinePauseRequestedBy && (gameState === "playing" || gameState === "paused") && (
+      {onlineGameplayActive && onlinePauseRequestedBy && gameState === "playing" && (
         <div className="sn-online-pause-queue">
           <strong>P{onlinePauseRequestedBy} quer pausar</strong>
           <span>{gameState === "playing" ? "A partida continua. Aperte pause para aceitar." : "Para voltar: cada jogador aperta READY/confirmar no pause."}</span>
@@ -14957,19 +15029,22 @@ export default function JogoPage() {
         isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (
           <div className="sn-pvp-scoreboard" aria-label="Placar e vida do PVP">
             <div className="sn-pvp-side is-p1">
-              <strong>P1</strong>
-              <span>{playerHp}/100 HP</span>
-              <div className="sn-pvp-life-track"><i style={{ width: `${clamp(playerHp / 100, 0, 1) * 100}%` }} /></div>
+              <strong>{labelPvpVisual(1)}</strong>
+              <span>{hpPvpVisual(1)}/100 HP</span>
+              <div className="sn-pvp-life-track"><i style={{ width: `${clamp(hpPvpVisual(1) / 100, 0, 1) * 100}%` }} /></div>
+              <em>{onlineGameplayActive ? "lado local" : "P1"}</em>
             </div>
             <div className="sn-pvp-round-core">
               <small>ROUND {localPvpRound}</small>
               <b>{localP1Score} × {localP2Score}</b>
               <span>melhor de 5</span>
+              <i>{activePowerUpsUi.length ? activePowerUpsUi.map((p) => p.label).join(" · ") : "sem power-up ativo"}</i>
             </div>
             <div className="sn-pvp-side is-p2">
-              <strong>P2</strong>
-              <span>{player2Hp}/100 HP</span>
-              <div className="sn-pvp-life-track"><i style={{ width: `${clamp(player2Hp / 100, 0, 1) * 100}%` }} /></div>
+              <strong>{labelPvpVisual(2)}</strong>
+              <span>{hpPvpVisual(2)}/100 HP</span>
+              <div className="sn-pvp-life-track"><i style={{ width: `${clamp(hpPvpVisual(2) / 100, 0, 1) * 100}%` }} /></div>
+              <em>{onlineGameplayActive ? "rival online" : "P2"}</em>
             </div>
           </div>
         )}
@@ -15181,7 +15256,7 @@ export default function JogoPage() {
             <p className="game-panel-label">MULTIPLAYER LOCAL</p>
             <h2>ARCADE LINK</h2>
             <p className="sn-local-subtitle">
-              Cada jogador precisa confirmar com o próprio dispositivo. P1 usa teclado/touch; P2 entra por teclado secundário ou controle. P3/P4 ficam preparados para controles extras.
+              Selecione dispositivos, confirme jogadores e vote no modo. Local e online agora seguem a mesma vibe party/arcade.
             </p>
             <div className="sn-local-join-banner">
               <strong>APERTE INPUT PARA ENTRAR</strong>
@@ -16161,7 +16236,16 @@ export default function JogoPage() {
                 <p className="game-panel-label">JOGO PAUSADO</p>
                 <h2>PAUSADO</h2>
                 <button className={pauseIndex === 0 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(0)} onFocus={() => setIndicePause(0)} onClick={pausarOuVoltar}>CONTINUAR</button>
+                {onlineGameplayActive && onlinePauseRequestedBy && (
+                  <div className="sn-online-unpause-strip">
+                    <span>Voltar da pausa</span>
+                    {[1, 2, 3, 4].filter((slot) => onlinePlayers.some((p) => p.slot === slot)).map((slot) => (
+                      <b key={slot} className={onlinePauseReadySlots.includes(slot) ? "is-ready" : ""}>P{slot} {onlinePauseReadySlots.includes(slot) ? "READY" : "UNREADY"}</b>
+                    ))}
+                  </div>
+                )}
                 <button className={pauseIndex === 1 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(1)} onFocus={() => setIndicePause(1)} onClick={abrirConfiguracoes}>CONFIGURAÇÕES</button>
+                {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === 1) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
                 <button className={pauseIndex === 2 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(2)} onFocus={() => setIndicePause(2)} onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
               </>
             ) : (
@@ -16221,6 +16305,7 @@ export default function JogoPage() {
                 VER RANKING
               </button>
             )}
+            {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === 1) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
         </section>
