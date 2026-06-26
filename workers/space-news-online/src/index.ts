@@ -38,6 +38,7 @@ type ClientMessage =
   | { type: "start"; mode?: GameMode }
   | { type: "ready"; ready?: boolean }
   | { type: "input"; input?: PlayerInput; seq?: number }
+  | { type: "sync"; snapshot?: unknown }
   | { type: "pause_request" }
   | { type: "pause_ready"; ready?: boolean }
   | { type: "ping"; t?: number }
@@ -136,7 +137,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "0.4.0" });
+      return json({ ok: true, service: "Space News Online", version: "0.5.0" });
     }
 
     if (url.pathname === "/create") {
@@ -173,6 +174,7 @@ export class GameRoom extends DurableObject<Env> {
   private roomCode = "ROOM";
   private pauseRequestedBy: number | null = null;
   private pauseReadySlots = new Set<number>();
+  private gameActive = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -309,7 +311,8 @@ export class GameRoom extends DurableObject<Env> {
       await this.ctx.storage.put("selectedMode", mode);
       this.pauseRequestedBy = null;
       this.pauseReadySlots.clear();
-      this.broadcast({ type: "game_start", room: this.roomCode, mode, t: Date.now() });
+      this.gameActive = true;
+      this.broadcast({ type: "game_start", room: this.roomCode, mode, hostSlot: 1, t: Date.now() });
       return;
     }
 
@@ -338,11 +341,28 @@ export class GameRoom extends DurableObject<Env> {
       return;
     }
 
+    if (msg.type === "sync") {
+      // Modelo v5: P1/host é a fonte da verdade. Os outros clientes renderizam esse snapshot.
+      if (session.slot !== 1 || !this.gameActive) return;
+      this.broadcast({
+        type: "sync",
+        from: session.slot,
+        snapshot: msg.snapshot ?? null,
+        t: Date.now(),
+      }, ws);
+      return;
+    }
+
     if (msg.type === "pause_request") {
       if (session.slot === 0) return;
-      this.pauseRequestedBy = session.slot;
-      this.pauseReadySlots.clear();
+      if (!this.pauseRequestedBy) this.pauseRequestedBy = session.slot;
+      this.pauseReadySlots.add(session.slot);
       this.broadcastPauseState();
+      const players = this.players();
+      const allReady = players.length > 0 && players.every((p) => this.pauseReadySlots.has(p.slot));
+      if (allReady) {
+        this.broadcast({ type: "pause_commit", room: this.roomCode, requestedBy: this.pauseRequestedBy, readySlots: [...this.pauseReadySlots], t: Date.now() });
+      }
       return;
     }
 
@@ -376,12 +396,23 @@ export class GameRoom extends DurableObject<Env> {
     if (session?.slot) this.pauseReadySlots.delete(session.slot);
     if (session?.slot === this.pauseRequestedBy) this.pauseRequestedBy = null;
     this.sessions.delete(ws);
+    if (this.gameActive && session?.slot) {
+      this.gameActive = false;
+      this.pauseRequestedBy = null;
+      this.pauseReadySlots.clear();
+      this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+    }
     this.broadcastState();
     if (this.pauseRequestedBy) this.broadcastPauseState();
   }
 
   async webSocketError(ws: WebSocket) {
+    const session = this.sessions.get(ws);
     this.sessions.delete(ws);
+    if (this.gameActive && session?.slot) {
+      this.gameActive = false;
+      this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
+    }
     this.broadcastState();
   }
 
@@ -445,9 +476,10 @@ export class GameRoom extends DurableObject<Env> {
     });
   }
 
-  private broadcast(data: unknown) {
+  private broadcast(data: unknown, except?: WebSocket) {
     const payload = JSON.stringify(data);
     for (const ws of this.sessions.keys()) {
+      if (except && ws === except) continue;
       try {
         ws.send(payload);
       } catch {
