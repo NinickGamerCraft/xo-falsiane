@@ -3788,8 +3788,12 @@ export default function JogoPage() {
       .map((shot) => ({ ...shot, x: shot.x + (shot.vx ?? shot.speed) * speedFactor, y: shot.y + (shot.vy ?? 0) * speedFactor }))
       .filter((shot) => shot.x + shot.w > -80 && shot.x < CONFIG.canvasWidth + 80 && shot.y + shot.h > -80 && shot.y < CONFIG.canvasHeight + 80);
     enemyProjectilesRef.current = enemyProjectilesRef.current
-      .map((bullet) => ({ ...bullet, x: bullet.x + (bullet.vx || 0) * speedFactor, y: bullet.y + (bullet.vy || 0) * speedFactor, life: Math.max(0, bullet.life - delta) }))
-      .filter((bullet) => bullet.life > 0 && bullet.x > -140 && bullet.x < canvas.width + 140 && bullet.y > -140 && bullet.y < canvas.height + 140);
+      .map((bullet) => ({
+        ...bullet,
+        x: bullet.x + (bullet.vx || 0) * speedFactor,
+        y: bullet.y + (bullet.vy || 0) * speedFactor,
+      }))
+      .filter((bullet) => bullet.x > -140 && bullet.x < canvas.width + 140 && bullet.y > -140 && bullet.y < canvas.height + 140);
     bossProjectilesRef.current = bossProjectilesRef.current
       .map((projectile) => ({ ...projectile, x: projectile.x + (projectile.vx || 0) * speedFactor, y: projectile.y + (projectile.vy || 0) * speedFactor, life: Math.max(0, projectile.life - delta) }))
       .filter((projectile) => projectile.life > 0);
