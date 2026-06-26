@@ -5,7 +5,7 @@ export interface Env {
   ALLOWED_ORIGIN?: string;
 }
 
-type GameMode = "localCoop" | "localScore" | "localPvp";
+type GameMode = "localCoop" | "localPvp";
 
 type PlayerInput = {
   left?: boolean;
@@ -16,6 +16,7 @@ type PlayerInput = {
   strong?: boolean;
   boost?: boolean;
   dodge?: boolean;
+  pause?: boolean;
 };
 
 type PlayerSession = {
@@ -37,6 +38,8 @@ type ClientMessage =
   | { type: "start"; mode?: GameMode }
   | { type: "ready"; ready?: boolean }
   | { type: "input"; input?: PlayerInput; seq?: number }
+  | { type: "pause_request" }
+  | { type: "pause_ready"; ready?: boolean }
   | { type: "ping"; t?: number }
   | { type: "leave" };
 
@@ -49,9 +52,10 @@ const EMPTY_INPUT: Required<PlayerInput> = {
   strong: false,
   boost: false,
   dodge: false,
+  pause: false,
 };
 
-const VALID_MODES: GameMode[] = ["localPvp", "localCoop", "localScore"];
+const VALID_MODES: GameMode[] = ["localPvp", "localCoop"];
 
 function json(data: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -107,6 +111,7 @@ function normalizeInput(input: PlayerInput | undefined): Required<PlayerInput> {
     strong: Boolean(input?.strong),
     boost: Boolean(input?.boost),
     dodge: Boolean(input?.dodge),
+    pause: Boolean(input?.pause),
   };
 }
 
@@ -131,7 +136,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "0.3.0" });
+      return json({ ok: true, service: "Space News Online", version: "0.4.0" });
     }
 
     if (url.pathname === "/create") {
@@ -166,6 +171,8 @@ export default {
 export class GameRoom extends DurableObject<Env> {
   private sessions = new Map<WebSocket, PlayerSession>();
   private roomCode = "ROOM";
+  private pauseRequestedBy: number | null = null;
+  private pauseReadySlots = new Set<number>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -300,6 +307,8 @@ export class GameRoom extends DurableObject<Env> {
       }
       const mode = cleanMode(msg.mode || this.selectedMode());
       await this.ctx.storage.put("selectedMode", mode);
+      this.pauseRequestedBy = null;
+      this.pauseReadySlots.clear();
       this.broadcast({ type: "game_start", room: this.roomCode, mode, t: Date.now() });
       return;
     }
@@ -329,6 +338,29 @@ export class GameRoom extends DurableObject<Env> {
       return;
     }
 
+    if (msg.type === "pause_request") {
+      if (session.slot === 0) return;
+      this.pauseRequestedBy = session.slot;
+      this.pauseReadySlots.clear();
+      this.broadcastPauseState();
+      return;
+    }
+
+    if (msg.type === "pause_ready") {
+      if (session.slot === 0 || !this.pauseRequestedBy) return;
+      if (msg.ready === false) this.pauseReadySlots.delete(session.slot);
+      else this.pauseReadySlots.add(session.slot);
+      this.broadcastPauseState();
+      const players = this.players();
+      const allReady = players.length > 0 && players.every((p) => this.pauseReadySlots.has(p.slot));
+      if (allReady) {
+        this.pauseRequestedBy = null;
+        this.pauseReadySlots.clear();
+        this.broadcast({ type: "unpause_start", room: this.roomCode, t: Date.now() });
+      }
+      return;
+    }
+
     if (msg.type === "ping") {
       ws.send(JSON.stringify({ type: "pong", t: msg.t ?? Date.now(), serverTime: Date.now() }));
       return;
@@ -340,8 +372,12 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   async webSocketClose(ws: WebSocket) {
+    const session = this.sessions.get(ws);
+    if (session?.slot) this.pauseReadySlots.delete(session.slot);
+    if (session?.slot === this.pauseRequestedBy) this.pauseRequestedBy = null;
     this.sessions.delete(ws);
     this.broadcastState();
+    if (this.pauseRequestedBy) this.broadcastPauseState();
   }
 
   async webSocketError(ws: WebSocket) {
@@ -395,6 +431,16 @@ export class GameRoom extends DurableObject<Env> {
       modeVotes: this.modeVotes(),
       selectedMode,
       canStart: players.length >= 2 && players.every((p) => p.ready),
+      t: Date.now(),
+    });
+  }
+
+  private broadcastPauseState() {
+    this.broadcast({
+      type: "pause_state",
+      room: this.roomCode,
+      requestedBy: this.pauseRequestedBy,
+      readySlots: [...this.pauseReadySlots],
       t: Date.now(),
     });
   }

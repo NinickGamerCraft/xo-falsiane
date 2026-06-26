@@ -101,6 +101,30 @@ type InputDeviceChoice = {
   icon: string;
 };
 
+type OnlineInputState = {
+  left: boolean;
+  right: boolean;
+  up: boolean;
+  down: boolean;
+  shot: boolean;
+  strong: boolean;
+  boost: boolean;
+  dodge: boolean;
+  pause: boolean;
+};
+
+const EMPTY_ONLINE_INPUT_STATE: OnlineInputState = {
+  left: false,
+  right: false,
+  up: false,
+  down: false,
+  shot: false,
+  strong: false,
+  boost: false,
+  dodge: false,
+  pause: false,
+};
+
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
 
 type DanielExpression = "normal" | "alert" | "happy" | "fear" | "serious";
@@ -1335,17 +1359,15 @@ const MULTIPLAYER_BRANCH_OPTIONS = [
 
 const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: string }> = [
   { label: "COOP", mode: "localCoop", description: "Modo infinito com jogadores unidos contra as waves." },
-  { label: "PVP", mode: "localPvp", description: "Arena local, pontos por nocaute e respawn." },
-  { label: "DISPUTA", mode: "localScore", description: "Experimental: sobrevive junto, mas disputa pontos." },
+  { label: "PVP", mode: "localPvp", description: "Arena, rounds, VS intro e caos controlado." },
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
+  { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
   { id: "keyboard", label: "TECLADO", description: "WASD/SETAS + binds atuais", icon: "⌨" },
-  { id: "touch", label: "TOUCH", description: "Controles na tela do celular", icon: "☝" },
-  { id: "gamepad", label: "CONTROLE", description: "Gamepad detectado pelo navegador", icon: "🎮" },
-  { id: "auto", label: "AUTO", description: "Usa o último input ativo", icon: "✦" },
+  { id: "gamepad", label: "CONTROLE", description: "Controle detectado pelo navegador", icon: "🎮" },
 ];
 
 function labelModoMultiplayer(mode: GameMode) {
@@ -2740,6 +2762,11 @@ export default function JogoPage() {
   const [onlineModeVotes, setOnlineModeVotes] = useState<Record<number, GameMode>>({});
   const [onlineDeviceIndex, setOnlineDeviceIndex] = useState(0);
   const [onlineMenuIndex, setOnlineMenuIndex] = useState(0);
+  const [detectedInputDevices, setDetectedInputDevices] = useState<InputDeviceChoice[]>(INPUT_DEVICE_CHOICES);
+  const [onlineGameplayActive, setOnlineGameplayActive] = useState(false);
+  const [onlineMatchIntroUntil, setOnlineMatchIntroUntil] = useState(0);
+  const [onlinePauseRequestedBy, setOnlinePauseRequestedBy] = useState<number | null>(null);
+  const [onlinePauseReadySlots, setOnlinePauseReadySlots] = useState<number[]>([]);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
     flashWhite: false,
     flashBlur: false,
@@ -2875,6 +2902,14 @@ export default function JogoPage() {
   const onlineFlowRef = useRef<OnlineFlow>("choose");
   const onlineSelectedModeRef = useRef<GameMode>("localPvp");
   const onlineDeviceIndexRef = useRef(0);
+  const detectedInputDevicesRef = useRef<InputDeviceChoice[]>(INPUT_DEVICE_CHOICES);
+  const onlineGameplayActiveRef = useRef(false);
+  const onlineRemoteInputsRef = useRef<Record<number, OnlineInputState>>({});
+  const onlineLastInputSentAtRef = useRef(0);
+  const onlineInputSeqRef = useRef(0);
+  const onlineLastInputPayloadRef = useRef("");
+  const onlinePauseRequestedByRef = useRef<number | null>(null);
+  const onlinePauseReadySlotsRef = useRef<number[]>([]);
   const playerAnimRef = useRef(
     new AnimatedSprite(
       "player",
@@ -3015,6 +3050,10 @@ export default function JogoPage() {
     return mode === "localPvp";
   }
 
+  function isOnlineGameplayMode() {
+    return onlineGameplayActiveRef.current && isLocalMode(currentModeRef.current);
+  }
+
 
   function danoLocalPorJogador() {
     if (!isLocalWaveMode()) return 1;
@@ -3036,11 +3075,11 @@ export default function JogoPage() {
   }
 
   function danoPvpPorTipo(tipo: "normal" | "strong" | "boost" | "bump" | "power") {
-    if (tipo === "strong") return 22;
-    if (tipo === "boost") return 16;
-    if (tipo === "power") return 12;
+    if (tipo === "strong") return 14;
+    if (tipo === "boost") return 10;
+    if (tipo === "power") return 9;
     if (tipo === "bump") return 0;
-    return 7;
+    return 4;
   }
 
   function resetarReviveLocal() {
@@ -3098,10 +3137,10 @@ export default function JogoPage() {
     );
 
     // Evita o “muro de power-ups” que travava a arena.
-    const maxAlive = origin ? 7 : 5;
+    const maxAlive = mobileRuntimeRef.current ? (origin ? 3 : 2) : (origin ? 4 : 3);
     if (pvpPowerUps.length >= maxAlive) return;
 
-    const minDelay = origin ? 560 : 2400;
+    const minDelay = origin ? 1350 : 5200;
     if (!force && now - lastPvpPowerDropAtRef.current < minDelay) return;
     lastPvpPowerDropAtRef.current = now;
 
@@ -3124,7 +3163,7 @@ export default function JogoPage() {
       h: cfg.height,
       // No PvP os drops do mapa caem de cima para baixo. Drops de dano saem do player e escorrem na arena.
       vx: fromHit ? rand(-0.75, 0.75) : rand(-0.28, 0.28),
-      vy: fromHit ? rand(0.9, 1.35) : rand(1.15, 1.75),
+      vy: fromHit ? rand(0.75, 1.15) : rand(1.05, 1.45),
       age: 0,
       life: Math.min(cfg.lifeMs, fromHit ? 7200 : 10500),
       wavePhase: rand(0, Math.PI * 2),
@@ -3227,7 +3266,6 @@ export default function JogoPage() {
       for (const power of powerUpsRef.current) pararLoopPowerUpTrail(power.id);
       powerUpsRef.current = [];
       spawnPowerUpPvp(true);
-      window.setTimeout(() => spawnPowerUpPvp(true), 850);
     }
     limparRoundPvp();
   }
@@ -3276,7 +3314,7 @@ export default function JogoPage() {
   }
 
   function setIndiceOnlineMenu(index: number) {
-    const max = onlineConnected ? 8 : 6;
+    const max = onlineConnected ? 6 : 4;
     const safeIndex = ((index % max) + max) % max;
     onlineMenuIndexRef.current = safeIndex;
     setOnlineMenuIndex(safeIndex);
@@ -3289,15 +3327,67 @@ export default function JogoPage() {
     tocarSom(CONFIG.sounds.menuMove, 0.25, "menu");
   }
 
+  function listarDispositivosDisponiveis(): InputDeviceChoice[] {
+    const list: InputDeviceChoice[] = [];
+    const hasTouch =
+      typeof navigator !== "undefined" &&
+      (navigator.maxTouchPoints > 0 || (typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches));
+
+    if (hasTouch) {
+      list.push({ id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" });
+    }
+
+    list.push({ id: "keyboard", label: "TECLADO", description: "WASD/SETAS + binds atuais", icon: "⌨" });
+
+    if (typeof navigator !== "undefined" && navigator.getGamepads) {
+      const pads = Array.from(navigator.getGamepads()).filter((pad): pad is Gamepad => Boolean(pad?.connected));
+      pads.forEach((pad, index) => {
+        const rawName = String(pad.id || `Controle ${index + 1}`).replace(/\s+/g, " ").trim();
+        const shortName = rawName.length > 24 ? `${rawName.slice(0, 21)}...` : rawName;
+        list.push({
+          id: `gamepad-${pad.index}`,
+          label: `CONTROLE ${index + 1}`,
+          description: shortName,
+          icon: "🎮",
+        });
+      });
+    }
+
+    return list;
+  }
+
+  function atualizarDispositivosDisponiveis(force = false) {
+    if (typeof window === "undefined") return;
+    const next = listarDispositivosDisponiveis();
+    const current = detectedInputDevicesRef.current;
+    const changed =
+      force ||
+      next.length !== current.length ||
+      next.some((item, index) => item.id !== current[index]?.id || item.description !== current[index]?.description);
+    if (!changed) return;
+    detectedInputDevicesRef.current = next;
+    setDetectedInputDevices(next);
+    const selected = next[onlineDeviceIndexRef.current];
+    if (!selected) setDispositivoOnline(0);
+  }
+
+  function dispositivosDisponiveisAtuais() {
+    return detectedInputDevicesRef.current.length > 0 ? detectedInputDevicesRef.current : INPUT_DEVICE_CHOICES;
+  }
+
   function setDispositivoOnline(index: number) {
-    const safeIndex = ((index % INPUT_DEVICE_CHOICES.length) + INPUT_DEVICE_CHOICES.length) % INPUT_DEVICE_CHOICES.length;
+    const choices = dispositivosDisponiveisAtuais();
+    const safeIndex = ((index % choices.length) + choices.length) % choices.length;
     onlineDeviceIndexRef.current = safeIndex;
     setOnlineDeviceIndex(safeIndex);
+    const choice = choices[safeIndex] ?? choices[0];
+    if (onlineConnected) enviarOnline({ type: "profile", name: nomeOnlineSeguro(), device: choice.label });
     tocarSom(CONFIG.sounds.menuMove, 0.25, "menu");
   }
 
   function dispositivoOnlineAtual() {
-    return INPUT_DEVICE_CHOICES[onlineDeviceIndexRef.current] ?? INPUT_DEVICE_CHOICES[0];
+    const choices = dispositivosDisponiveisAtuais();
+    return choices[onlineDeviceIndexRef.current] ?? choices[0] ?? INPUT_DEVICE_CHOICES[0];
   }
 
   function atualizarSlotsLocais(
@@ -3373,6 +3463,69 @@ export default function JogoPage() {
     setEstado("localModeSelect");
   }
 
+  function eixosLocaisAtuais() {
+    const moveLayout = String((CONFIG.settings as Record<string, unknown>).pcMoveLayout || "both");
+    const useWasd = moveLayout !== "arrows";
+    const useArrows = moveLayout !== "wasd";
+    const keyboardX =
+      ((useArrows && keysRef.current["arrowright"]) || (useWasd && keysRef.current["d"]) ? 1 : 0) -
+      ((useArrows && keysRef.current["arrowleft"]) || (useWasd && keysRef.current["a"]) ? 1 : 0);
+    const keyboardY =
+      ((useArrows && keysRef.current["arrowdown"]) || (useWasd && keysRef.current["s"]) ? 1 : 0) -
+      ((useArrows && keysRef.current["arrowup"]) || (useWasd && keysRef.current["w"]) ? 1 : 0);
+    return {
+      x: clamp(keyboardX + mobileMoveRef.current.x + gamepadAxesRef.current.x, -1, 1),
+      y: clamp(keyboardY + mobileMoveRef.current.y + gamepadAxesRef.current.y, -1, 1),
+    };
+  }
+
+  function inputOnlineLocalAtual(): OnlineInputState {
+    const axes = eixosLocaisAtuais();
+    return {
+      left: axes.x < -0.22,
+      right: axes.x > 0.22,
+      up: axes.y < -0.22,
+      down: axes.y > 0.22,
+      shot: controleAcaoSegurando("shot") || mobileShootRef.current,
+      strong: controleAcaoSegurando("strong"),
+      boost: controleAcaoSegurando("boost"),
+      dodge: controleAcaoSegurando("dodge"),
+      pause: gameStateRef.current === "paused",
+    };
+  }
+
+  function eixosDeInputOnline(input?: OnlineInputState) {
+    const safe = input || EMPTY_ONLINE_INPUT_STATE;
+    return {
+      x: (safe.right ? 1 : 0) - (safe.left ? 1 : 0),
+      y: (safe.down ? 1 : 0) - (safe.up ? 1 : 0),
+    };
+  }
+
+  function enviarInputOnlineAtual(force = false) {
+    if (!onlineGameplayActiveRef.current) return;
+    if (!onlineSocketRef.current || onlineSocketRef.current.readyState !== WebSocket.OPEN) return;
+    if (gameStateRef.current !== "playing" && gameStateRef.current !== "paused") return;
+    const now = performance.now();
+    const input = inputOnlineLocalAtual();
+    const payload = JSON.stringify(input);
+    if (!force && payload === onlineLastInputPayloadRef.current && now - onlineLastInputSentAtRef.current < 120) return;
+    if (!force && now - onlineLastInputSentAtRef.current < 45) return;
+    onlineLastInputPayloadRef.current = payload;
+    onlineLastInputSentAtRef.current = now;
+    enviarOnline({ type: "input", seq: ++onlineInputSeqRef.current, input });
+  }
+
+  function encerrarGameplayOnline() {
+    onlineGameplayActiveRef.current = false;
+    setOnlineGameplayActive(false);
+    onlineRemoteInputsRef.current = {};
+    onlinePauseRequestedByRef.current = null;
+    onlinePauseReadySlotsRef.current = [];
+    setOnlinePauseRequestedBy(null);
+    setOnlinePauseReadySlots([]);
+  }
+
   function limparNomeOnline(value: string) {
     const clean = value
       .normalize("NFKD")
@@ -3441,6 +3594,7 @@ export default function JogoPage() {
     setOnlineIsReady(false);
     setOnlineSlot(0);
     setOnlinePing(null);
+    encerrarGameplayOnline();
   }
 
   function enviarOnline(payload: unknown) {
@@ -3541,8 +3695,46 @@ export default function JogoPage() {
 
       if (msg.type === "game_start") {
         const mode = (msg.mode || onlineSelectedModeRef.current || "localPvp") as GameMode;
+        onlineGameplayActiveRef.current = true;
+        setOnlineGameplayActive(true);
+        setOnlineMatchIntroUntil(Date.now() + 2600);
+        onlineRemoteInputsRef.current = {};
         feedbackOnline("success", `Iniciando ${labelModoMultiplayer(mode)} online...`);
         window.setTimeout(() => iniciarJogo(mode), 520);
+        return;
+      }
+
+      if (msg.type === "input") {
+        const from = Number(msg.from || 0);
+        if (from > 0 && from !== onlineSlotRef.current) {
+          onlineRemoteInputsRef.current[from] = { ...EMPTY_ONLINE_INPUT_STATE, ...(msg.input || {}) };
+        }
+        return;
+      }
+
+      if (msg.type === "pause_state") {
+        const requestedBy = Number(msg.requestedBy || 0) || null;
+        const readySlots = Array.isArray(msg.readySlots) ? msg.readySlots : [];
+        onlinePauseRequestedByRef.current = requestedBy;
+        onlinePauseReadySlotsRef.current = readySlots;
+        setOnlinePauseRequestedBy(requestedBy);
+        setOnlinePauseReadySlots(readySlots);
+        if (requestedBy && gameStateRef.current === "playing") {
+          pauseStartedAtRef.current = performance.now();
+          setIndicePause(0);
+          setEstado("paused");
+          setIsLowHp(false);
+          pararAlarmeLowHp(false);
+        }
+        return;
+      }
+
+      if (msg.type === "unpause_start") {
+        onlinePauseRequestedByRef.current = null;
+        onlinePauseReadySlotsRef.current = [];
+        setOnlinePauseRequestedBy(null);
+        setOnlinePauseReadySlots([]);
+        if (gameStateRef.current === "paused") iniciarContagemRetomada();
         return;
       }
 
@@ -3671,6 +3863,7 @@ export default function JogoPage() {
     setOnlineIsReady(false);
     setOnlineJoinCode("");
     setOnlineFeedback("idle");
+    encerrarGameplayOnline();
     setOnlineStatus("Você saiu da sala. Crie outra sala ou entre com código.");
   }
 
@@ -3693,6 +3886,7 @@ export default function JogoPage() {
     setOnlineRoomCode("");
     setOnlineWsUrl("");
     setOnlineFeedback("idle");
+    encerrarGameplayOnline();
     setOnlineStatus("Crie uma sala ou entre com código.");
     tocarSom(CONFIG.sounds.menuBack, 0.36, "menu");
     setEstado("multiplayerMenu");
@@ -3700,6 +3894,7 @@ export default function JogoPage() {
 
   function abrirLobbyOnline() {
     tocarSom(CONFIG.sounds.menuConfirm, 0.38, "menu");
+    atualizarDispositivosDisponiveis(true);
     setOnlineStatus("Escolha criar ou entrar em uma sala.");
     setOnlineFeedback("idle");
     setFluxoOnline("choose");
@@ -3709,6 +3904,7 @@ export default function JogoPage() {
   function voltarDoMultiplayer() {
     limparConexaoOnline();
     tocarSom(CONFIG.sounds.menuBack, 0.36, "menu");
+    encerrarGameplayOnline();
     setEstado("mainMenu");
     setIndiceMenu(2);
   }
@@ -4297,10 +4493,8 @@ export default function JogoPage() {
         else if (index === 1) iniciarPartidaOnline();
         else if (index === 2) votarModoOnline("localPvp");
         else if (index === 3) votarModoOnline("localCoop");
-        else if (index === 4) votarModoOnline("localScore");
-        else if (index === 5) setDispositivoOnline(onlineDeviceIndexRef.current + 1);
-        else if (index === 6) copiarCodigoSalaOnline();
-        else if (index === 7) sairSalaOnline();
+        else if (index === 4) copiarCodigoSalaOnline();
+        else if (index === 5) sairSalaOnline();
         return;
       }
     }
@@ -5825,6 +6019,7 @@ export default function JogoPage() {
 
   function pausarOuVoltar() {
     if (gameStateRef.current === "playing") {
+      if (onlineGameplayActiveRef.current) enviarOnline({ type: "pause_request" });
       tocarSom(CONFIG.sounds.pause, 0.45);
       pauseStartedAtRef.current = performance.now();
       pararMusicaChocado(false);
@@ -5840,6 +6035,13 @@ export default function JogoPage() {
     }
 
     if (gameStateRef.current === "paused") {
+      if (onlineGameplayActiveRef.current && onlinePauseRequestedByRef.current) {
+        enviarOnline({ type: "pause_ready", ready: true });
+        const nextReady = Array.from(new Set([...onlinePauseReadySlotsRef.current, onlineSlotRef.current])).filter(Boolean);
+        onlinePauseReadySlotsRef.current = nextReady;
+        setOnlinePauseReadySlots(nextReady);
+        return;
+      }
       iniciarContagemRetomada();
     }
   }
@@ -5852,6 +6054,7 @@ export default function JogoPage() {
     setIsLowHp(false);
     pararAlarmeLowHp(true);
     setGameOverFlash(false);
+    encerrarGameplayOnline();
     setEstado("mainMenu");
     setIndiceMenu(0);
     setEscurecendo(false);
@@ -9435,6 +9638,29 @@ export default function JogoPage() {
       const p2 = player2Ref.current;
       if (!p2 || !isLocalMode()) return;
 
+      if (onlineGameplayActiveRef.current) {
+        const previousButtons = player2ButtonsRef.current;
+        const mySlot = onlineSlotRef.current;
+        const sourceInput = mySlot === 2 ? inputOnlineLocalAtual() : (onlineRemoteInputsRef.current[2] || EMPTY_ONLINE_INPUT_STATE);
+        const axes = eixosDeInputOnline(sourceInput);
+        const buttons: Record<string, boolean> = {
+          "1": sourceInput.shot,
+          "7": sourceInput.shot,
+          "2": sourceInput.strong,
+          "6": sourceInput.strong,
+          "0": sourceInput.boost,
+          "5": sourceInput.boost,
+          "3": sourceInput.dodge,
+          "4": sourceInput.dodge,
+        };
+        const pressed: Record<string, boolean> = {};
+        for (const key of Object.keys(buttons)) pressed[key] = buttons[key] && !previousButtons[key];
+        player2ButtonsRef.current = buttons;
+        player2ButtonsPressedRef.current = pressed;
+        player2InputRef.current = { x: axes.x, y: axes.y };
+        return;
+      }
+
       const keyboardX = (keysRef.current["l"] ? 1 : 0) - (keysRef.current["j"] ? 1 : 0);
       const keyboardY = (keysRef.current["k"] ? 1 : 0) - (keysRef.current["i"] ? 1 : 0);
       let gamepadX = 0;
@@ -9579,7 +9805,7 @@ export default function JogoPage() {
       setPlayer2Hp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#60a5fa", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode()) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
+      if (isLocalPvpMode() && Math.random() < 0.22) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -9601,7 +9827,7 @@ export default function JogoPage() {
       setPlayerHp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode()) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
+      if (isLocalPvpMode() && Math.random() < 0.22) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -12772,7 +12998,7 @@ export default function JogoPage() {
         atualizarBossProjectiles(delta);
         atualizarCapturaAlien(delta, canvas);
         atualizarPowerUps(delta, canvas);
-      if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 4800) {
+      if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 7200) {
         spawnPowerUpPvp(false);
       }
         resolverPowerUps();
@@ -12821,11 +13047,33 @@ export default function JogoPage() {
         1,
       );
 
+      const onlineRemoteP1Input =
+        onlineGameplayActiveRef.current && onlineSlotRef.current !== 1
+          ? onlineRemoteInputsRef.current[1] || EMPTY_ONLINE_INPUT_STATE
+          : null;
+      if (onlineRemoteP1Input) {
+        const remoteAxes = eixosDeInputOnline(onlineRemoteP1Input);
+        inputX = remoteAxes.x;
+        inputY = remoteAxes.y;
+      }
+
       const nowForHold = performance.now();
+      const player1ShotCommand = onlineRemoteP1Input
+        ? onlineRemoteP1Input.shot
+        : ((isLocalMode() ? teclaControlePressionada("shot") : controleAcaoSegurando("shot")) || mobileShootRef.current);
+      const player1StrongCommand = onlineRemoteP1Input
+        ? onlineRemoteP1Input.strong
+        : (isLocalMode() ? teclaControlePressionada("strong") : controleAcaoSegurando("strong"));
+      const player1DodgeCommand = onlineRemoteP1Input
+        ? onlineRemoteP1Input.dodge
+        : (isLocalMode() ? teclaControlePressionada("dodge") : controleAcaoAcionada("dodge"));
+      const player1BoostHoldCommand = onlineRemoteP1Input
+        ? onlineRemoteP1Input.boost
+        : controleAcaoSegurando("boost");
 
       if (
         !isLocalMode() &&
-        controleAcaoSegurando("boost") &&
+        player1BoostHoldCommand &&
         (!isTutorialMode || tutorialStepRef.current === "boost")
       ) {
         iniciarMiraBoost();
@@ -12858,18 +13106,14 @@ export default function JogoPage() {
       }
 
       if (
-        (isLocalMode()
-          ? teclaControlePressionada("strong")
-          : controleAcaoSegurando("strong")) &&
+        player1StrongCommand &&
         (!isTutorialMode || tutorialStepRef.current === "strong")
       ) {
         shootStrong(1, 0);
       }
 
       if (
-        (isLocalMode()
-          ? teclaControlePressionada("dodge")
-          : controleAcaoAcionada("dodge")) &&
+        player1DodgeCommand &&
         (!isTutorialMode || tutorialStepRef.current === "dodge")
       ) {
         keysRef.current[
@@ -12943,9 +13187,7 @@ export default function JogoPage() {
       player.y += player.vy * speedFactor;
 
       if (
-        ((isLocalMode()
-          ? teclaControlePressionada("shot")
-          : controleAcaoSegurando("shot")) || mobileShootRef.current) &&
+        player1ShotCommand &&
         (!isTutorialMode || tutorialStepRef.current === "shot")
       ) {
         shootNormal();
@@ -13305,7 +13547,9 @@ export default function JogoPage() {
       lastTime = time;
 
       atualizarEstadoGamepad();
+      atualizarDispositivosDisponiveis();
       processarEntradaGamepadGlobal();
+      enviarInputOnlineAtual();
 
       const fpsCounter = fpsCounterRef.current;
       fpsCounter.frames += 1;
@@ -13545,10 +13789,8 @@ export default function JogoPage() {
           else if (index === 1) iniciarPartidaOnline();
           else if (index === 2) votarModoOnline("localPvp");
           else if (index === 3) votarModoOnline("localCoop");
-          else if (index === 4) votarModoOnline("localScore");
-          else if (index === 5) setDispositivoOnline(onlineDeviceIndexRef.current + 1);
-          else if (index === 6) copiarCodigoSalaOnline();
-          else if (index === 7) sairSalaOnline();
+          else if (index === 4) copiarCodigoSalaOnline();
+          else if (index === 5) sairSalaOnline();
           return;
         }
       }
@@ -14217,11 +14459,37 @@ export default function JogoPage() {
         </div>
       </div>
 
+      {onlineGameplayActive && (gameState === "playing" || gameState === "paused") && onlineMatchIntroUntil > Date.now() && (
+        <div className="sn-online-vs-intro" aria-hidden="true">
+          <div className="sn-online-vs-side is-p1">
+            <span>P1</span>
+            <strong>{onlinePlayers.find((p) => p.slot === 1)?.name || "P1"}</strong>
+          </div>
+          <div className="sn-online-vs-core">VS</div>
+          <div className="sn-online-vs-side is-p2">
+            <span>P2</span>
+            <strong>{onlinePlayers.find((p) => p.slot === 2)?.name || "P2"}</strong>
+          </div>
+        </div>
+      )}
+
+      {onlineGameplayActive && gameState === "paused" && onlinePauseRequestedBy && (
+        <div className="sn-online-pause-queue">
+          <strong>P{onlinePauseRequestedBy} quer pausar</strong>
+          <span>Para voltar: cada jogador aperta READY/confirmar no pause.</span>
+          <div>
+            {[1, 2, 3, 4].filter((slot) => onlinePlayers.some((p) => p.slot === slot)).map((slot) => (
+              <b key={slot} className={onlinePauseReadySlots.includes(slot) ? "is-ready" : ""}>P{slot} {onlinePauseReadySlots.includes(slot) ? "READY" : "UNREADY"}</b>
+            ))}
+          </div>
+        </div>
+      )}
+
       {isLowHp && gameState === "playing" && (
         <div className="game-low-hp-vignette" />
       )}
 
-      {(gameState === "playing" || gameState === "paused") && (
+      {(gameState === "playing" || gameState === "paused") && !isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (
         <aside className="sn-player-hud" aria-label="Status do jogador">
           {isLocalMode() && (
             <div className="sn-player-hud-label sn-player-hud-label-p1">
@@ -14337,7 +14605,7 @@ export default function JogoPage() {
         </aside>
       )}
 
-      {isLocalMode() && (gameState === "playing" || gameState === "paused") && (
+      {isLocalMode() && !isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (gameState === "playing" || gameState === "paused") && (
         <aside
           className={`sn-player-hud sn-player-hud-p2 ${player2Hp <= 0 ? "is-ghost" : ""}`}
           aria-label="Status do player 2"
@@ -14424,7 +14692,7 @@ export default function JogoPage() {
       )}
 
       {(gameState === "playing" || gameState === "paused") &&
-        (waveUi.mode === "infinite" || isLocalMode(waveUi.mode)) && (
+        (waveUi.mode === "infinite" || (isLocalMode(waveUi.mode) && !isLocalPvpMode(waveUi.mode ?? currentModeRef.current))) && (
           <div className={`sn-run-info ${isLocalMode(waveUi.mode) ? "is-local" : ""}`}>
             <span>{isLocalPvpMode(waveUi.mode ?? currentModeRef.current) ? "ARENA" : `WAVE ${waveUi.wave || 1}`}</span>
             {isLocalMode(waveUi.mode) ? (
@@ -14822,9 +15090,9 @@ export default function JogoPage() {
                       <div className={`sn-device-picker sn-squish-ui ${onlineMenuIndex === 2 ? "is-gamepad-selected" : ""}`}>
                         <span>DISPOSITIVO</span>
                         <button type="button" onClick={() => setDispositivoOnline(onlineDeviceIndex - 1)} aria-label="Dispositivo anterior">‹</button>
-                        <strong>{INPUT_DEVICE_CHOICES[onlineDeviceIndex]?.icon} {INPUT_DEVICE_CHOICES[onlineDeviceIndex]?.label}</strong>
+                        <strong>{dispositivoOnlineAtual()?.icon} {dispositivoOnlineAtual()?.label}</strong>
                         <button type="button" onClick={() => setDispositivoOnline(onlineDeviceIndex + 1)} aria-label="Próximo dispositivo">›</button>
-                        <small>{INPUT_DEVICE_CHOICES[onlineDeviceIndex]?.description}</small>
+                        <small>{dispositivoOnlineAtual()?.description}</small>
                       </div>
 
                       {onlineFlow === "choose" && (
@@ -14888,7 +15156,7 @@ export default function JogoPage() {
                       <strong>{onlineRoomCode}</strong>
                       <button
                         type="button"
-                        className={`sn-squish-ui ${onlineMenuIndex === 6 ? "is-gamepad-selected" : ""}`}
+                        className={`sn-squish-ui ${onlineMenuIndex === 4 ? "is-gamepad-selected" : ""}`}
                         onMouseEnter={() => setIndiceOnlineMenu(6)}
                         onFocus={() => setIndiceOnlineMenu(6)}
                         onClick={copiarCodigoSalaOnline}
@@ -14978,7 +15246,7 @@ export default function JogoPage() {
                   </button>
                   <button
                     type="button"
-                    className={`sn-squish-ui ${!onlineConnected ? "is-disabled" : "sn-online-danger"} ${onlineMenuIndex === 7 ? "is-gamepad-selected" : ""}`}
+                    className={`sn-squish-ui ${!onlineConnected ? "is-disabled" : "sn-online-danger"} ${onlineMenuIndex === 5 ? "is-gamepad-selected" : ""}`}
                     onMouseEnter={() => setIndiceOnlineMenu(7)}
                     onFocus={() => setIndiceOnlineMenu(7)}
                     onClick={sairSalaOnline}
