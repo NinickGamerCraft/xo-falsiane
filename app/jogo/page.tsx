@@ -3601,11 +3601,14 @@ export default function JogoPage() {
     }
     if (snapshot.wave) {
       waveStateRef.current = { ...waveStateRef.current, ...snapshot.wave } as WaveState;
-      setWaveUi({
+      setWaveUi((current) => ({
+        ...current,
         mode: (snapshot.wave.mode ?? waveStateRef.current.mode) as GameMode | null,
         wave: Number(snapshot.wave.wave ?? waveStateRef.current.wave ?? 0),
         active: Boolean(snapshot.wave.active ?? waveStateRef.current.active),
-      });
+        bossWave: Boolean(snapshot.wave.bossWave ?? waveStateRef.current.bossWave ?? current.bossWave),
+        message: String(snapshot.wave.message ?? waveStateRef.current.message ?? current.message ?? ""),
+      }));
     }
 
     if (snapshot.p1) Object.assign(playerRef.current, snapshot.p1);
