@@ -90,6 +90,7 @@ type OnlinePlayer = {
   ready: boolean;
   device?: string;
   connected?: boolean;
+  host?: boolean;
 };
 
 type OnlineFlow = "choose" | "create" | "join";
@@ -127,6 +128,7 @@ const EMPTY_ONLINE_INPUT_STATE: OnlineInputState = {
 
 type OnlineGameplaySnapshot = {
   t: number;
+  seq?: number;
   mode: GameMode | null;
   state: GameState;
   p1?: Partial<Player>;
@@ -146,6 +148,12 @@ type OnlineGameplaySnapshot = {
   bossProjectiles?: BossProjectile[];
   powerUps?: PowerUp[];
   boss?: Partial<BossState>;
+  p1ShieldActive?: boolean;
+  p2ShieldActive?: boolean;
+  p1DodgeActive?: boolean;
+  p2DodgeActive?: boolean;
+  p1BoostActive?: boolean;
+  p2BoostActive?: boolean;
 };
 
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
@@ -1387,7 +1395,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "1.2.0";
+const SPACE_NEWS_VERSION = "1.2.1";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -2529,11 +2537,13 @@ function drawVelocityStretchedImage(
   fallbackColor = "#ffffff",
   stretchMultiplier = 1.35,
   stretchPulse = 0,
+  flipSpriteByVelocity = false,
 ) {
   ctx.save();
   ctx.translate(x + w / 2, y + h / 2);
   applyVelocityStretch(ctx, vx, vy, stretchMultiplier, stretchPulse);
   ctx.rotate(rotation);
+  if (flipSpriteByVelocity && vx < -0.05) ctx.scale(-1, 1);
 
   if (CONFIG.useSprites && img) {
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
@@ -2940,6 +2950,8 @@ export default function JogoPage() {
   const onlineLastSyncSentAtRef = useRef(0);
   const onlineLastSyncReceivedAtRef = useRef(0);
   const onlineLastAppliedSyncAtRef = useRef(0);
+  const onlineLastExtrapolatedAtRef = useRef(0);
+  const onlineSnapshotSeqRef = useRef(0);
   const onlineLatestSnapshotRef = useRef<OnlineGameplaySnapshot | null>(null);
   const onlinePauseRequestedByRef = useRef<number | null>(null);
   const onlinePauseReadySlotsRef = useRef<number[]>([]);
@@ -3101,8 +3113,42 @@ export default function JogoPage() {
     return onlineGameplayActiveRef.current && isLocalMode(currentModeRef.current);
   }
 
-  function espelharOnlinePvpVisual() {
+  function deveProjetarOnlinePvpLocal() {
     return onlineGameplayActiveRef.current && onlineSlotRef.current > 1 && isLocalPvpMode(currentModeRef.current);
+  }
+
+  function espelharOnlinePvpVisual() {
+    // v1.2.1: o espelhamento global do canvas causava controles/power-ups invertidos e dessincronização visual.
+    // Agora o cliente P2 recebe um snapshot projetado: o player local fica à esquerda sem inverter a UI inteira.
+    return false;
+  }
+
+  function espelharXOnline(x = 0, w = 0) {
+    return CONFIG.canvasWidth - x - w;
+  }
+
+  function espelharPlayerOnline<T extends Partial<Player> | null | undefined>(player: T): T {
+    if (!player) return player;
+    const w = Number(player.w ?? CONFIG.gameplay.player.width);
+    return {
+      ...player,
+      x: espelharXOnline(Number(player.x ?? 0), w),
+      vx: typeof player.vx === "number" ? -player.vx : player.vx,
+      boostVx: typeof player.boostVx === "number" ? -player.boostVx : player.boostVx,
+      stretchVx: typeof player.stretchVx === "number" ? -player.stretchVx : player.stretchVx,
+      throwVx: typeof player.throwVx === "number" ? -player.throwVx : player.throwVx,
+      lastInputX: typeof player.lastInputX === "number" ? -player.lastInputX : player.lastInputX,
+      tilt: typeof player.tilt === "number" ? -player.tilt : player.tilt,
+    } as T;
+  }
+
+  function espelharObjetoOnline<T extends { x: number; w: number; vx?: number; stretchVx?: number }>(obj: T): T {
+    return {
+      ...obj,
+      x: espelharXOnline(Number(obj.x || 0), Number(obj.w || 0)),
+      vx: typeof obj.vx === "number" ? -obj.vx : obj.vx,
+      stretchVx: typeof obj.stretchVx === "number" ? -obj.stretchVx : obj.stretchVx,
+    };
   }
 
   function souHostOnline() {
@@ -3110,6 +3156,7 @@ export default function JogoPage() {
   }
 
   function hpPvpVisual(slot: 1 | 2) {
+    if (deveProjetarOnlinePvpLocal()) return slot === 1 ? playerHp : player2Hp;
     if (onlineGameplayActive && onlineSlot === 2) return slot === 1 ? player2Hp : playerHp;
     return slot === 1 ? playerHp : player2Hp;
   }
@@ -3130,9 +3177,8 @@ export default function JogoPage() {
   }
 
   function rotuloModoLocal(mode = currentModeRef.current) {
-    if (mode === "localCoop") return "COOP LOCAL";
-    if (mode === "localScore") return "DISPUTA LOCAL";
-    if (mode === "localPvp") return "PVP LOCAL";
+    if (mode === "localCoop") return "TOGETHER LOCAL";
+    if (mode === "localPvp") return "VERSUS LOCAL";
     return "LOCAL";
   }
 
@@ -3550,7 +3596,7 @@ export default function JogoPage() {
 
   function inputOnlineLocalAtual(): OnlineInputState {
     const axes = eixosLocaisAtuais();
-    const visualMirror = espelharOnlinePvpVisual();
+    const visualMirror = deveProjetarOnlinePvpLocal();
     const logicalX = visualMirror ? -axes.x : axes.x;
     return {
       left: logicalX < -0.22,
@@ -3606,8 +3652,10 @@ export default function JogoPage() {
   }
 
   function criarSnapshotOnline(): OnlineGameplaySnapshot {
+    const now = performance.now();
     return {
       t: Date.now(),
+      seq: ++onlineSnapshotSeqRef.current,
       mode: currentModeRef.current,
       state: gameStateRef.current,
       p1: sanitizarPlayerParaSync(playerRef.current) || undefined,
@@ -3627,6 +3675,12 @@ export default function JogoPage() {
       bossProjectiles: bossProjectilesRef.current.slice(-48),
       powerUps: powerUpsRef.current.slice(-10),
       boss: { ...bossRef.current },
+      p1ShieldActive: shieldActiveRef.current || now < playerRef.current.invincibleUntil,
+      p2ShieldActive: Boolean(player2Ref.current && (now < player2ShieldUntilRef.current || now < player2Ref.current.invincibleUntil)),
+      p1DodgeActive: now < playerRef.current.dodgeUntil,
+      p2DodgeActive: Boolean(player2Ref.current && now < player2Ref.current.dodgeUntil),
+      p1BoostActive: now < playerRef.current.boostUntil,
+      p2BoostActive: Boolean(player2Ref.current && now < player2Ref.current.boostUntil),
     };
   }
 
@@ -3651,27 +3705,62 @@ export default function JogoPage() {
       }));
     }
 
-    if (snapshot.p1) Object.assign(playerRef.current, snapshot.p1);
-    if (snapshot.p2) {
-      if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
-      Object.assign(player2Ref.current, snapshot.p2);
+    const projectedPvp = deveProjetarOnlinePvpLocal();
+    const localNow = performance.now();
+
+    if (projectedPvp) {
+      const localPlayer = espelharPlayerOnline(snapshot.p2 || null);
+      const rivalPlayer = espelharPlayerOnline(snapshot.p1 || null);
+      if (localPlayer) Object.assign(playerRef.current, localPlayer);
+      if (rivalPlayer) {
+        if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
+        Object.assign(player2Ref.current, rivalPlayer);
+      }
+      if (typeof snapshot.p2Hp === "number") { playerRef.current.hp = snapshot.p2Hp; setPlayerHp(snapshot.p2Hp); }
+      if (typeof snapshot.p1Hp === "number") { if (player2Ref.current) player2Ref.current.hp = snapshot.p1Hp; setPlayer2Hp(snapshot.p1Hp); }
+      if (typeof snapshot.p2Gold === "number") { playerRef.current.goldenHp = snapshot.p2Gold; setGoldenHp(snapshot.p2Gold); }
+      if (typeof snapshot.p1Gold === "number") { if (player2Ref.current) player2Ref.current.goldenHp = snapshot.p1Gold; setPlayer2GoldenHp(snapshot.p1Gold); }
+      shieldActiveRef.current = Boolean(snapshot.p2ShieldActive);
+      setShieldActive(Boolean(snapshot.p2ShieldActive));
+      player2ShieldUntilRef.current = snapshot.p1ShieldActive ? localNow + 520 : 0;
+      if (snapshot.p2DodgeActive) playerRef.current.dodgeUntil = localNow + 120;
+      else if (playerRef.current.dodgeUntil > localNow + 180) playerRef.current.dodgeUntil = 0;
+      if (snapshot.p1DodgeActive && player2Ref.current) player2Ref.current.dodgeUntil = localNow + 120;
+      else if (player2Ref.current && player2Ref.current.dodgeUntil > localNow + 180) player2Ref.current.dodgeUntil = 0;
+    } else {
+      if (snapshot.p1) Object.assign(playerRef.current, snapshot.p1);
+      if (snapshot.p2) {
+        if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
+        Object.assign(player2Ref.current, snapshot.p2);
+      }
+      if (typeof snapshot.p1Hp === "number") { playerRef.current.hp = snapshot.p1Hp; setPlayerHp(snapshot.p1Hp); }
+      if (typeof snapshot.p2Hp === "number") { if (player2Ref.current) player2Ref.current.hp = snapshot.p2Hp; setPlayer2Hp(snapshot.p2Hp); }
+      if (typeof snapshot.p1Gold === "number") { playerRef.current.goldenHp = snapshot.p1Gold; setGoldenHp(snapshot.p1Gold); }
+      if (typeof snapshot.p2Gold === "number") { if (player2Ref.current) player2Ref.current.goldenHp = snapshot.p2Gold; setPlayer2GoldenHp(snapshot.p2Gold); }
+      shieldActiveRef.current = Boolean(snapshot.p1ShieldActive);
+      setShieldActive(Boolean(snapshot.p1ShieldActive));
+      player2ShieldUntilRef.current = snapshot.p2ShieldActive ? localNow + 520 : 0;
+      if (snapshot.p1DodgeActive) playerRef.current.dodgeUntil = localNow + 120;
+      else if (playerRef.current.dodgeUntil > localNow + 180) playerRef.current.dodgeUntil = 0;
+      if (snapshot.p2DodgeActive && player2Ref.current) player2Ref.current.dodgeUntil = localNow + 120;
+      else if (player2Ref.current && player2Ref.current.dodgeUntil > localNow + 180) player2Ref.current.dodgeUntil = 0;
     }
 
-    if (typeof snapshot.p1Hp === "number") setPlayerHp(snapshot.p1Hp);
-    if (typeof snapshot.p2Hp === "number") setPlayer2Hp(snapshot.p2Hp);
-    if (typeof snapshot.p1Gold === "number") setGoldenHp(snapshot.p1Gold);
-    if (typeof snapshot.p2Gold === "number") setPlayer2GoldenHp(snapshot.p2Gold);
     if (typeof snapshot.score === "number") { scoreRef.current = snapshot.score; setScore(snapshot.score); }
     if (typeof snapshot.localP1Score === "number") { localP1ScoreRef.current = snapshot.localP1Score; setLocalP1Score(snapshot.localP1Score); }
     if (typeof snapshot.localP2Score === "number") { localP2ScoreRef.current = snapshot.localP2Score; setLocalP2Score(snapshot.localP2Score); }
     if (typeof snapshot.localPvpRound === "number") { localPvpRoundRef.current = snapshot.localPvpRound; setLocalPvpRound(snapshot.localPvpRound); }
 
-    if (Array.isArray(snapshot.shots)) shotsRef.current = snapshot.shots;
-    if (Array.isArray(snapshot.enemies)) enemiesRef.current = snapshot.enemies;
-    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = snapshot.enemyProjectiles;
-    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = snapshot.bossProjectiles;
-    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = snapshot.powerUps;
-    if (snapshot.boss) bossRef.current = { ...bossRef.current, ...snapshot.boss };
+    if (Array.isArray(snapshot.shots)) shotsRef.current = projectedPvp ? snapshot.shots.map((shot) => espelharObjetoOnline(shot)) : snapshot.shots;
+    if (Array.isArray(snapshot.enemies)) enemiesRef.current = projectedPvp ? snapshot.enemies.map((enemy) => espelharObjetoOnline(enemy)) : snapshot.enemies;
+    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = projectedPvp ? snapshot.enemyProjectiles.map((bullet) => espelharObjetoOnline(bullet)) : snapshot.enemyProjectiles;
+    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = projectedPvp ? snapshot.bossProjectiles.map((projectile) => espelharObjetoOnline(projectile)) : snapshot.bossProjectiles;
+    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = projectedPvp ? snapshot.powerUps.map((power) => espelharObjetoOnline(power)) : snapshot.powerUps;
+    if (snapshot.boss) {
+      const bossSnapshot = projectedPvp ? espelharObjetoOnline({ ...(snapshot.boss as Partial<BossState>), x: Number(snapshot.boss.x ?? bossRef.current.x), w: Number(snapshot.boss.w ?? bossRef.current.w), vx: 0 }) : snapshot.boss;
+      bossRef.current = { ...bossRef.current, ...bossSnapshot };
+    }
+    onlineLastExtrapolatedAtRef.current = performance.now();
 
     if ((snapshot.state === "gameOver" || snapshot.state === "gameOverCutscene") && gameStateRef.current !== snapshot.state) {
       setEstado(snapshot.state);
@@ -3681,6 +3770,48 @@ export default function JogoPage() {
     }
   }
 
+  function extrapolarEstadoOnlineNaoHost(delta: number, canvas: HTMLCanvasElement) {
+    if (!onlineGameplayActiveRef.current || souHostOnline() || gameStateRef.current !== "playing") return;
+    const speedFactor = delta / 16.67;
+    const movePlayer = (player: Player | null) => {
+      if (!player) return;
+      player.x += (player.vx || 0) * speedFactor;
+      player.y += (player.vy || 0) * speedFactor;
+      player.vx *= Math.pow(CONFIG.gameplay.player.friction, speedFactor * 0.32);
+      player.vy *= Math.pow(CONFIG.gameplay.player.friction, speedFactor * 0.32);
+      player.x = clamp(player.x, 0, CONFIG.canvasWidth - player.w);
+      player.y = clamp(player.y, 0, CONFIG.canvasHeight - player.h);
+    };
+    movePlayer(playerRef.current);
+    movePlayer(player2Ref.current);
+    shotsRef.current = shotsRef.current
+      .map((shot) => ({ ...shot, x: shot.x + (shot.vx ?? shot.speed) * speedFactor, y: shot.y + (shot.vy ?? 0) * speedFactor }))
+      .filter((shot) => shot.x + shot.w > -80 && shot.x < CONFIG.canvasWidth + 80 && shot.y + shot.h > -80 && shot.y < CONFIG.canvasHeight + 80);
+    enemyProjectilesRef.current = enemyProjectilesRef.current
+      .map((bullet) => ({ ...bullet, x: bullet.x + (bullet.vx || 0) * speedFactor, y: bullet.y + (bullet.vy || 0) * speedFactor, life: Math.max(0, bullet.life - delta) }))
+      .filter((bullet) => bullet.life > 0 && bullet.x > -140 && bullet.x < canvas.width + 140 && bullet.y > -140 && bullet.y < canvas.height + 140);
+    bossProjectilesRef.current = bossProjectilesRef.current
+      .map((projectile) => ({ ...projectile, x: projectile.x + (projectile.vx || 0) * speedFactor, y: projectile.y + (projectile.vy || 0) * speedFactor, life: Math.max(0, projectile.life - delta) }))
+      .filter((projectile) => projectile.life > 0);
+    enemiesRef.current = enemiesRef.current.map((enemy) => ({
+      ...enemy,
+      age: enemy.age + delta,
+      x: enemy.x + (enemy.vx || 0) * speedFactor,
+      y: enemy.y + (enemy.vy || 0) * speedFactor,
+      rotation: (enemy.rotation ?? 0) + (enemy.rotationSpeed ?? 0) * delta,
+    }));
+    const cfg = CONFIG.gameplay.powerups;
+    powerUpsRef.current = powerUpsRef.current
+      .map((power) => ({
+        ...power,
+        age: power.age + delta,
+        life: power.life - delta,
+        x: power.x + power.vx * speedFactor,
+        y: power.y + power.vy * speedFactor + Math.sin((power.age + delta) * cfg.waveFrequency + power.wavePhase) * cfg.waveAmplitude * 0.035 * speedFactor,
+      }))
+      .filter((power) => power.life > 0 && power.x > -140 && power.x < canvas.width + 140 && power.y > -110 && power.y < canvas.height + 110);
+  }
+
   function sincronizarGameplayOnline() {
     if (!onlineGameplayActiveRef.current) return;
     const state = gameStateRef.current;
@@ -3688,7 +3819,7 @@ export default function JogoPage() {
     const now = performance.now();
 
     if (souHostOnline()) {
-      if (now - onlineLastSyncSentAtRef.current < 48) return;
+      if (now - onlineLastSyncSentAtRef.current < 30) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -3710,6 +3841,9 @@ export default function JogoPage() {
     onlineRemoteInputsRef.current = {};
     onlineLatestSnapshotRef.current = null;
     onlineLastSyncReceivedAtRef.current = 0;
+    onlineLastAppliedSyncAtRef.current = 0;
+    onlineLastExtrapolatedAtRef.current = 0;
+    onlineSnapshotSeqRef.current = 0;
     setOnlineSyncWarning("");
     onlinePauseRequestedByRef.current = null;
     onlinePauseReadySlotsRef.current = [];
@@ -3983,16 +4117,6 @@ export default function JogoPage() {
         return;
       }
 
-      if (msg.type === "unpause_start") {
-        onlinePauseRequestedByRef.current = null;
-        onlinePauseReadySlotsRef.current = [];
-        setOnlinePauseRequestedBy(null);
-        setOnlinePauseReadySlots([]);
-        onlinePausePanelOpenRef.current = false;
-        setOnlinePausePanelOpen(false);
-        iniciarContagemRetomada();
-        return;
-      }
 
       if (msg.type === "unpause_start") {
         onlinePauseRequestedByRef.current = null;
@@ -9382,7 +9506,7 @@ export default function JogoPage() {
           const forward = dx * dir.x + dy * dir.y;
           const side = Math.abs(dx * -dir.y + dy * dir.x);
           if (forward >= -18 && forward <= range && side <= cone * 0.72 + Math.min(box.w, box.h) * 0.35) {
-            receberDanoPlayer2(Math.max(0.08, damage * 0.32));
+            receberDanoPlayer2(isLocalPvpMode() ? 1 : Math.max(0.08, damage * 0.32));
             criarParticulasHit(cx, cy, powerActive ? "#ffb703" : "#fb923c", 3);
           }
         }
@@ -10113,8 +10237,9 @@ export default function JogoPage() {
         tocarSom(CONFIG.sounds.goldenHeart || CONFIG.sounds.playerDamage, 0.42, "ability");
         return;
       }
-      player.hp = Math.max(0, player.hp - dano);
-      player.invincibleUntil = now + (isLocalPvpMode() ? 80 : CONFIG.gameplay.player.invincibleMs);
+      const danoAplicado = isLocalPvpMode() ? Math.max(1, Math.round(dano)) : dano;
+      player.hp = Math.max(0, Math.round((player.hp - danoAplicado) * 100) / 100);
+      player.invincibleUntil = now + (isLocalPvpMode() ? 95 : CONFIG.gameplay.player.invincibleMs);
       setPlayer2Hp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#60a5fa", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
@@ -10135,8 +10260,9 @@ export default function JogoPage() {
       const player = playerRef.current;
       const now = performance.now();
       if ((isLocalPvpMode() ? now < player.dodgeUntil : now < player.invincibleUntil || now < player.dodgeUntil) || player.hp <= 0) return;
-      player.hp = Math.max(0, player.hp - dano);
-      player.invincibleUntil = now + (isLocalPvpMode() ? 80 : CONFIG.gameplay.player.invincibleMs);
+      const danoAplicado = isLocalPvpMode() ? Math.max(1, Math.round(dano)) : dano;
+      player.hp = Math.max(0, Math.round((player.hp - danoAplicado) * 100) / 100);
+      player.invincibleUntil = now + (isLocalPvpMode() ? 95 : CONFIG.gameplay.player.invincibleMs);
       setPlayerHp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
@@ -10344,7 +10470,7 @@ export default function JogoPage() {
       if (!player || !isLocalMode()) return;
       const now = performance.now();
       const ghostLocal = isLocalWaveMode() && player.hp <= 0;
-      const shieldVisual = player.hp > 0 && (now < player2ShieldUntilRef.current || now + 1600 < player.invincibleUntil);
+      const shieldVisual = player.hp > 0 && (now < player2ShieldUntilRef.current || (!isLocalPvpMode() && now + 1600 < player.invincibleUntil));
       if (!ghostLocal && player.hp <= 0 && Math.floor(now / 180) % 2 === 0) return;
       if (!isLocalPvpMode() && !ghostLocal && shieldVisual && !onlineGameplayActiveRef.current && Math.floor(now / 100) % 2 === 0) return;
 
@@ -10448,6 +10574,7 @@ export default function JogoPage() {
         color,
         getStretchSettings("shot").multiplier,
         getStretchPulse(shot.stretchUntil, "shot"),
+        true,
       );
     }
 
@@ -13337,8 +13464,9 @@ export default function JogoPage() {
       }
 
       if (onlineGameplayActiveRef.current && !souHostOnline() && gameStateRef.current === "playing") {
-        // Cliente não-host renderiza o estado do host. Isso evita waves/random/game over diferentes e reduz lag no celular.
-        aplicarSnapshotOnline(onlineLatestSnapshotRef.current as OnlineGameplaySnapshot);
+        // Cliente não-host usa o snapshot do host como verdade e extrapola só o frame atual para não parecer travado.
+        if (onlineLatestSnapshotRef.current) aplicarSnapshotOnline(onlineLatestSnapshotRef.current);
+        extrapolarEstadoOnlineNaoHost(delta, canvas);
         if (!mobileRuntimeRef.current && !adaptivePerformanceRef.current.reduced) atualizarParticulas(delta);
         atualizarPowerUpUi();
         setIsLowHp(false);
@@ -13598,10 +13726,17 @@ export default function JogoPage() {
             const homingAge = performance.now() - (shot.bornAt ?? performance.now());
             const homingAllowed = !isLocalPvpMode() || homingAge < 1150;
             const target = homingAllowed
-              ? encontrarAlvoMaisProximo(
-                  shot.x + shot.w / 2,
-                  shot.y + shot.h / 2,
-                )
+              ? (isLocalPvpMode()
+                  ? (() => {
+                      const targetPlayer = shot.ownerId === 2 ? playerRef.current : player2Ref.current;
+                      return targetPlayer && targetPlayer.hp > 0
+                        ? { x: targetPlayer.x + targetPlayer.w / 2, y: targetPlayer.y + targetPlayer.h / 2, distance: Math.hypot(targetPlayer.x + targetPlayer.w / 2 - (shot.x + shot.w / 2), targetPlayer.y + targetPlayer.h / 2 - (shot.y + shot.h / 2)) }
+                        : null;
+                    })()
+                  : encontrarAlvoMaisProximo(
+                      shot.x + shot.w / 2,
+                      shot.y + shot.h / 2,
+                    ))
               : null;
             if (target) {
               const dx = target.x - (shot.x + shot.w / 2);
@@ -14006,8 +14141,10 @@ export default function JogoPage() {
       ) {
         desenharPlayer(renderCtx, elapsedSinceRender);
         desenharPlayer2(renderCtx, elapsedSinceRender);
-        desenharIndicadorJogadorLocal(renderCtx, playerRef.current, "P1", LOCAL_PLAYER_COLORS[0]);
-        desenharIndicadorJogadorLocal(renderCtx, player2Ref.current, "P2", LOCAL_PLAYER_COLORS[1]);
+        const labelLocalP1 = deveProjetarOnlinePvpLocal() ? `P${onlineSlotRef.current}` : "P1";
+        const labelLocalP2 = deveProjetarOnlinePvpLocal() ? `P${onlineHostSlotRef.current || 1}` : "P2";
+        desenharIndicadorJogadorLocal(renderCtx, playerRef.current, labelLocalP1, LOCAL_PLAYER_COLORS[0]);
+        desenharIndicadorJogadorLocal(renderCtx, player2Ref.current, labelLocalP2, LOCAL_PLAYER_COLORS[1]);
         desenharReviveLocal(renderCtx);
       }
 
@@ -15211,9 +15348,6 @@ export default function JogoPage() {
           <div className="game-title-content">
             <h1>SPACE NEWS</h1>
             <p>PRESSIONE ENTER</p>
-            <div className="sn-update-log-badge">
-              <strong>UPDATE 1</strong>
-            </div>
             {CONFIG.settings.showMobileStartHint && (
               <span className="game-mobile-start-hint">
                 toque em qualquer lugar...
@@ -15451,6 +15585,17 @@ export default function JogoPage() {
               </div>
             </header>
 
+            <div className="sn-online-stepper-party" aria-hidden="true">
+              {[
+                ["1", onlineFlow === "choose" && !onlineConnected ? "CRIAR/ENTRAR" : "OK"],
+                ["2", onlineConnected ? "SALA" : "CÓDIGO"],
+                ["3", onlineConnected ? "PLAYERS" : "AGUARDE"],
+                ["4", onlineConnected ? "VOTAÇÃO" : "MODO"],
+              ].map(([n, label], index) => (
+                <span key={n} className={(onlineConnected || index === 0 || onlineFlow !== "choose") ? "is-lit" : ""}><b>{n}</b>{label}</span>
+              ))}
+            </div>
+
             <div className={`sn-online-feedback-v3 is-${onlineFeedback}`} aria-live="polite">
               <span className="sn-online-feedback-orb" />
               <strong>{onlineFeedback === "loading" ? "CARREGANDO" : onlineFeedback === "success" ? "ACHOU!" : onlineFeedback === "error" ? "OPS!" : onlineConnected ? `SALA ${onlineRoomCode}` : "SPACE LINK"}</strong>
@@ -15622,7 +15767,7 @@ export default function JogoPage() {
                     return (
                       <div
                         key={slot}
-                        className={`sn-online-player-card-v3 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""}`}
+                        className={`sn-online-player-card-v3 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""} ${onlineHostSlot === slot ? "is-host" : ""}`}
                         style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
                       >
                         <span>P{slot}</span>
@@ -16327,7 +16472,7 @@ export default function JogoPage() {
                   </div>
                 )}
                 <button className={pauseIndex === 1 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(1)} onFocus={() => setIndicePause(1)} onClick={abrirConfiguracoes}>CONFIGURAÇÕES</button>
-                {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === 1) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
+                {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === onlineHostSlotRef.current) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
                 <button className={pauseIndex === 2 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(2)} onFocus={() => setIndicePause(2)} onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
               </>
             ) : (
@@ -16387,7 +16532,7 @@ export default function JogoPage() {
                 VER RANKING
               </button>
             )}
-            {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === 1) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
+            {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === onlineHostSlotRef.current) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
         </section>
