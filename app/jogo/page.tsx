@@ -72,6 +72,8 @@ type GameState =
   | "victory";
 
 type GameMode = "story" | "infinite" | "localCoop" | "localScore" | "localPvp";
+type PlayerSlot = 1 | 2 | 3 | 4;
+
 
 type ExtraSection = "home" | "credits" | "wiki" | "records";
 
@@ -126,11 +128,40 @@ const EMPTY_ONLINE_INPUT_STATE: OnlineInputState = {
   pause: false,
 };
 
+type OnlineRuntimePlayerSnapshot = {
+  id: string;
+  slot: PlayerSlot;
+  clientId?: string;
+  name: string;
+  color: string;
+  isLocal?: boolean;
+  isHost?: boolean;
+  player: Partial<Player>;
+  hp: number;
+  maxHp: number;
+  goldenHp: number;
+  alive: boolean;
+  ghost: boolean;
+  reviveProgress: number;
+  input: OnlineInputState;
+  effects: OnlineEffectSnapshot;
+};
+
 type OnlineGameplaySnapshot = {
+  /** Tick autoritativo do host. Snapshots velhos são descartados para evitar “voltar no tempo”. */
+  tick: number;
+  /** Date.now() do host no momento do envio. */
   t: number;
+  /** Date.now() adicionado pelo Worker ao relayar o snapshot. */
+  serverTime?: number;
+  /** Date.now() do host preservado para estimar atraso. */
+  sentAt?: number;
   seq?: number;
+  authoritativeSlot?: PlayerSlot;
+  netModel?: "host-authoritative-v2" | string;
   mode: GameMode | null;
   state: GameState;
+  players?: OnlineRuntimePlayerSnapshot[];
   p1?: Partial<Player>;
   p2?: Partial<Player> | null;
   p1Hp?: number;
@@ -242,7 +273,7 @@ type SpriteKey =
 
 type Shot = {
   id: number;
-  ownerId?: 1 | 2;
+  ownerId?: PlayerSlot;
   bornAt?: number;
   stretchUntil: number;
   x: number;
@@ -498,6 +529,53 @@ type Player = {
   throwVy: number;
   wallImpactArmed: boolean;
   alienCaptureCooldownUntil: number;
+};
+
+type PlayerRuntime = {
+  id: string;
+  slot: PlayerSlot;
+  clientId?: string;
+  name: string;
+  color: string;
+  isLocal: boolean;
+  isHost: boolean;
+
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  w: number;
+  h: number;
+  facing: 1 | -1;
+
+  hp: number;
+  maxHp: number;
+  lives: number;
+  goldenLives: number;
+
+  alive: boolean;
+  ghost: boolean;
+  reviveProgress: number;
+
+  invulnerableUntil: number;
+  shieldUntil: number;
+
+  dodgeCooldown: number;
+  strongCooldown: number;
+  boostEnergy: number;
+
+  powerups: {
+    fireRateUntil?: number;
+    powerShotUntil?: number;
+    homingUntil?: number;
+    flamesUntil?: number;
+    shieldUntil?: number;
+  };
+
+  input: OnlineInputState;
+
+  /** Ponte temporária com o sistema antigo. Enquanto o canvas é quebrado em módulos, todos os slots usam o mesmo Player base. */
+  runtime: Player;
 };
 
 type GameCssVars = CSSProperties & {
@@ -1405,7 +1483,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "1.3.0";
+const SPACE_NEWS_VERSION = "1.4.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -2926,6 +3004,7 @@ export default function JogoPage() {
 
   const playerRef = useRef<Player>(createInitialPlayer());
   const player2Ref = useRef<Player | null>(null);
+  const playersRef = useRef<PlayerRuntime[]>([]);
   const player2InputRef = useRef({ x: 0, y: 0 });
   const player2ButtonsRef = useRef<Record<string, boolean>>({});
   const player2ButtonsPressedRef = useRef<Record<string, boolean>>({});
@@ -2963,6 +3042,11 @@ export default function JogoPage() {
   const onlineLastExtrapolatedAtRef = useRef(0);
   const onlineSnapshotSeqRef = useRef(0);
   const onlineLatestSnapshotRef = useRef<OnlineGameplaySnapshot | null>(null);
+  const onlineSnapshotBufferRef = useRef<OnlineGameplaySnapshot[]>([]);
+  const onlineLastAppliedSnapshotTickRef = useRef(0);
+  const onlineLastAppliedSnapshotSeqRef = useRef(0);
+  const onlineRenderDelayMsRef = useRef(110);
+  const onlineHardCatchUpDelayMsRef = useRef(520);
   const onlinePauseRequestedByRef = useRef<number | null>(null);
   const onlinePauseReadySlotsRef = useRef<number[]>([]);
   const onlinePausePanelOpenRef = useRef(false);
@@ -3359,6 +3443,211 @@ export default function JogoPage() {
     return player;
   }
 
+  function criarPlayerRuntime(slot: PlayerSlot, runtime?: Player | null): PlayerRuntime {
+    const player = runtime ?? createInitialPlayer();
+    if (slot === 2 && !runtime) {
+      player.x = CONFIG.canvasWidth - player.w - 150;
+      player.y = CONFIG.canvasHeight / 2 - player.h / 2;
+    } else if (slot >= 3 && !runtime) {
+      player.x = 112 + (slot - 1) * 54;
+      player.y = CONFIG.canvasHeight / 2 - 120 + (slot - 1) * 68;
+    }
+
+    return {
+      id: `runtime-p${slot}`,
+      slot,
+      name: `P${slot}`,
+      color: LOCAL_PLAYER_COLORS[slot - 1] ?? LOCAL_PLAYER_COLORS[0],
+      isLocal: slot === 1,
+      isHost: slot === onlineHostSlotRef.current,
+      x: player.x,
+      y: player.y,
+      vx: player.vx,
+      vy: player.vy,
+      w: player.w,
+      h: player.h,
+      facing: slot === 2 && isLocalPvpMode() ? -1 : 1,
+      hp: player.hp,
+      maxHp: vidaMaximaLocal(),
+      lives: player.hp,
+      goldenLives: player.goldenHp,
+      alive: player.hp > 0,
+      ghost: isLocalWaveMode() && player.hp <= 0,
+      reviveProgress: 0,
+      invulnerableUntil: player.invincibleUntil,
+      shieldUntil: 0,
+      dodgeCooldown: Math.max(0, player.dodgeUntil + CONFIG.gameplay.dodge.cooldownMs - performance.now()),
+      strongCooldown: Math.max(0, player.strongReadyAt - performance.now()),
+      boostEnergy: slot === 1 ? boostChargeRef.current : 0,
+      powerups: {},
+      input: { ...EMPTY_ONLINE_INPUT_STATE },
+      runtime: player,
+    };
+  }
+
+  function aplicarMetadadosRuntime(runtime: PlayerRuntime, meta?: Partial<OnlinePlayer>) {
+    runtime.clientId = meta?.id ?? runtime.clientId;
+    runtime.name = meta?.name || runtime.name || `P${runtime.slot}`;
+    runtime.color = LOCAL_PLAYER_COLORS[runtime.slot - 1] ?? runtime.color;
+    runtime.isLocal = runtime.slot === (onlineSlotRef.current || 1);
+    runtime.isHost = runtime.slot === onlineHostSlotRef.current;
+  }
+
+  function efeitosDoSlotRuntime(slot: PlayerSlot, now = performance.now()) {
+    if (slot === 1) {
+      return {
+        shieldUntil: shieldActiveRef.current ? now + 999999 : 0,
+        fireRateUntil: fireRateUntilRef.current,
+        powerShotUntil: powerShotUntilRef.current,
+        homingUntil: homingShotUntilRef.current,
+        flamesUntil: flamesUntilRef.current,
+      };
+    }
+
+    if (slot === 2) {
+      return {
+        shieldUntil: player2ShieldUntilRef.current,
+        fireRateUntil: player2FireRateUntilRef.current,
+        powerShotUntil: player2PowerShotUntilRef.current,
+        homingUntil: player2HomingShotUntilRef.current,
+        flamesUntil: player2FlamesUntilRef.current,
+      };
+    }
+
+    return { shieldUntil: 0, fireRateUntil: 0, powerShotUntil: 0, homingUntil: 0, flamesUntil: 0 };
+  }
+
+  function atualizarPlayerRuntime(runtime: PlayerRuntime, player: Player, meta?: Partial<OnlinePlayer>) {
+    const now = performance.now();
+    const effects = efeitosDoSlotRuntime(runtime.slot, now);
+    aplicarMetadadosRuntime(runtime, meta);
+    runtime.x = player.x;
+    runtime.y = player.y;
+    runtime.vx = player.vx;
+    runtime.vy = player.vy;
+    runtime.w = player.w;
+    runtime.h = player.h;
+    runtime.facing = runtime.slot === 2 && isLocalPvpMode() ? -1 : 1;
+    runtime.hp = player.hp;
+    runtime.maxHp = vidaMaximaLocal();
+    runtime.lives = player.hp;
+    runtime.goldenLives = player.goldenHp;
+    runtime.alive = player.hp > 0;
+    runtime.ghost = isLocalWaveMode() && player.hp <= 0;
+    runtime.invulnerableUntil = player.invincibleUntil;
+    runtime.shieldUntil = effects.shieldUntil;
+    runtime.dodgeCooldown = Math.max(0, player.dodgeUntil + CONFIG.gameplay.dodge.cooldownMs - now);
+    runtime.strongCooldown = Math.max(0, player.strongReadyAt - now);
+    runtime.boostEnergy = runtime.slot === 1 ? boostChargeRef.current : Math.max(0, player2BoostReadyAtRef.current - now);
+    runtime.powerups = {
+      fireRateUntil: effects.fireRateUntil,
+      powerShotUntil: effects.powerShotUntil,
+      homingUntil: effects.homingUntil,
+      flamesUntil: effects.flamesUntil,
+      shieldUntil: effects.shieldUntil,
+    };
+    runtime.input = runtime.slot === onlineSlotRef.current
+      ? inputOnlineLocalAtual()
+      : (onlineRemoteInputsRef.current[runtime.slot] || EMPTY_ONLINE_INPUT_STATE);
+    runtime.runtime = player;
+  }
+
+  function slotsMultiplayerAtivos(): PlayerSlot[] {
+    if (onlineConnected || onlineGameplayActiveRef.current) {
+      const fromRoom = onlinePlayers
+        .map((player) => Number(player.slot))
+        .filter((slot): slot is PlayerSlot => slot >= 1 && slot <= 4);
+      return fromRoom.length > 0 ? fromRoom : ([1, 2] as PlayerSlot[]);
+    }
+
+    if (isLocalMode()) {
+      const local = localPlayerSlotsRef.current
+        .filter((slot) => slot.ready)
+        .map((slot) => slot.id)
+        .filter((slot): slot is PlayerSlot => slot >= 1 && slot <= 4);
+      return local.length > 0 ? local : ([1] as PlayerSlot[]);
+    }
+
+    return [1];
+  }
+
+  function sincronizarPlayersRuntime() {
+    const existing = new Map<PlayerSlot, PlayerRuntime>(
+      playersRef.current.map((player) => [player.slot, player] as [PlayerSlot, PlayerRuntime]),
+    );
+    const slots = slotsMultiplayerAtivos();
+    const next: PlayerRuntime[] = [];
+
+    for (const slot of slots) {
+      let runtimePlayer: Player | null = null;
+      if (slot === 1) runtimePlayer = playerRef.current;
+      else if (slot === 2) {
+        if (!player2Ref.current && (isLocalMode() || onlineGameplayActiveRef.current || onlineConnected)) {
+          player2Ref.current = criarPlayer2Inicial();
+        }
+        runtimePlayer = player2Ref.current;
+      } else {
+        runtimePlayer = existing.get(slot)?.runtime ?? createInitialPlayer();
+      }
+
+      if (!runtimePlayer) continue;
+      const runtime = existing.get(slot) ?? criarPlayerRuntime(slot, runtimePlayer);
+      const meta = onlinePlayers.find((player) => player.slot === slot);
+      atualizarPlayerRuntime(runtime, runtimePlayer, meta);
+      next.push(runtime);
+    }
+
+    playersRef.current = next.sort((a, b) => a.slot - b.slot);
+    return playersRef.current;
+  }
+
+  function snapshotEfeitosPorSlot(slot: PlayerSlot, now: number): OnlineEffectSnapshot {
+    if (slot === 1) return snapshotEfeitosPlayer1(now);
+    if (slot === 2) return snapshotEfeitosPlayer2(now);
+    return { shieldMs: 0, fireRateMs: 0, powerShotMs: 0, homingShotMs: 0, flamesMs: 0 };
+  }
+
+  function snapshotPlayersOnline(now: number): OnlineRuntimePlayerSnapshot[] {
+    return sincronizarPlayersRuntime().map((runtime) => ({
+      id: runtime.id,
+      slot: runtime.slot,
+      clientId: runtime.clientId,
+      name: runtime.name,
+      color: runtime.color,
+      isLocal: runtime.isLocal,
+      isHost: runtime.isHost,
+      player: sanitizarPlayerParaSync(runtime.runtime) || {},
+      hp: runtime.hp,
+      maxHp: runtime.maxHp,
+      goldenHp: runtime.goldenLives,
+      alive: runtime.alive,
+      ghost: runtime.ghost,
+      reviveProgress: runtime.reviveProgress,
+      input: runtime.input,
+      effects: snapshotEfeitosPorSlot(runtime.slot, now),
+    }));
+  }
+
+  function normalizarSnapshotOnline(snapshot: OnlineGameplaySnapshot): OnlineGameplaySnapshot {
+    if (!Array.isArray(snapshot.players) || snapshot.players.length === 0) return snapshot;
+    const bySlot = new Map(snapshot.players.map((player) => [player.slot, player]));
+    const p1 = bySlot.get(1);
+    const p2 = bySlot.get(2);
+    return {
+      ...snapshot,
+      p1: snapshot.p1 ?? p1?.player,
+      p2: snapshot.p2 ?? p2?.player ?? null,
+      p1Hp: snapshot.p1Hp ?? p1?.hp,
+      p2Hp: snapshot.p2Hp ?? p2?.hp,
+      p1Gold: snapshot.p1Gold ?? p1?.goldenHp,
+      p2Gold: snapshot.p2Gold ?? p2?.goldenHp,
+      p1Effects: snapshot.p1Effects ?? p1?.effects,
+      p2Effects: snapshot.p2Effects ?? p2?.effects,
+      p1ShieldActive: snapshot.p1ShieldActive ?? Boolean((p1?.effects.shieldMs ?? 0) > 0),
+      p2ShieldActive: snapshot.p2ShieldActive ?? Boolean((p2?.effects.shieldMs ?? 0) > 0),
+    };
+  }
+
   function resetarPosicoesLocais() {
     const p1 = playerRef.current;
     p1.x = 112;
@@ -3746,9 +4035,16 @@ export default function JogoPage() {
 
   function criarSnapshotOnline(): OnlineGameplaySnapshot {
     const now = performance.now();
+    const sentAt = Date.now();
+    const tick = ++onlineSnapshotSeqRef.current;
     return {
-      t: Date.now(),
-      seq: ++onlineSnapshotSeqRef.current,
+      tick,
+      t: sentAt,
+      sentAt,
+      seq: tick,
+      authoritativeSlot: onlineHostSlotRef.current as PlayerSlot,
+      netModel: "host-authoritative-v2",
+      players: snapshotPlayersOnline(now),
       mode: currentModeRef.current,
       state: gameStateRef.current,
       p1: sanitizarPlayerParaSync(playerRef.current) || undefined,
@@ -3830,8 +4126,20 @@ export default function JogoPage() {
 
   function aplicarSnapshotOnline(snapshot: OnlineGameplaySnapshot) {
     if (!onlineGameplayActiveRef.current || !snapshot || souHostOnline()) return;
-    if (snapshot.t && snapshot.t <= onlineLastAppliedSyncAtRef.current) return;
-    onlineLastAppliedSyncAtRef.current = snapshot.t || Date.now();
+
+    snapshot = normalizarSnapshotOnline(snapshot);
+    const incomingTick = Number(snapshot.tick ?? snapshot.seq ?? 0);
+    const incomingSeq = Number(snapshot.seq ?? incomingTick ?? 0);
+    if (incomingTick > 0) {
+      const lastTick = onlineLastAppliedSnapshotTickRef.current;
+      const lastSeq = onlineLastAppliedSnapshotSeqRef.current;
+      if (incomingTick < lastTick || (incomingTick === lastTick && incomingSeq <= lastSeq)) return;
+      onlineLastAppliedSnapshotTickRef.current = incomingTick;
+      onlineLastAppliedSnapshotSeqRef.current = incomingSeq;
+    } else if (snapshot.t && snapshot.t <= onlineLastAppliedSyncAtRef.current) {
+      return;
+    }
+    onlineLastAppliedSyncAtRef.current = snapshot.serverTime || snapshot.t || Date.now();
 
     if (snapshot.mode) {
       currentModeRef.current = snapshot.mode;
@@ -3962,6 +4270,57 @@ export default function JogoPage() {
       .filter((power) => power.life > 0 && power.x > -140 && power.x < canvas.width + 140 && power.y > -110 && power.y < canvas.height + 110);
   }
 
+  function adicionarSnapshotOnline(rawSnapshot: OnlineGameplaySnapshot) {
+    if (!rawSnapshot) return;
+    const snapshot = normalizarSnapshotOnline(rawSnapshot);
+    const tick = Number(snapshot.tick ?? snapshot.seq ?? 0);
+    const seq = Number(snapshot.seq ?? tick ?? 0);
+    const lastTick = onlineLastAppliedSnapshotTickRef.current;
+    const lastSeq = onlineLastAppliedSnapshotSeqRef.current;
+
+    // Nunca aceita quadro mais antigo que o último aplicado; isso era a origem do efeito de “voltar no tempo”.
+    if (tick > 0 && (tick < lastTick || (tick === lastTick && seq <= lastSeq))) return;
+
+    const buffer = onlineSnapshotBufferRef.current.filter((item) => {
+      const itemTick = Number(item.tick ?? item.seq ?? 0);
+      return itemTick === 0 || tick === 0 || itemTick > lastTick - 2;
+    });
+
+    buffer.push(snapshot);
+    buffer.sort((a, b) => Number(a.tick ?? a.seq ?? 0) - Number(b.tick ?? b.seq ?? 0));
+    onlineSnapshotBufferRef.current = buffer.slice(-10);
+    onlineLatestSnapshotRef.current = onlineSnapshotBufferRef.current[onlineSnapshotBufferRef.current.length - 1] ?? snapshot;
+  }
+
+  function escolherSnapshotOnlineParaRender() {
+    const buffer = onlineSnapshotBufferRef.current;
+    if (buffer.length === 0) return onlineLatestSnapshotRef.current;
+
+    const latest = buffer[buffer.length - 1];
+    const latestServerTime = Number(latest.serverTime ?? latest.t ?? 0);
+    const nowServerEstimate = Date.now();
+
+    // Se o cliente ficou muito para trás, pula para o quadro mais recente em vez de reproduzir atraso acumulado.
+    if (latestServerTime > 0 && nowServerEstimate - latestServerTime > onlineHardCatchUpDelayMsRef.current) {
+      onlineSnapshotBufferRef.current = [latest];
+      return latest;
+    }
+
+    const targetTime = nowServerEstimate - onlineRenderDelayMsRef.current;
+    let chosenIndex = buffer.length - 1;
+    for (let i = buffer.length - 1; i >= 0; i--) {
+      const serverTime = Number(buffer[i].serverTime ?? buffer[i].t ?? 0);
+      if (serverTime <= targetTime) {
+        chosenIndex = i;
+        break;
+      }
+    }
+
+    const chosen = buffer[chosenIndex] ?? latest;
+    onlineSnapshotBufferRef.current = buffer.slice(Math.max(0, chosenIndex - 1));
+    return chosen;
+  }
+
   function sincronizarGameplayOnline() {
     if (!onlineGameplayActiveRef.current) return;
     const state = gameStateRef.current;
@@ -3976,8 +4335,8 @@ export default function JogoPage() {
       return;
     }
 
-    const latest = onlineLatestSnapshotRef.current;
-    if (latest) aplicarSnapshotOnline(latest);
+    const snapshotToRender = escolherSnapshotOnlineParaRender();
+    if (snapshotToRender) aplicarSnapshotOnline(snapshotToRender);
 
     if (onlineLastSyncReceivedAtRef.current && now - onlineLastSyncReceivedAtRef.current > 2600) {
       setOnlineSyncWarning("Conexão instável: aguardando estado do host...");
@@ -3991,8 +4350,11 @@ export default function JogoPage() {
     setOnlineGameplayActive(false);
     onlineRemoteInputsRef.current = {};
     onlineLatestSnapshotRef.current = null;
+    onlineSnapshotBufferRef.current = [];
     onlineLastSyncReceivedAtRef.current = 0;
     onlineLastAppliedSyncAtRef.current = 0;
+    onlineLastAppliedSnapshotTickRef.current = 0;
+    onlineLastAppliedSnapshotSeqRef.current = 0;
     onlineLastExtrapolatedAtRef.current = 0;
     onlineSnapshotSeqRef.current = 0;
     setOnlineSyncWarning("");
@@ -4201,6 +4563,10 @@ export default function JogoPage() {
         setOnlineGameplayActive(true);
         setOnlineMatchIntroUntil(mode === "localPvp" ? Date.now() + 2600 : 0);
         onlineRemoteInputsRef.current = {};
+        onlineSnapshotBufferRef.current = [];
+        onlineLatestSnapshotRef.current = null;
+        onlineLastAppliedSnapshotTickRef.current = 0;
+        onlineLastAppliedSnapshotSeqRef.current = 0;
         feedbackOnline("success", `Iniciando ${labelModoMultiplayer(mode)} online...`);
         window.setTimeout(() => iniciarJogo(mode), 520);
         return;
@@ -4217,9 +4583,12 @@ export default function JogoPage() {
       if (msg.type === "sync") {
         const from = Number(msg.from || 0);
         if (from === onlineHostSlotRef.current && !souHostOnline() && msg.snapshot) {
-          onlineLatestSnapshotRef.current = msg.snapshot as OnlineGameplaySnapshot;
+          const snapshot = {
+            ...(msg.snapshot as OnlineGameplaySnapshot),
+            serverTime: Number(msg.serverTime || msg.t || Date.now()),
+          } as OnlineGameplaySnapshot;
           onlineLastSyncReceivedAtRef.current = performance.now();
-          aplicarSnapshotOnline(msg.snapshot as OnlineGameplaySnapshot);
+          adicionarSnapshotOnline(snapshot);
         }
         return;
       }
@@ -6663,7 +7032,7 @@ export default function JogoPage() {
     }, 90);
   }
 
-  function adicionarPontuacao(valor: number, ownerId: 1 | 2 = 1) {
+  function adicionarPontuacao(valor: number, ownerId: PlayerSlot = 1) {
     scoreRef.current += valor;
 
     if (isLocalMode()) {
@@ -6700,7 +7069,7 @@ export default function JogoPage() {
     }
   }
 
-  function registrarAbate(kind: EnemyKind, ownerId: 1 | 2 = 1) {
+  function registrarAbate(kind: EnemyKind, ownerId: PlayerSlot = 1) {
     adicionarPontuacao(CONFIG.gameplay.score[kind], ownerId);
   }
 
@@ -13684,8 +14053,9 @@ export default function JogoPage() {
       }
 
       if (onlineGameplayActiveRef.current && !souHostOnline() && gameStateRef.current === "playing") {
-        // Cliente não-host usa o snapshot do host como verdade e extrapola só o frame atual para não parecer travado.
-        if (onlineLatestSnapshotRef.current) aplicarSnapshotOnline(onlineLatestSnapshotRef.current);
+        // Cliente não-host usa buffer de snapshots; extrapola só o frame atual e prediz o próprio input.
+        const snapshotToRender = escolherSnapshotOnlineParaRender();
+        if (snapshotToRender) aplicarSnapshotOnline(snapshotToRender);
         extrapolarEstadoOnlineNaoHost(delta, canvas);
         aplicarPredicaoOnlineLocal(delta, canvas);
         if (!mobileRuntimeRef.current && !adaptivePerformanceRef.current.reduced) atualizarParticulas(delta);

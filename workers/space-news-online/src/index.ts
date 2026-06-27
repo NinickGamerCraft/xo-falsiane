@@ -19,6 +19,15 @@ type PlayerInput = {
   pause?: boolean;
 };
 
+type HostSnapshot = Record<string, unknown> & {
+  tick?: number;
+  seq?: number;
+  t?: number;
+  sentAt?: number;
+  serverTime?: number;
+  netModel?: string;
+};
+
 type PlayerSession = {
   id: string;
   slot: number;
@@ -38,7 +47,7 @@ type ClientMessage =
   | { type: "start"; mode?: GameMode }
   | { type: "ready"; ready?: boolean }
   | { type: "input"; input?: PlayerInput; seq?: number }
-  | { type: "sync"; snapshot?: unknown }
+  | { type: "sync"; snapshot?: HostSnapshot }
   | { type: "pause_request" }
   | { type: "pause_ready"; ready?: boolean }
   | { type: "ping"; t?: number }
@@ -138,7 +147,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "1.0.0" });
+      return json({ ok: true, service: "Space News Online", version: "1.4.0-netcode", netModel: "host-authoritative-v2" });
     }
 
     if (url.pathname === "/create") {
@@ -175,8 +184,11 @@ export class GameRoom extends DurableObject<Env> {
   private roomCode = "ROOM";
   private pauseRequestedBy: number | null = null;
   private pauseReadySlots = new Set<number>();
+  private pauseCommitted = false;
   private gameActive = false;
   private hostSlot = 1;
+  private lastSnapshotTick = 0;
+  private lastInputSeqBySlot = new Map<number, number>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -320,6 +332,9 @@ export class GameRoom extends DurableObject<Env> {
       await this.ctx.storage.put("selectedMode", mode);
       this.pauseRequestedBy = null;
       this.pauseReadySlots.clear();
+      this.pauseCommitted = false;
+      this.lastSnapshotTick = 0;
+      this.lastInputSeqBySlot.clear();
       this.gameActive = true;
       const hostSlot = this.ensureHost();
       this.broadcast({ type: "game_start", room: this.roomCode, mode, hostSlot, t: Date.now() });
@@ -339,41 +354,65 @@ export class GameRoom extends DurableObject<Env> {
 
     if (msg.type === "input") {
       if (session.slot === 0) return;
+      const seq = Number(msg.seq ?? 0) || 0;
+      const lastSeq = this.lastInputSeqBySlot.get(session.slot) ?? 0;
+      if (seq > 0 && seq < lastSeq) return;
+      if (seq > 0) this.lastInputSeqBySlot.set(session.slot, seq);
       session.input = normalizeInput(msg.input);
       ws.serializeAttachment(session);
       this.broadcast({
         type: "input",
         from: session.slot,
-        seq: msg.seq ?? 0,
+        hostSlot: this.ensureHost(),
+        seq,
         input: session.input,
+        serverTime: Date.now(),
         t: Date.now(),
       });
       return;
     }
 
     if (msg.type === "sync") {
-      // Modelo v10: host atual é a fonte da verdade. O Worker só relaya o quadro mais recente.
+      // Host-authoritative v2: o host é a fonte da verdade; o Worker só relaya o quadro mais novo.
       if (session.slot !== this.ensureHost() || !this.gameActive) return;
+      const rawSnapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
+      const incomingTick = Number(rawSnapshot.tick ?? rawSnapshot.seq ?? 0) || this.lastSnapshotTick + 1;
+      if (incomingTick <= this.lastSnapshotTick) return;
+      this.lastSnapshotTick = incomingTick;
+      const serverTime = Date.now();
+      const snapshot: HostSnapshot = {
+        ...rawSnapshot,
+        tick: incomingTick,
+        seq: Number(rawSnapshot.seq ?? incomingTick) || incomingTick,
+        serverTime,
+        netModel: "host-authoritative-v2",
+      };
       this.broadcast({
         type: "sync",
         from: session.slot,
-        snapshot: msg.snapshot ?? null,
-        serverNow: Date.now(),
-        t: Date.now(),
+        hostSlot: this.ensureHost(),
+        snapshot,
+        serverTime,
+        t: serverTime,
         priority: "host-frame",
-        netModel: "snapshot-45ms-predictive",
+        netModel: "host-authoritative-v2",
       }, ws);
       return;
     }
 
     if (msg.type === "pause_request") {
       if (session.slot === 0) return;
-      if (!this.pauseRequestedBy) this.pauseRequestedBy = session.slot;
+      if (!this.pauseRequestedBy) {
+        this.pauseRequestedBy = session.slot;
+        this.pauseCommitted = false;
+        this.pauseReadySlots.clear();
+      }
       this.pauseReadySlots.add(session.slot);
       this.broadcastPauseState();
       const players = this.players();
       const allReady = players.length > 0 && players.every((p) => this.pauseReadySlots.has(p.slot));
-      if (allReady) {
+      if (allReady && !this.pauseCommitted) {
+        this.pauseCommitted = true;
         this.broadcast({ type: "pause_commit", room: this.roomCode, requestedBy: this.pauseRequestedBy, readySlots: [...this.pauseReadySlots], t: Date.now() });
       }
       return;
@@ -386,8 +425,12 @@ export class GameRoom extends DurableObject<Env> {
       this.broadcastPauseState();
       const players = this.players();
       const allReady = players.length > 0 && players.every((p) => this.pauseReadySlots.has(p.slot));
-      if (allReady) {
+      if (allReady && !this.pauseCommitted) {
+        this.pauseCommitted = true;
+        this.broadcast({ type: "pause_commit", room: this.roomCode, requestedBy: this.pauseRequestedBy, readySlots: [...this.pauseReadySlots], t: Date.now() });
+      } else if (allReady && this.pauseCommitted) {
         this.pauseRequestedBy = null;
+        this.pauseCommitted = false;
         this.pauseReadySlots.clear();
         this.broadcast({ type: "unpause_start", room: this.roomCode, t: Date.now() });
       }
@@ -406,6 +449,7 @@ export class GameRoom extends DurableObject<Env> {
       }
       this.gameActive = false;
       this.pauseRequestedBy = null;
+      this.pauseCommitted = false;
       this.pauseReadySlots.clear();
       this.broadcast({ type: "lobby_return", room: this.roomCode, requestedBy: session.slot, t: Date.now() });
       this.broadcastState();
@@ -426,11 +470,13 @@ export class GameRoom extends DurableObject<Env> {
     if (this.gameActive && session?.slot) {
       const nextHost = this.ensureHost();
       if (wasHost && this.players().length > 0) {
+        this.lastSnapshotTick = 0;
         this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
         this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: session.slot, hostSlot: nextHost, t: Date.now() });
       } else {
         this.gameActive = false;
         this.pauseRequestedBy = null;
+        this.pauseCommitted = false;
         this.pauseReadySlots.clear();
         this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
       }
@@ -449,10 +495,14 @@ export class GameRoom extends DurableObject<Env> {
     if (this.gameActive && session?.slot) {
       const nextHost = this.ensureHost();
       if (wasHost && this.players().length > 0) {
+        this.lastSnapshotTick = 0;
         this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
         this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: session.slot, hostSlot: nextHost, t: Date.now() });
       } else {
         this.gameActive = false;
+        this.pauseRequestedBy = null;
+        this.pauseCommitted = false;
+        this.pauseReadySlots.clear();
         this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
       }
     } else {
@@ -513,6 +563,9 @@ export class GameRoom extends DurableObject<Env> {
       selectedMode,
       hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
+      netModel: "host-authoritative-v2",
+      version: "1.4.0-netcode",
+      tick: this.lastSnapshotTick,
       t: Date.now(),
     });
   }
@@ -523,6 +576,7 @@ export class GameRoom extends DurableObject<Env> {
       room: this.roomCode,
       requestedBy: this.pauseRequestedBy,
       readySlots: [...this.pauseReadySlots],
+      committed: this.pauseCommitted,
       t: Date.now(),
     });
   }

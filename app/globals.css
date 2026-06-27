@@ -17205,3 +17205,111 @@ body.reduce-motion .game-pause-card button {
   .sn-pvp-scoreboard,
   .sn-pvp-scoreboard-v7 { transform: scale(.72) !important; top: 4px !important; }
 }
+
+/* Space News v1.4.0 — multiplayer/netcode polish */
+.sn-version-badge {
+  position: fixed !important;
+  right: max(10px, env(safe-area-inset-right)) !important;
+  bottom: max(7px, env(safe-area-inset-bottom)) !important;
+  z-index: 80 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: rgba(255, 255, 255, .52) !important;
+  font: 700 10px/1 var(--game-ui-font, monospace) !important;
+  letter-spacing: .08em !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, .75) !important;
+  pointer-events: none !important;
+}
+
+.game-screen-fade {
+  background:
+    radial-gradient(circle at 50% 45%, rgba(56, 189, 248, .18), transparent 34%),
+    linear-gradient(180deg, rgba(2, 6, 23, .18), rgba(2, 6, 23, .92)) !important;
+  backdrop-filter: blur(10px) saturate(1.12) !important;
+  transition: opacity .24s ease, transform .24s ease !important;
+  transform: scale(1.015) !important;
+}
+
+.game-screen-fade.show {
+  transform: scale(1) !important;
+}
+
+.sn-online-panel-v3,
+.sn-local-panel {
+  overflow: auto !important;
+  overscroll-behavior: contain !important;
+  scrollbar-width: thin !important;
+}
+
+.sn-online-player-card-v3.is-host {
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, .72), 0 0 24px rgba(245, 158, 11, .34) !important;
+}
+
+.sn-online-player-card-v3.is-you {
+  transform: translateY(-2px) scale(1.015) !important;
+}
+
+.sn-online-feedback-v3.is-loading .sn-online-feedback-orb,
+.sn-online-signal.is-on span {
+  animation: snNetPulse 1.1s ease-in-out infinite !important;
+}
+
+@keyframes snNetPulse {
+  0%, 100% { transform: scale(.92); opacity: .62; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+
+.sn-online-pause-toast {
+  max-width: min(310px, calc(100vw - 22px)) !important;
+  border-radius: 18px !important;
+  background: rgba(2, 6, 23, .76) !important;
+  backdrop-filter: blur(14px) saturate(1.12) !important;
+  border: 1px solid rgba(125, 211, 252, .34) !important;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, .36) !important;
+}
+
+.sn-online-pause-mini-slots b {
+  min-width: 30px !important;
+  text-align: center !important;
+}
+
+.sn-online-sync-warning {
+  position: fixed !important;
+  left: 50% !important;
+  bottom: max(34px, calc(env(safe-area-inset-bottom) + 28px)) !important;
+  transform: translateX(-50%) !important;
+  z-index: 95 !important;
+  max-width: min(520px, calc(100vw - 20px)) !important;
+  padding: .52rem .82rem !important;
+  border-radius: 999px !important;
+  background: rgba(127, 29, 29, .76) !important;
+  color: #fee2e2 !important;
+  font: 800 .72rem/1.2 var(--game-ui-font, monospace) !important;
+  letter-spacing: .04em !important;
+  text-align: center !important;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .35) !important;
+}
+
+@media (max-width: 900px) {
+  .sn-version-badge {
+    font-size: 8px !important;
+    opacity: .72 !important;
+  }
+
+  .sn-online-stepper-party span {
+    padding: .42rem .48rem !important;
+    font-size: .58rem !important;
+  }
+
+  .sn-online-feedback-v3 {
+    padding: .62rem .7rem !important;
+  }
+
+  .sn-online-feedback-v3 p,
+  .sn-online-player-card-v3 em,
+  .sn-online-player-card-v3 small {
+    font-size: .58rem !important;
+  }
+}

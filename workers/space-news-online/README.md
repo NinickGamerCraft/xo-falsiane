@@ -1,9 +1,12 @@
-# Space News Online Worker v10
+# Space News Online Worker v1.4.0
 
 Atualizações:
-- Versão 1.0.0 do servidor.
-- Relay de snapshots mais leve.
-- Host migration quando o host sai durante a partida.
+- Modelo host-authoritative v2.
+- Relay de snapshots com tick/seq/serverTime.
+- Descarte de snapshots velhos para evitar rollback visual.
+- Input por slot com sequência.
+- Pause online em duas fases: pedido, aceite geral e commit.
+- Host migration aceitando novo tick quando o host muda.
 - Mantém salas com até 4 players no lobby.
 
 Deploy:
