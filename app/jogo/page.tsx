@@ -1578,7 +1578,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.0.4";
+const SPACE_NEWS_VERSION = "2.1.0";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2829,11 +2829,14 @@ const PROFILE_COLOR_OPTIONS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9", "#fac
 const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
   { id: "first-token", title: "Primeiro Token", description: "Coletou sua primeira moeda de transmissão." },
   { id: "ten-tokens", title: "Colecionador", description: "Acumulou 10 tokens no perfil." },
+  { id: "hundred-tokens", title: "Cofre Cósmico", description: "Acumulou 100 tokens no perfil." },
   { id: "first-kill", title: "Refutador Júnior", description: "Derrubou o primeiro inimigo." },
   { id: "hundred-kills", title: "Faxina Espacial", description: "Derrubou 100 inimigos." },
   { id: "first-chocado", title: "Chocado? Nem tanto", description: "Derrotou o Chocado pela primeira vez." },
   { id: "infinite-10", title: "Sinal Forte", description: "Chegou na wave 10 do modo infinito." },
+  { id: "infinite-25", title: "Antena Lendária", description: "Chegou na wave 25 do modo infinito." },
   { id: "pvp-win", title: "Arena News", description: "Venceu uma partida Versus." },
+  { id: "long-play", title: "Plantão Espacial", description: "Jogou por 30 minutos no total." },
 ];
 
 function criarIdPerfilLocal() {
@@ -3089,6 +3092,7 @@ export default function JogoPage() {
   const [onlineStatus, setOnlineStatus] = useState("Crie uma sala ou entre com código.");
   const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayer[]>([]);
   const [onlineConnected, setOnlineConnected] = useState(false);
+  const onlineConnectedRef = useRef(false);
   const [onlineCanStart, setOnlineCanStart] = useState(false);
   const [onlineIsReady, setOnlineIsReady] = useState(false);
   const [onlinePing, setOnlinePing] = useState<number | null>(null);
@@ -4391,8 +4395,8 @@ export default function JogoPage() {
         target.vy = oldVy;
       }
     } else {
-      const hardSnap = 190;
-      const blend = dist < 18 ? 0.24 : 0.48;
+      const hardSnap = 260;
+      const blend = dist < 18 ? 0.16 : 0.34;
       if (dist > hardSnap) {
         target.x = nextX;
         target.y = nextY;
@@ -4679,7 +4683,7 @@ export default function JogoPage() {
     // Aplicar de novo aqui causava dois pequenos encaixes por frame.
 
     if (onlineLastSyncReceivedAtRef.current && now - onlineLastSyncReceivedAtRef.current > 2600) {
-      setOnlineSyncWarning("LINK OSCILANDO · segurando último quadro do host");
+      setOnlineSyncWarning("LINK OSCILANDO");
     } else if (onlineSyncWarning) {
       setOnlineSyncWarning("");
     }
@@ -4828,6 +4832,7 @@ export default function JogoPage() {
     let achievements = normalizarConquistasPerfil(current.achievements);
     if (nextTokens > 0 || nextStats.tokensCollected > 0) achievements = achievements.map((item) => item.id === "first-token" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
     if (nextTokens >= 10 || nextStats.tokensCollected >= 10) achievements = achievements.map((item) => item.id === "ten-tokens" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
+    if (nextTokens >= 100 || nextStats.tokensCollected >= 100) achievements = achievements.map((item) => item.id === "hundred-tokens" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
     salvarPerfilLocal({
       ...current,
       tokens: nextTokens,
@@ -4866,17 +4871,41 @@ export default function JogoPage() {
       existing.add(player.id);
     }
     salvarPerfilLocal({ ...current, friendRequests: nextRequests.slice(0, 40), updatedAt: Date.now() });
-    feedbackOnline("success", "Pedidos de amizade criados. O outro jogador precisa aceitar pelo perfil.");
+    feedbackOnline("success", "Pedidos salvos. Para amizade real entre dispositivos, envie seu código ou convite ao outro jogador.");
   }
 
   function conviteOnlineAtual() {
     const room = limparCodigoSalaOnline(onlineRoomCode || onlineJoinCode);
     if (!room) return "";
     if (typeof window === "undefined") return room;
-    const url = new URL(`${window.location.origin}${window.location.pathname}`);
+    const url = new URL(`${window.location.origin}/jogo`);
+    url.searchParams.set("online", "join");
     url.searchParams.set("room", room);
     url.searchParams.set("inviteFrom", nomeOnlineSeguro());
     return url.toString();
+  }
+
+  async function mostrarNotificacaoConviteLocal(inviteFrom: string, room: string) {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    try {
+      if (Notification.permission === "default") await Notification.requestPermission();
+      if (Notification.permission !== "granted") return;
+      const notification = new Notification(`${inviteFrom} está te convidando para Space News!`, {
+        body: `Toque para entrar na sala ${room}.`,
+        icon: "/game-icon.png",
+        tag: `space-news-invite-${room}`,
+      });
+      notification.onclick = () => {
+        window.focus();
+        setEstado("onlineLobby");
+        setFluxoOnline("join");
+        setOnlineJoinCode(room);
+        void entrarSalaOnline(room);
+        notification.close();
+      };
+    } catch {
+      // Navegador sem suporte a notificação local.
+    }
   }
 
   async function copiarConviteOnline() {
@@ -4885,12 +4914,20 @@ export default function JogoPage() {
       feedbackOnline("error", "Entre ou crie uma sala antes de copiar convite.");
       return;
     }
+    const room = limparCodigoSalaOnline(onlineRoomCode || onlineJoinCode);
+    const text = `${nomeOnlineSeguro()} está te convidando para Space News!`;
     try {
+      if (navigator.share) {
+        await navigator.share({ title: "Convite Space News", text, url: invite });
+        feedbackOnline("success", "Convite aberto no compartilhamento do celular.");
+        return;
+      }
       await navigator.clipboard?.writeText(invite);
-      feedbackOnline("success", "Convite copiado. Seu amigo abre e o código já fica pronto.");
+      feedbackOnline("success", "Convite copiado. Ao abrir, seu amigo entra direto na sala.");
     } catch {
       feedbackOnline("success", `Convite: ${invite}`);
     }
+    if (room) void mostrarNotificacaoConviteLocal(nomeOnlineSeguro(), room);
   }
 
   function limparNomeOnline(value: string) {
@@ -4958,6 +4995,7 @@ export default function JogoPage() {
     onlineSlotRef.current = 0;
     onlineHostSlotRef.current = 1;
     setOnlineHostSlot(1);
+    onlineConnectedRef.current = false;
     setOnlineConnected(false);
     setOnlineCanStart(false);
     setOnlineIsReady(false);
@@ -5039,6 +5077,7 @@ export default function JogoPage() {
     onlineSocketRef.current = ws;
 
     ws.onopen = () => {
+      onlineConnectedRef.current = true;
       setOnlineConnected(true);
       feedbackOnline("success", "Sala encontrada. Registrando jogador...");
       enviarOnline({
@@ -5253,6 +5292,7 @@ export default function JogoPage() {
       }
       const wasInOnlineMatch = onlineGameplayActiveRef.current;
       onlineSocketRef.current = null;
+      onlineConnectedRef.current = false;
       setOnlineConnected(false);
       setOnlineCanStart(false);
       setOnlineIsReady(false);
@@ -7169,6 +7209,8 @@ export default function JogoPage() {
     enemyProjectilesRef.current = [];
     bossProjectilesRef.current = [];
     powerUpsRef.current = [];
+    tokensRef.current = [];
+    nextTokenSpawnAtRef.current = 0;
     player.vx *= 0.35;
     player.vy *= 0.35;
     player.normalCooldown = 0;
@@ -7295,6 +7337,8 @@ export default function JogoPage() {
     setTutorialLaunchZoom(false);
     setPassoTutorial("move");
     setIsLowHp(false);
+    tokensRef.current = [];
+    nextTokenSpawnAtRef.current = 0;
     setEstado("tutorial");
     tocarAmbienteEspacial();
     tocarMusicaDoModo("story");
@@ -10110,7 +10154,8 @@ export default function JogoPage() {
         setOnlineFeedback("success");
         setOnlineStatus(`${inviteFrom} está te convidando para Space News! Entrando na sala ${room}...`);
         setEstado("onlineLobby");
-        window.setTimeout(() => entrarSalaOnline(room), 120);
+        void mostrarNotificacaoConviteLocal(inviteFrom, room);
+        window.setTimeout(() => void entrarSalaOnline(room), 120);
       }
     } catch {
       // ignora URL inválida
@@ -11297,6 +11342,13 @@ export default function JogoPage() {
       const p2 = player2Ref.current;
       if (!p2 || !isLocalMode()) return;
 
+      if (onlineConnectedRef.current && !onlineGameplayActiveRef.current) {
+        player2ButtonsRef.current = {};
+        player2ButtonsPressedRef.current = {};
+        player2InputRef.current = { x: 0, y: 0 };
+        return;
+      }
+
       if (onlineGameplayActiveRef.current) {
         const previousButtons = player2ButtonsRef.current;
         const mySlot = onlineSlotRef.current;
@@ -11583,10 +11635,11 @@ export default function JogoPage() {
 
         if (player.normalCooldown > 0) player.normalCooldown = Math.max(0, player.normalCooldown - speedFactor);
 
-        const keyboardShot = !onlineGameplayActiveRef.current && keysRef.current["u"];
-        const keyboardStrong = !onlineGameplayActiveRef.current && keysRef.current["o"];
-        const keyboardBoost = !onlineGameplayActiveRef.current && keysRef.current["p"];
-        const keyboardDodge = !onlineGameplayActiveRef.current && keysRef.current["h"];
+        const localP2KeyboardAllowed = !onlineGameplayActiveRef.current && !onlineConnectedRef.current;
+        const keyboardShot = localP2KeyboardAllowed && keysRef.current["u"];
+        const keyboardStrong = localP2KeyboardAllowed && keysRef.current["o"];
+        const keyboardBoost = localP2KeyboardAllowed && keysRef.current["p"];
+        const keyboardDodge = localP2KeyboardAllowed && keysRef.current["h"];
 
         if (!ghostLocal) {
           if (keyboardShot || p2Segurando("1", "7")) atirarNormalPlayer2();
@@ -13669,8 +13722,8 @@ export default function JogoPage() {
     function spawnTokenBurst(x: number, y: number, targetSlot: PlayerSlot = 1, maxAmount = 6) {
       if (gameStateRef.current === "tutorial") return;
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
-      if (Math.random() < 0.28) return;
-      const amount = Math.max(1, Math.min(maxAmount, Math.floor(rand(2, maxAmount + 1))));
+      if (Math.random() < (isLocalPvpMode() ? 0.18 : 0.34)) return;
+      const amount = Math.max(1, Math.min(maxAmount, Math.floor(rand(isLocalPvpMode() ? 1 : 2, maxAmount + 1))));
       const now = performance.now();
       for (let i = 0; i < amount; i++) {
         const angle = rand(-Math.PI * 0.85, Math.PI * 0.85);
@@ -13710,14 +13763,16 @@ export default function JogoPage() {
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
       const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
-      const laneCount = Math.random() < 0.35 ? 5 : 3;
+      const patternRoll = Math.random();
+      const laneCount = patternRoll < 0.28 ? 6 : patternRoll < 0.62 ? 4 : 3;
       const startX = CONFIG.canvasWidth + 34;
-      const baseY = clamp(playerCenter.y + rand(-130, 130), 86, CONFIG.canvasHeight - 104);
-      const spacing = rand(34, 46);
-      const arc = Math.random() < 0.55;
+      const baseY = clamp(playerCenter.y + rand(-105, 105), 86, CONFIG.canvasHeight - 104);
+      const spacing = laneCount >= 5 ? 28 : 38;
+      const arc = patternRoll < 0.58;
       for (let i = 0; i < laneCount; i++) {
         const offset = i - (laneCount - 1) / 2;
-        const y = clamp(baseY + offset * spacing + (arc ? Math.sin(i / Math.max(1, laneCount - 1) * Math.PI) * -28 : 0), 72, CONFIG.canvasHeight - 82);
+        const arcY = arc ? Math.sin(i / Math.max(1, laneCount - 1) * Math.PI) * -30 : 0;
+        const y = clamp(baseY + offset * spacing + arcY, 72, CONFIG.canvasHeight - 82);
         tokensRef.current.push({
           id: tokenIdRef.current++,
           x: startX + i * rand(18, 34),
@@ -16769,7 +16824,7 @@ export default function JogoPage() {
       {(gameState === "playing" || gameState === "paused") && (tokensVisibleUntil > performance.now()) && (
         <div className={`sn-token-counter-v20 ${tokenUiPulseUntilRef.current > performance.now() ? "is-pulsing" : ""}`} aria-label="Tokens do perfil">
           <span className="sn-token-icon-v20" aria-hidden="true" />
-          <strong>x{localProfile.tokens}</strong>
+          <strong>X{localProfile.tokens}</strong>
         </div>
       )}
 
@@ -18089,13 +18144,13 @@ export default function JogoPage() {
                 </div>
                 <div className="sn-profile-token-line-v20">
                   <span className="sn-token-icon-v20" />
-                  <strong>x{localProfile.tokens}</strong>
+                  <strong>X{localProfile.tokens}</strong>
                 </div>
               </article>
 
               <article className="sn-profile-card-v20">
                 <h3>AMIZADES</h3>
-                <p className="sn-profile-muted-v20">Adicione por código. Convite por notificação real fica para push/backend.</p>
+                <p className="sn-profile-muted-v20">Adicione por código. Convite por link abre a sala direto; notificação push real precisa do backend/PWA na próxima fase.</p>
                 <div className="sn-profile-friend-add-v20">
                   <input
                     value={profileFriendCodeInput}

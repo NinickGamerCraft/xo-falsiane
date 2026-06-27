@@ -19147,19 +19147,19 @@ body.reduce-motion .game-pause-card button {
 /* ===== SPACE NEWS v2.0.0 — perfil, tokens com sprites e HUD limpa ===== */
 .sn-token-counter-v20 {
   position: fixed;
-  left: calc(var(--sn-app-left, 0px) + 154px);
+  left: calc(var(--sn-app-left, 0px) + 148px);
   top: calc(var(--sn-app-top, 0px) + 18px);
   z-index: 92;
   display: inline-flex;
   align-items: center;
   gap: 7px;
   min-height: 34px;
-  padding: 4px 11px 4px 5px;
-  border: 1px solid rgba(255, 239, 160, 0.42);
+  padding: 3px 10px 3px 4px;
+  border: 1px solid rgba(147, 197, 253, 0.28);
   border-radius: 999px;
-  background: linear-gradient(135deg, rgba(7, 13, 34, 0.78), rgba(12, 20, 47, 0.58));
+  background: linear-gradient(135deg, rgba(7, 13, 34, 0.72), rgba(13, 28, 55, 0.5));
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26), inset 0 0 10px rgba(255, 255, 255, 0.055);
-  color: #fff6c9;
+  color: #dbeafe;
   font-family: var(--game-ui-font, inherit);
   pointer-events: none;
   transform-origin: left center;
@@ -19170,8 +19170,8 @@ body.reduce-motion .game-pause-card button {
   font-size: clamp(0.78rem, 1.55vw, 1rem);
   line-height: 1;
   letter-spacing: 0.08em;
-  color: #fff7cc;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55), 0 0 8px rgba(255, 214, 91, 0.25);
+  color: #f8fafc;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55), 0 0 8px rgba(96, 165, 250, 0.22);
 }
 
 .sn-token-counter-v20.is-pulsing {
@@ -19183,13 +19183,14 @@ body.reduce-motion .game-pause-card button {
   width: 30px;
   height: 30px;
   flex: 0 0 auto;
-  background-image: url('/assets/space-news/tokens/token-sprite.png');
+  background-image: url('/game/tokens/token-0.png');
   background-repeat: no-repeat;
-  background-size: 400% 100%;
+  background-position: center;
+  background-size: contain;
   image-rendering: pixelated;
-  filter: drop-shadow(0 0 6px rgba(255, 202, 60, 0.5));
+  filter: drop-shadow(0 0 5px rgba(255, 213, 96, 0.44));
   transform-origin: center;
-  animation: sn-token-sprite-v20 0.42s steps(4) infinite;
+  animation: sn-token-sprite-v20 0.42s steps(1) infinite;
 }
 
 @keyframes sn-token-counter-v20-in {
@@ -19204,8 +19205,11 @@ body.reduce-motion .game-pause-card button {
 }
 
 @keyframes sn-token-sprite-v20 {
-  from { background-position: 0% 0; transform: scale(1); }
-  to { background-position: 133.333% 0; transform: scale(1.02); }
+  0% { background-image: url('/game/tokens/token-0.png'); transform: scale(1); }
+  25% { background-image: url('/game/tokens/token-1.png'); transform: scale(0.98, 1.03); }
+  50% { background-image: url('/game/tokens/token-2.png'); transform: scale(0.94, 1.06); }
+  75% { background-image: url('/game/tokens/token-3.png'); transform: scale(0.98, 1.03); }
+  100% { background-image: url('/game/tokens/token-0.png'); transform: scale(1); }
 }
 
 .sn-profile-orb-v20 {
@@ -19340,7 +19344,7 @@ body.reduce-motion .game-pause-card button {
   background: var(--profile-color, #60a5fa);
 }
 .sn-profile-colors-v20 button.is-selected { outline: 3px solid rgba(255,255,255,.78); }
-.sn-profile-token-line-v20 { display: inline-flex; align-items: center; gap: 8px; color: #fff5c2; font-size: 1.05rem; }
+.sn-profile-token-line-v20 { display: inline-flex; align-items: center; gap: 8px; color: #e0f2fe; font-size: 1.05rem; }
 .sn-profile-muted-v20 { color: rgba(255,255,255,.62); font-size: .76rem; line-height: 1.45; }
 .sn-profile-friend-add-v20 { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .sn-profile-list-v20 { display: grid; gap: 8px; max-height: 220px; overflow-y: auto; padding-right: 3px; }
@@ -19384,4 +19388,30 @@ body.reduce-motion .game-pause-card button {
   .sn-profile-friend-add-v20 { grid-template-columns: 1fr; }
   .sn-profile-list-v20 > div { grid-template-columns: 1fr; }
   .sn-profile-list-v20 div > div { grid-row: auto; grid-column: auto; }
+}
+
+
+/* ===== SPACE NEWS v2.1.0 — tokens/perfil mais limpos ===== */
+.sn-token-counter-v20 {
+  backdrop-filter: none;
+}
+.sn-token-counter-v20 strong {
+  font-weight: 900;
+}
+.sn-profile-card-v20 .is-future {
+  opacity: .46;
+  filter: grayscale(.35);
+}
+.sn-profile-manager-v20 {
+  overscroll-behavior: contain;
+}
+@media (max-width: 720px) {
+  .sn-token-counter-v20 {
+    left: calc(var(--sn-app-left, 0px) + 104px);
+    top: calc(var(--sn-app-top, 0px) + 14px);
+    min-height: 29px;
+    padding-right: 8px;
+  }
+  .sn-token-counter-v20 strong { font-size: .74rem; }
+  .sn-token-icon-v20 { width: 24px; height: 24px; }
 }

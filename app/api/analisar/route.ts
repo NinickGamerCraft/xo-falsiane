@@ -14,7 +14,8 @@ const MAX_EXTRACTED_LENGTH = 8_000;
 const MODEL_TIMEOUT_MS = 38_000;
 const FAST_MODEL_TIMEOUT_MS = 24_000;
 const APP_TIME_ZONE = "America/Fortaleza";
-const RSS_LOOKBACK = "when:2y";
+const RSS_LOOKBACK = "when:18m";
+const RSS_LOOKBACK_RECENTE = "when:90d";
 
 const parser = new Parser();
 
@@ -309,6 +310,11 @@ function obterContextoTemporal(): ContextoTemporal {
   return { dataAtual, anoAtual };
 }
 
+function pareceAlegacaoDeRelacionamentoAtual(texto: string) {
+  const normalizado = normalizarComparacao(texto);
+  return /\b(namor|namoro|namorada|namorado|relacionamento|romance|casad|casamento|separ|separacao|divor|termin|termino|trai|traicao|infidel|ficando|ficou com|esta com|ta com|tá com|estao juntos|estão juntos|assumiu|reconcili|gravida|gravidez|beijou|beijo|affair|ship|casal)\b/i.test(normalizado);
+}
+
 function precisaDeNoticiasRecentes(texto: string, modo: ModoAnalise) {
   const normalizado = normalizarComparacao(texto);
   const { anoAtual } = obterContextoTemporal();
@@ -359,6 +365,8 @@ function precisaDeNoticiasRecentes(texto: string, modo: ModoAnalise) {
     return true;
   }
 
+  if (pareceAlegacaoDeRelacionamentoAtual(texto)) return true;
+
   const assuntoMudaComOTempo =
     /\b(namor|namoro|namorada|namorado|relacionamento|romance|casad|casamento|separ|separacao|divor|termin|termino|trai|traicao|infidel|ficando|assumiu|reconcili|gravida|gravidez|preso|solto|condenad|demitid|contratad|transfer|lesao|machucad|aposent|eleit|presidente|vice presidente|governador|prefeito|ministro|deputado|senador|primeira dama|primeiro ministro|ceo|diretor executivo|lider|candidato|campanha|votacao|campeao|placar|resultado|cotacao|preco|guerra|conflito|lei nova|decreto|entrou em vigor|processo|acusacao|investigacao|sanção|sancao)\b/i.test(
       normalizado,
@@ -395,12 +403,15 @@ function criarConsultasRSS(texto: string) {
     180,
   );
 
+  const relacionamento = pareceAlegacaoDeRelacionamentoAtual(texto);
   return Array.from(
     new Set(
       [
-        `${base} ${RSS_LOOKBACK}`,
-        semPalavrasDePergunta ? `${semPalavrasDePergunta} ${RSS_LOOKBACK}` : "",
+        `${base} ${relacionamento ? RSS_LOOKBACK_RECENTE : RSS_LOOKBACK}`,
+        semPalavrasDePergunta ? `${semPalavrasDePergunta} ${relacionamento ? RSS_LOOKBACK_RECENTE : RSS_LOOKBACK}` : "",
         semPalavrasDePergunta ? `${semPalavrasDePergunta} ${anoAtual}` : "",
+        relacionamento ? `${base} namoro relacionamento ${RSS_LOOKBACK_RECENTE}` : "",
+        relacionamento && semPalavrasDePergunta ? `${semPalavrasDePergunta} namoro relacionamento ${RSS_LOOKBACK_RECENTE}` : "",
       ].filter(Boolean),
     ),
   );
@@ -419,8 +430,9 @@ function rssTemResultadosRecentes(contextoRSS: string) {
 
 function contextoSugereFatoAtual(texto: string) {
   const normalizado = normalizarComparacao(texto);
-  return /\b(atual|hoje|agora|recentemente|novo|nova|ultim|presidente|governador|prefeito|ministro|ceo|diretor executivo|primeira dama|primeiro ministro|foi preso|foi solto|morreu|renunciou|demitiu|assumiu|eleito|eleita|transferido|contratado|separou|casou|terminou|traiu|acusado|investigado|condenado)\b/i.test(
-    normalizado,
+  return (
+    pareceAlegacaoDeRelacionamentoAtual(texto) ||
+    /\b(atual|hoje|agora|recentemente|novo|nova|ultim|presidente|governador|prefeito|ministro|ceo|diretor executivo|primeira dama|primeiro ministro|foi preso|foi solto|morreu|renunciou|demitiu|assumiu|eleito|eleita|transferido|contratado|separou|casou|terminou|traiu|acusado|investigado|condenado|esta com|ta com|estao juntos|ficando|beijou|casal)\b/i.test(normalizado)
   );
 }
 
@@ -956,7 +968,8 @@ REGRAS DE QUALIDADE:
 - Ausência no RSS não significa falsidade.
 - Quando o assunto for atual, prefira "Não Confirmado" a uma negação categórica se as evidências forem insuficientes.
 - Em perguntas sobre relacionamentos, traição, separação, cargos, prisões, mortes, transferências, leis, eleições e outros fatos mutáveis, nunca declare que algo é "impossível" sem evidência atual.
-- Alegações de traição exigem distinção entre: rumor, mensagens ou indícios divulgados, pedido de desculpas, confirmação das partes e comprovação independente.
+- Alegações de relacionamento, namoro, término, traição ou separação exigem evidência recente; não use estado civil antigo como prova atual se houver manchetes recentes ou se faltarem fontes.
+- Produza uma única análise, com uma única classificação. Nunca gere dois vereditos no mesmo retorno.
 - Diferencie fato, opinião, sátira, publicidade, previsão, boato e conteúdo desatualizado.
 - Se faltarem provas, explique exatamente o que precisa ser confirmado.
 - Não repita a classificação no resumo com outras palavras.
@@ -1046,6 +1059,7 @@ ${params.contextoRSS || "Não consultado para este modo."}
 </rss>
 
 REGRA DE COERÊNCIA TEMPORAL PARA ESTA RESPOSTA:
+- Gere somente uma análise e um único veredito; não escreva duas respostas alternativas.
 - Se houver conflito entre memória interna e o conteúdo analisado/RSS, siga o conteúdo analisado e o RSS.
 - Se ainda faltar prova atual suficiente, classifique como "Não Confirmado" ou "Suspeita", não como "Falsa" por memória antiga.
 - Não diga que uma pessoa não ocupa cargo, não namora, não foi presa, não morreu ou não foi transferida sem evidência recente dentro do material acima.
@@ -1232,6 +1246,50 @@ async function chamarModelo(
   return content;
 }
 
+function campoTemFormatoDuplicado(valor: unknown) {
+  return typeof valor === "string" && /🧾\s*Classificação|Classificação\s*:|🔍\s*Resumo|🧠\s*Análise|📌\s*Sinais/i.test(valor);
+}
+
+function respostaContemAfirmacaoTemporalArriscada(params: {
+  classificacao: Classificacao;
+  resumo: string;
+  analise: string[];
+  sinais: string[];
+  recomendacao: string;
+  observacao?: string;
+  textoOriginal: string;
+  contextoRSS: string;
+  assuntoDinamico: boolean;
+}) {
+  if (!params.assuntoDinamico) return "";
+  const resposta = normalizarComparacao([
+    params.resumo,
+    ...params.analise,
+    ...params.sinais,
+    params.recomendacao,
+    params.observacao || "",
+  ].join(" "));
+  const rssOk = rssTemResultadosRecentes(params.contextoRSS);
+  const relacionamento = pareceAlegacaoDeRelacionamentoAtual(params.textoOriginal);
+
+  if (relacionamento) {
+    if (/\b(casad[ao]s?|casamento|continua casad|desde 20\d{2}|tem filhos|tres filhos|três filhos|relacionamento publico estavel|estável)\b/i.test(resposta) && !rssOk) {
+      return "a resposta usou estado civil ou informação pessoal potencialmente antiga sem evidência recente";
+    }
+    if (params.classificacao === "Falsa" && /\b(boato sem fundamento|desconsidere|continua casad|nao ha registro confiavel|não há registro confiável|sem fundamento)\b/i.test(resposta) && !rssOk) {
+      return "a resposta negou rumor de relacionamento com certeza sem evidência recente suficiente";
+    }
+  }
+
+  if (params.classificacao === "Falsa" && contextoSugereFatoAtual(params.textoOriginal) && !rssOk) {
+    if (/\b(falsa|falso|nao existe|não existe|sem fundamento|desconsidere|continua|nunca)\b/i.test(resposta)) {
+      return "a resposta classificou como falsa uma alegação mutável sem base recente suficiente";
+    }
+  }
+
+  return "";
+}
+
 function validarResultado(
   value: unknown,
   textoOriginal: string,
@@ -1330,6 +1388,10 @@ function validarResultado(
     };
   }
 
+  if (campoTemFormatoDuplicado(item.resumo) || campoTemFormatoDuplicado(item.recomendacao) || campoTemFormatoDuplicado(item.observacao)) {
+    return { ok: false, motivo: "a resposta colocou uma análise formatada dentro de um campo JSON" };
+  }
+
   if (contextoValidacao) {
     const problemaTemporal = detectarProblemaTemporalNaResposta({
       respostaCompleta,
@@ -1341,6 +1403,19 @@ function validarResultado(
     if (problemaTemporal) {
       return { ok: false, motivo: problemaTemporal };
     }
+
+    const problemaArriscado = respostaContemAfirmacaoTemporalArriscada({
+      classificacao: item.classificacao as Classificacao,
+      resumo: item.resumo as string,
+      analise: item.analise as string[],
+      sinais: item.sinais as string[],
+      recomendacao: item.recomendacao as string,
+      observacao: item.observacao,
+      textoOriginal,
+      contextoRSS: contextoValidacao.contextoRSS,
+      assuntoDinamico: contextoValidacao.assuntoDinamico,
+    });
+    if (problemaArriscado) return { ok: false, motivo: problemaArriscado };
   }
 
   return {
@@ -1475,7 +1550,7 @@ async function gerarAnaliseConfiavel(params: {
   let ultimoErroTecnico: ServicoIAError | null = null;
   let respostasRecebidas = 0;
 
-  const maxTentativas = params.preferFast ? 1 : 2;
+  const maxTentativas = params.preferFast ? 1 : 3;
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
     try {

@@ -1,1 +1,6 @@
-Sons dos tokens do Space News. token-collect.wav toca na coleta; token-burst.wav toca no burst/drop.
+# Space News Token Sounds
+
+- /sounds/tokens/token-collect.wav
+- /sounds/tokens/token-burst.wav
+
+São placeholders leves. Pode trocar depois por efeitos melhores mantendo os nomes.
