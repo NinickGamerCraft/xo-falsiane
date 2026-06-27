@@ -34,8 +34,26 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import FeedbackButton from "../feedback-button";
-import PWARegister from "../pwa-register";
+
+
+function PWARegister() {
+  // Fallback local para evitar build quebrado se app/pwa-register não existir
+  // ou se o arquivo for colado no diretório errado. O PWA real continua no site.
+  return null;
+}
+
+function FeedbackButton({ contexto, compacto }: { contexto?: string; compacto?: boolean }) {
+  const label = compacto ? "Feedback" : `Feedback${contexto ? ` · ${contexto}` : ""}`;
+  return (
+    <a
+      href={`mailto:?subject=${encodeURIComponent(`Feedback ${contexto || "Space News"}`)}`}
+      className="sn-feedback-fallback"
+      aria-label={label}
+    >
+      ✦ <span>{label}</span>
+    </a>
+  );
+}
 
 function isIOSLikeDevice() {
   if (typeof navigator === "undefined") return false;
@@ -182,6 +200,7 @@ type OnlineGameplaySnapshot = {
   powerUps?: PowerUp[];
   tokens?: TokenPickup[];
   boss?: Partial<BossState>;
+  events?: OnlineVisualEvent[];
   p1ShieldActive?: boolean;
   p2ShieldActive?: boolean;
   p1DodgeActive?: boolean;
@@ -198,6 +217,29 @@ type OnlineEffectSnapshot = {
   powerShotMs?: number;
   homingShotMs?: number;
   flamesMs?: number;
+};
+
+type OnlineVisualEventKind =
+  | "sound"
+  | "explosion"
+  | "hit"
+  | "shockwave"
+  | "tokenBurst"
+  | "bump";
+
+type OnlineVisualEvent = {
+  id: number;
+  kind: OnlineVisualEventKind;
+  x?: number;
+  y?: number;
+  color?: string;
+  amount?: number;
+  sound?: string;
+  volume?: number;
+  category?: "menu" | "hit" | "ability" | "sfx";
+  radius?: number;
+  slot?: PlayerSlot;
+  t?: number;
 };
 
 type TutorialStep = "move" | "shot" | "strong" | "boost" | "dodge" | "done";
@@ -1580,7 +1622,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.1.2";
+const SPACE_NEWS_VERSION = "2.1.3";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -3314,6 +3356,9 @@ export default function JogoPage() {
   const tokenUiPulseUntilRef = useRef(0);
   const profilePlayTickRef = useRef(performance.now());
   const onlineEventOverlayIdRef = useRef(0);
+  const onlineVisualEventSeqRef = useRef(0);
+  const onlineVisualEventLogRef = useRef<OnlineVisualEvent[]>([]);
+  const onlineSeenVisualEventsRef = useRef<Set<number>>(new Set());
   const fireRateUntilRef = useRef(0);
   const powerShotUntilRef = useRef(0);
   const homingShotUntilRef = useRef(0);
@@ -4315,6 +4360,60 @@ export default function JogoPage() {
     }
   }
 
+  function registrarEventoVisualOnline(event: Omit<OnlineVisualEvent, "id" | "t">) {
+    if (!onlineGameplayActiveRef.current || !souHostOnline() || gameStateRef.current !== "playing") return;
+    if (event.kind === "sound" && event.category === "menu") return;
+    const now = performance.now();
+    const id = ++onlineVisualEventSeqRef.current;
+    const next: OnlineVisualEvent = { ...event, id, t: now };
+    onlineVisualEventLogRef.current = [...onlineVisualEventLogRef.current, next].slice(-72);
+  }
+
+  function projetarEventoVisualOnline(event: OnlineVisualEvent, projectedPvp: boolean): OnlineVisualEvent {
+    if (!projectedPvp || typeof event.x !== "number") return event;
+    const width = Number((event as { w?: number }).w ?? 0);
+    return { ...event, x: CONFIG.canvasWidth - event.x - width };
+  }
+
+  function aplicarEventosVisuaisSnapshotOnline(events: OnlineVisualEvent[] | undefined, projectedPvp: boolean) {
+    if (!Array.isArray(events) || souHostOnline()) return;
+    const seen = onlineSeenVisualEventsRef.current;
+    for (const raw of events) {
+      const id = Number(raw.id || 0);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const event = projetarEventoVisualOnline(raw, projectedPvp);
+      const x = Number(event.x ?? CONFIG.canvasWidth / 2);
+      const y = Number(event.y ?? CONFIG.canvasHeight / 2);
+      if (event.kind === "sound" && event.sound) {
+        tocarSom(event.sound, clamp(Number(event.volume ?? 0.22), 0.04, 0.75), event.category || "sfx");
+      } else if (event.kind === "explosion") {
+        criarExplosao(x, y, event.color || "#ffe18c", Math.max(4, Math.min(48, Number(event.amount ?? 12))));
+      } else if (event.kind === "hit") {
+        criarParticulasHit(x, y, event.color || "#fff1a8", Math.max(3, Math.min(18, Number(event.amount ?? 7))));
+      } else if (event.kind === "shockwave") {
+        shockwavesRef.current.push({
+          id: enemyIdRef.current++,
+          x,
+          y,
+          radius: Math.max(40, Math.min(560, Number(event.radius ?? 110))),
+          life: 240,
+          maxLife: 240,
+        });
+        criarParticulasHit(x, y, event.color || "#fff1a8", 10);
+      } else if (event.kind === "tokenBurst") {
+        criarExplosao(x, y, event.color || "#ffd166", Math.max(5, Math.min(24, Number(event.amount ?? 9))));
+        tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.14, "sfx");
+      } else if (event.kind === "bump") {
+        criarParticulasHit(x, y, event.color || "#67e8f9", 9);
+        shockwavesRef.current.push({ id: enemyIdRef.current++, x, y, radius: 72, life: 160, maxLife: 160 });
+      }
+    }
+    if (seen.size > 220) {
+      onlineSeenVisualEventsRef.current = new Set(Array.from(seen).slice(-120));
+    }
+  }
+
   function criarSnapshotOnline(): OnlineGameplaySnapshot {
     const now = performance.now();
     const sentAt = Date.now();
@@ -4347,6 +4446,7 @@ export default function JogoPage() {
       powerUps: powerUpsRef.current.slice(-8),
       tokens: tokensRef.current.slice(-22),
       boss: { ...bossRef.current },
+      events: onlineVisualEventLogRef.current.slice(-40),
       p1ShieldActive: shieldActiveRef.current,
       p2ShieldActive: Boolean(player2Ref.current && now < player2ShieldUntilRef.current),
       p1Effects: snapshotEfeitosPlayer1(now),
@@ -4384,25 +4484,37 @@ export default function JogoPage() {
     Object.assign(target, incoming);
 
     if (controlledLocally) {
-      // v2.1.2: reconciliation leve. O player local continua responsivo,
-      // mas colisões/bump vindos do host não são mais ignorados por completo.
+      // v2.1.3: modo visual estrito no online. O input continua responsivo,
+      // mas a posição/velocidade do host vence com blend maior para bump, tiro e colisão
+      // nascerem no mesmo lugar nas duas telas.
       const incomingVx = typeof incoming.vx === "number" ? incoming.vx : oldVx;
       const incomingVy = typeof incoming.vy === "number" ? incoming.vy : oldVy;
       const velocityDrift = Math.hypot(incomingVx - oldVx, incomingVy - oldVy);
-      const bumpLike = velocityDrift > 5.5 || dist > 34;
-      if (dist > 760) {
+      const strictOnline = onlineGameplayActiveRef.current && !souHostOnline();
+      const bumpLike = velocityDrift > 2.4 || dist > 10 || Math.abs(Number(incoming.throwVx ?? 0)) > 0.1 || Math.abs(Number(incoming.throwVy ?? 0)) > 0.1;
+      if (strictOnline) {
+        const blend = dist > 360 ? 0.82 : dist > 160 ? 0.58 : dist > 58 ? 0.38 : dist > 12 ? 0.24 : dist > 3 ? 0.12 : 0;
+        target.x = oldX + dx * blend;
+        target.y = oldY + dy * blend;
+        target.vx = oldVx * 0.34 + incomingVx * 0.66;
+        target.vy = oldVy * 0.34 + incomingVy * 0.66;
+      } else if (dist > 760) {
         target.x = oldX + dx * 0.45;
         target.y = oldY + dy * 0.45;
+        target.vx = oldVx * 0.66 + incomingVx * 0.34;
+        target.vy = oldVy * 0.66 + incomingVy * 0.34;
       } else if (bumpLike) {
         const blend = dist > 180 ? 0.22 : dist > 72 ? 0.14 : 0.075;
         target.x = oldX + dx * blend;
         target.y = oldY + dy * blend;
+        target.vx = oldVx * 0.66 + incomingVx * 0.34;
+        target.vy = oldVy * 0.66 + incomingVy * 0.34;
       } else {
         target.x = oldX;
         target.y = oldY;
+        target.vx = oldVx;
+        target.vy = oldVy;
       }
-      target.vx = bumpLike ? oldVx * 0.66 + incomingVx * 0.34 : oldVx;
-      target.vy = bumpLike ? oldVy * 0.66 + incomingVy * 0.34 : oldVy;
     } else {
       // Remote players não devem teletransportar a cada snapshot: interpolação curta + snap só em drift absurdo.
       const hardSnap = 620;
@@ -4465,14 +4577,15 @@ export default function JogoPage() {
       const dx = next.x - old.x;
       const dy = next.y - old.y;
       const dist = Math.hypot(dx, dy);
-      if (dist > hardSnap) return { ...old, ...next, x: old.x + dx * 0.55, y: old.y + dy * 0.55 } as T;
+      const onlineStrictBlend = onlineGameplayActiveRef.current && !souHostOnline() ? Math.max(blend, 0.62) : blend;
+      if (dist > hardSnap) return { ...old, ...next, x: old.x + dx * 0.82, y: old.y + dy * 0.82 } as T;
       return {
         ...old,
         ...next,
-        x: old.x + dx * blend,
-        y: old.y + dy * blend,
-        vx: typeof next.vx === "number" ? (old.vx ?? next.vx) * 0.55 + next.vx * 0.45 : old.vx,
-        vy: typeof next.vy === "number" ? (old.vy ?? next.vy) * 0.55 + next.vy * 0.45 : old.vy,
+        x: old.x + dx * onlineStrictBlend,
+        y: old.y + dy * onlineStrictBlend,
+        vx: typeof next.vx === "number" ? (old.vx ?? next.vx) * 0.35 + next.vx * 0.65 : old.vx,
+        vy: typeof next.vy === "number" ? (old.vy ?? next.vy) * 0.35 + next.vy * 0.65 : old.vy,
       } as T;
     });
   }
@@ -4628,14 +4741,15 @@ export default function JogoPage() {
     if (typeof snapshot.localP2Score === "number") { localP2ScoreRef.current = snapshot.localP2Score; setLocalP2Score(snapshot.localP2Score); }
     if (typeof snapshot.localPvpRound === "number") { localPvpRoundRef.current = snapshot.localPvpRound; setLocalPvpRound(snapshot.localPvpRound); }
 
-    if (Array.isArray(snapshot.shots)) shotsRef.current = mesclarObjetosSnapshotOnline(shotsRef.current, snapshot.shots, projectedPvp, 0.42, 700);
+    aplicarEventosVisuaisSnapshotOnline(snapshot.events, projectedPvp);
+    if (Array.isArray(snapshot.shots)) shotsRef.current = mesclarObjetosSnapshotOnline(shotsRef.current, snapshot.shots, projectedPvp, 0.66, 520);
     emitirFeedbackVisualSnapshotOnline(snapshot, projectedPvp);
-    if (Array.isArray(snapshot.enemies)) enemiesRef.current = mesclarObjetosSnapshotOnline(enemiesRef.current, snapshot.enemies, projectedPvp, 0.32, 560);
-    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = mesclarObjetosSnapshotOnline(enemyProjectilesRef.current, snapshot.enemyProjectiles, projectedPvp, 0.38, 700);
-    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = mesclarObjetosSnapshotOnline(bossProjectilesRef.current, snapshot.bossProjectiles, projectedPvp, 0.36, 700);
+    if (Array.isArray(snapshot.enemies)) enemiesRef.current = mesclarObjetosSnapshotOnline(enemiesRef.current, snapshot.enemies, projectedPvp, 0.58, 520);
+    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = mesclarObjetosSnapshotOnline(enemyProjectilesRef.current, snapshot.enemyProjectiles, projectedPvp, 0.62, 520);
+    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = mesclarObjetosSnapshotOnline(bossProjectilesRef.current, snapshot.bossProjectiles, projectedPvp, 0.6, 520);
     aplicarPlayersExtrasDoSnapshot(snapshot, projectedPvp);
     if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(snapshot.powerUps, projectedPvp, localNow);
-    if (Array.isArray(snapshot.tokens)) tokensRef.current = mesclarObjetosSnapshotOnline(tokensRef.current, snapshot.tokens, projectedPvp, 0.34, 480) as TokenPickup[];
+    if (Array.isArray(snapshot.tokens)) tokensRef.current = mesclarObjetosSnapshotOnline(tokensRef.current, snapshot.tokens, projectedPvp, 0.58, 420) as TokenPickup[];
     if (snapshot.boss) {
       const bossSnapshot = projectedPvp ? espelharObjetoOnline({ ...(snapshot.boss as Partial<BossState>), x: Number(snapshot.boss.x ?? bossRef.current.x), w: Number(snapshot.boss.w ?? bossRef.current.w), vx: 0 }) : snapshot.boss;
       bossRef.current = { ...bossRef.current, ...bossSnapshot };
@@ -4752,8 +4866,8 @@ export default function JogoPage() {
     const now = performance.now();
 
     if (souHostOnline()) {
-      // Snapshots menores em ~24 Hz evitam fila no WebSocket e queda forte de FPS.
-      if (now - onlineLastSyncSentAtRef.current < 42) return;
+      // Snapshots menores em ~20 Hz com eventos visuais dedicados evitam fila no WebSocket e queda forte de FPS.
+      if (now - onlineLastSyncSentAtRef.current < 50) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -4781,6 +4895,9 @@ export default function JogoPage() {
     onlineLastAppliedSnapshotSeqRef.current = 0;
     onlineLastExtrapolatedAtRef.current = 0;
     onlineSnapshotSeqRef.current = 0;
+    onlineVisualEventSeqRef.current = 0;
+    onlineVisualEventLogRef.current = [];
+    onlineSeenVisualEventsRef.current.clear();
     onlinePredictedBoostReadyAtRef.current = 0;
     setOnlineSyncWarning("");
     onlinePauseRequestedByRef.current = null;
@@ -6885,6 +7002,9 @@ export default function JogoPage() {
       0,
       1,
     );
+    if (onlineGameplayActiveRef.current && souHostOnline() && category !== "menu") {
+      registrarEventoVisualOnline({ kind: "sound", sound: src, volume: finalVolume, category });
+    }
     const frequent =
       src.includes("game-shot") ||
       src.includes("enemy-hit") ||
@@ -8401,6 +8521,7 @@ export default function JogoPage() {
   }
 
   function criarExplosao(x: number, y: number, color = "", amount = 26) {
+    registrarEventoVisualOnline({ kind: "explosion", x, y, color: color || "#ffe18c", amount });
     if (!CONFIG.settings.enableParticles) {
       return;
     }
@@ -8545,6 +8666,7 @@ export default function JogoPage() {
     const force = strongCfg.shockwaveKnockback ?? 8.5;
     const spin = strongCfg.shockwaveSpin ?? 0.018;
 
+    registrarEventoVisualOnline({ kind: "shockwave", x: originX, y: originY, radius, color: "#fff1a8", amount: 12 });
     shockwavesRef.current.push({
       id: enemyIdRef.current++,
       x: originX,
@@ -14492,7 +14614,7 @@ export default function JogoPage() {
           life: particle.life - delta,
         }))
         .filter((particle) => particle.life > 0);
-      const cap = usarEfeitosReduzidos() ? 82 : 190;
+      const cap = onlineGameplayActiveRef.current ? (souHostOnline() ? 120 : 96) : (usarEfeitosReduzidos() ? 82 : 190);
       if (particlesRef.current.length > cap)
         particlesRef.current = particlesRef.current.slice(-cap);
     }

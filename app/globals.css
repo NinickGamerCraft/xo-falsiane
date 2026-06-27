@@ -19417,7 +19417,7 @@ body.reduce-motion .game-pause-card button {
 }
 
 
-/* ===== SPACE NEWS v2.1.2 — HUD acoplada, perfil único e performance online ===== */
+/* ===== SPACE NEWS v2.1.3 — HUD acoplada, perfil único e performance online ===== */
 .sn-main-profile-card-v211 {
   width: 100%;
   display: grid;
@@ -19566,7 +19566,7 @@ body.reduce-motion .game-pause-card button {
 }
 
 
-/* ===== SPACE NEWS v2.1.2 — ajustes finais de HUD/perfil ===== */
+/* ===== SPACE NEWS v2.1.3 — ajustes finais de HUD/perfil ===== */
 .sn-token-counter-v20 {
   top: 27px !important;
   left: 246px !important;
@@ -19608,4 +19608,24 @@ body.reduce-motion .game-pause-card button {
   }
   .sn-token-icon-v20 { width: 22px !important; height: 22px !important; }
   .sn-token-counter-v20 strong { font-size: .68rem !important; }
+}
+
+
+/* ===== SPACE NEWS v2.1.3 — fallback seguro de feedback e sync visual ===== */
+.sn-feedback-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.72rem 0.9rem;
+  border: 1px solid rgba(255, 235, 150, 0.75);
+  border-radius: 14px;
+  color: #fff4c6;
+  background: rgba(14, 12, 26, 0.72);
+  box-shadow: 0 0 18px rgba(255, 214, 102, 0.2);
+  text-decoration: none;
+  font-family: var(--game-ui-font, inherit);
+}
+.sn-feedback-fallback:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 214, 102, 0.12);
 }
