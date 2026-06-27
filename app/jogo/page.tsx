@@ -3933,7 +3933,8 @@ export default function JogoPage() {
     if (isLocalPvpMode()) {
       for (const power of powerUpsRef.current) pararLoopPowerUpTrail(power.id);
       powerUpsRef.current = [];
-      limparTokensDaRun();
+      tokensRef.current = [];
+      nextTokenSpawnAtRef.current = 0;
       spawnPowerUpPvp(true);
     }
     limparRoundPvp();
