@@ -17511,7 +17511,7 @@ export default function JogoPage() {
                           className={`sn-online-primary-v15 sn-squish-ui ${onlineMenuIndex === 3 ? "is-gamepad-selected" : ""}`}
                           onMouseEnter={() => setIndiceOnlineMenu(3)}
                           onFocus={() => setIndiceOnlineMenu(3)}
-                          onClick={entrarSalaOnline}
+                          onClick={() => void entrarSalaOnline()}
                           disabled={onlineCheckingRoom}
                         >
                           {onlineCheckingRoom ? "PROCURANDO..." : "ENTRAR"}

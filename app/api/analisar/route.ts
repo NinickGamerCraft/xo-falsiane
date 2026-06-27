@@ -12,6 +12,7 @@ const OPENROUTER_MODEL =
 const MAX_INPUT_LENGTH = 12_000;
 const MAX_EXTRACTED_LENGTH = 8_000;
 const MODEL_TIMEOUT_MS = 38_000;
+const FAST_MODEL_TIMEOUT_MS = 24_000;
 const APP_TIME_ZONE = "America/Fortaleza";
 const RSS_LOOKBACK = "when:2y";
 
@@ -736,8 +737,8 @@ async function executarComTimeout<T>(
   }
 }
 
-async function buscarRSS(consulta: string) {
-  const consultas = criarConsultasRSS(consulta);
+async function buscarRSS(consulta: string, rapido = false) {
+  const consultas = (rapido ? criarConsultasRSS(consulta).slice(0, 1) : criarConsultasRSS(consulta));
   if (consultas.length === 0) {
     return "Nenhuma busca recente foi realizada.";
   }
@@ -751,7 +752,7 @@ async function buscarRSS(consulta: string) {
         termo,
       )}&hl=pt-BR&gl=BR&ceid=BR:pt-419`;
 
-      const xml = await executarComTimeout(6_000, async (signal) => {
+      const xml = await executarComTimeout(rapido ? 3_500 : 6_000, async (signal) => {
         const response = await fetch(url, {
           signal,
           headers: {
@@ -770,7 +771,7 @@ async function buscarRSS(consulta: string) {
 
       const feed = await parser.parseString(xml);
 
-      for (const item of feed.items.slice(0, 8)) {
+      for (const item of feed.items.slice(0, rapido ? 4 : 8)) {
         const titulo = limparTexto(item.title || "Sem título", 300);
         const data = item.isoDate || item.pubDate || "data não informada";
         const link = item.link || "link não informado";
@@ -794,10 +795,10 @@ async function buscarRSS(consulta: string) {
           );
         }
 
-        if (resultados.size >= 8) break;
+        if (resultados.size >= (rapido ? 4 : 8)) break;
       }
 
-      if (resultados.size >= 6) break;
+      if (resultados.size >= (rapido ? 3 : 6)) break;
     } catch (error) {
       houveFalhaTecnica = true;
       console.warn(`Falha ao consultar RSS para “${termo}”:`, error);
@@ -1073,15 +1074,23 @@ function extrairConteudoMensagem(content: OpenRouterResponse["choices"]) {
   return "";
 }
 
-async function chamarModelo(systemPrompt: string, userPrompt: string) {
+async function chamarModelo(
+  systemPrompt: string,
+  userPrompt: string,
+  options: { preferFast?: boolean; timeoutMs?: number } = {},
+) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY não configurada.");
+
+  const modelTimeoutMs =
+    options.timeoutMs ?? (options.preferFast ? FAST_MODEL_TIMEOUT_MS : MODEL_TIMEOUT_MS);
+  const maxTokens = options.preferFast ? 850 : 1_250;
 
   const baseBody = {
     model: OPENROUTER_MODEL,
     temperature: 0.03,
     top_p: 0.18,
-    max_tokens: 1_250,
+    max_tokens: maxTokens,
     frequency_penalty: 0.35,
     presence_penalty: 0,
     messages: [
@@ -1092,7 +1101,7 @@ async function chamarModelo(systemPrompt: string, userPrompt: string) {
 
   async function enviar(estruturado: boolean) {
     try {
-      return await executarComTimeout(MODEL_TIMEOUT_MS, async (signal) => {
+      return await executarComTimeout(modelTimeoutMs, async (signal) => {
         let response: Response;
 
         try {
@@ -1196,14 +1205,26 @@ async function chamarModelo(systemPrompt: string, userPrompt: string) {
   }
 
   let resposta: OpenRouterResponse;
-  try {
-    resposta = await enviar(true);
-  } catch (error) {
-    console.warn(
-      "Formato estruturado indisponível; tentando modo compatível:",
-      error,
-    );
-    resposta = await enviar(false);
+  if (options.preferFast) {
+    try {
+      resposta = await enviar(false);
+    } catch (error) {
+      console.warn(
+        "Modo compatível rápido indisponível; tentando formato estruturado:",
+        error,
+      );
+      resposta = await enviar(true);
+    }
+  } else {
+    try {
+      resposta = await enviar(true);
+    } catch (error) {
+      console.warn(
+        "Formato estruturado indisponível; tentando modo compatível:",
+        error,
+      );
+      resposta = await enviar(false);
+    }
   }
 
   const content = extrairConteudoMensagem(resposta.choices);
@@ -1442,6 +1463,7 @@ async function gerarAnaliseConfiavel(params: {
   spaceNews?: SpaceNewsPayload | null;
   contextoTemporal: ContextoTemporal;
   assuntoDinamico: boolean;
+  preferFast?: boolean;
 }) {
   const systemPrompt = criarSystemPrompt(
     params.modo,
@@ -1453,7 +1475,9 @@ async function gerarAnaliseConfiavel(params: {
   let ultimoErroTecnico: ServicoIAError | null = null;
   let respostasRecebidas = 0;
 
-  for (let tentativa = 1; tentativa <= 3; tentativa += 1) {
+  const maxTentativas = params.preferFast ? 1 : 2;
+
+  for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
     try {
       const userPrompt = criarUserPrompt({
         ...params,
@@ -1463,7 +1487,7 @@ async function gerarAnaliseConfiavel(params: {
             : `A tentativa anterior foi rejeitada porque ${ultimoMotivo}. Reescreva completamente a resposta em português brasileiro.`,
       });
 
-      const content = await chamarModelo(systemPrompt, userPrompt);
+      const content = await chamarModelo(systemPrompt, userPrompt, { preferFast: Boolean(params.preferFast) });
       respostasRecebidas += 1;
       const parsed = extrairJson(content);
       const validacao = validarResultado(parsed, params.textoOriginal, {
@@ -1533,11 +1557,20 @@ export async function POST(req: Request) {
       );
     }
 
-    const data = body as { texto?: unknown; modo?: unknown };
+    const data = body as {
+      texto?: unknown;
+      modo?: unknown;
+      preferFast?: unknown;
+      clientProfile?: { mobile?: unknown; saveData?: unknown; effectiveType?: unknown };
+    };
     const textoRecebido =
       typeof data.texto === "string" ? data.texto.trim() : "";
     const modoRecebido =
       typeof data.modo === "string" ? data.modo.trim().toLowerCase() : "";
+    const preferFast =
+      data.preferFast === true ||
+      data.clientProfile?.mobile === true ||
+      data.clientProfile?.saveData === true;
 
     const erroEntrada = validarEntradaLocal(textoRecebido, modoRecebido);
     if (erroEntrada) {
@@ -1594,13 +1627,18 @@ export async function POST(req: Request) {
           [contextoLink.titulo, contextoLink.descricao, contextoLink.data].join(
             " ",
           ),
+          preferFast,
         );
       }
     } else if (assuntoDinamico) {
-      contextoRSS = await buscarRSS(textoAnalise);
+      contextoRSS = await buscarRSS(textoAnalise, preferFast);
     } else {
       contextoRSS =
         "Não necessário para esta análise; trate como conhecimento estável ou conteúdo fornecido pelo usuário.";
+    }
+
+    if (preferFast) {
+      textoAnalise = limparTexto(textoAnalise, modo === "link" ? 5_000 : 4_500);
     }
 
     const resposta = await gerarAnaliseConfiavel({
@@ -1612,6 +1650,7 @@ export async function POST(req: Request) {
       spaceNews,
       contextoTemporal,
       assuntoDinamico,
+      preferFast,
     });
 
     return respostaJson(resposta);

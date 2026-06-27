@@ -38,6 +38,44 @@ function parseSpaceNewsPayload(value: string): SpaceNewsPayload | null {
   };
 }
 
+const ANALYSIS_TIMEOUT_MS = 85_000;
+const MOBILE_ANALYSIS_TIMEOUT_MS = 95_000;
+
+function isMobileAnalysisClient() {
+  if (typeof navigator === "undefined") return false;
+  const nav = navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string };
+  };
+
+  const ua = navigator.userAgent || "";
+  return (
+    /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua) ||
+    navigator.maxTouchPoints > 1 ||
+    Boolean(nav.connection?.saveData)
+  );
+}
+
+function getConnectionProfile() {
+  if (typeof navigator === "undefined") {
+    return {
+      mobile: false,
+      saveData: false,
+      effectiveType: "",
+    };
+  }
+
+  const nav = navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string };
+  };
+
+  return {
+    mobile: isMobileAnalysisClient(),
+    saveData: Boolean(nav.connection?.saveData),
+    effectiveType: nav.connection?.effectiveType || "",
+  };
+}
+
+
 const PORTAIS_PARA_CHECAGEM = [
   {
     nome: "Agência Brasil",
@@ -732,6 +770,10 @@ export default function Home() {
     setCarregando(true);
     setResultado("");
     const controller = new AbortController();
+    const connectionProfile = getConnectionProfile();
+    const timeoutMs = connectionProfile.mobile
+      ? MOBILE_ANALYSIS_TIMEOUT_MS
+      : ANALYSIS_TIMEOUT_MS;
     const timeoutId = window.setTimeout(() => {
       controller.abort(
         new DOMException(
@@ -739,7 +781,7 @@ export default function Home() {
           "AbortError",
         ),
       );
-    }, 50000);
+    }, timeoutMs);
 
     try {
       const payload = parseSpaceNewsPayload(texto);
@@ -752,6 +794,8 @@ export default function Home() {
           modo,
           origem: payload ? "space-news" : "site",
           spaceNewsCode: payload?.code ?? null,
+          preferFast: connectionProfile.mobile || connectionProfile.saveData,
+          clientProfile: connectionProfile,
         }),
       });
 
@@ -853,7 +897,7 @@ export default function Home() {
         );
       } else if (foiTimeout || status === 504 || codigo === "ia_timeout") {
         setResultado(
-          "⏳ A análise ultrapassou o tempo de espera. A conexão pode estar lenta ou o serviço pode estar congestionado. Aguarde alguns segundos e tente novamente.",
+          "⏳ A análise ultrapassou o tempo de espera. Ativei um modo mais leve para celular/conexão lenta; tente novamente com uma entrada um pouco menor ou aguarde alguns segundos.",
         );
       } else if (
         codigo === "campo_link_incorreto" ||
