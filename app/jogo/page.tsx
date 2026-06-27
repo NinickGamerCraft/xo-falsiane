@@ -1578,7 +1578,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.0.1";
+const SPACE_NEWS_VERSION = "2.0.4";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2906,7 +2906,18 @@ function carregarPerfilLocalInicial(): LocalProfile {
       friendCode: String(parsed.friendCode || criarCodigoAmizadeLocal(id)).slice(0, 16),
       tokens: Math.max(0, Math.floor(Number(parsed.tokens ?? 0))),
       friends: Array.isArray(parsed.friends) ? parsed.friends.slice(0, 60).map((friend) => ({ ...friend, status: friend.status || "accepted" })) as LocalFriend[] : [],
-      friendRequests: Array.isArray(parsed.friendRequests) ? parsed.friendRequests.slice(0, 40) as LocalFriendRequest[] : [],
+      friendRequests: Array.isArray(parsed.friendRequests)
+        ? parsed.friendRequests.slice(0, 40).map((request) => {
+            const item = request as Partial<LocalFriendRequest> & { direction?: string };
+            return {
+              id: String(item.id || criarIdPerfilLocal()),
+              code: String(item.code || "").toUpperCase().slice(0, 16),
+              name: String(item.name || item.code || "Pedido").slice(0, 24),
+              direction: item.direction === "sent" ? "sent" : "received",
+              createdAt: Number(item.createdAt || Date.now()),
+            };
+          }) as LocalFriendRequest[]
+        : [],
       stats: {
         ...criarStatsPerfilPadrao(),
         ...parsedStats,
@@ -18100,7 +18111,7 @@ export default function JogoPage() {
                       <span>{request.name}</span>
                       <small>{request.direction === "sent" ? "pedido enviado" : "pedido recebido"} · {request.code}</small>
                       <div>
-                        {request.direction === "incoming" && <button type="button" onClick={() => aceitarPedidoAmizadeLocal(request.id)}>ACEITAR</button>}
+                        {request.direction === "received" && <button type="button" onClick={() => aceitarPedidoAmizadeLocal(request.id)}>ACEITAR</button>}
                         <button type="button" onClick={() => removerAmizadeOuPedidoLocal(request.id)}>REMOVER</button>
                       </div>
                     </div>
