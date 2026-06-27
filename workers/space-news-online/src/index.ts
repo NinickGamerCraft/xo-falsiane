@@ -147,7 +147,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "1.4.0-netcode", netModel: "host-authoritative-v2" });
+      return json({ ok: true, service: "Space News Online", version: "1.5.0-netcode", netModel: "host-authoritative-v2" });
     }
 
     if (url.pathname === "/create") {
@@ -298,6 +298,7 @@ export class GameRoom extends DurableObject<Env> {
       this.ensureHost();
 
       ws.send(JSON.stringify({ type: "joined", room: this.roomCode, hostSlot: this.hostSlot, player: this.publicPlayer(session) }));
+      this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
     }
@@ -348,6 +349,7 @@ export class GameRoom extends DurableObject<Env> {
       }
       session.ready = msg.ready ?? !session.ready;
       ws.serializeAttachment(session);
+      this.broadcast({ type: "ready_changed", room: this.roomCode, slot: session.slot, ready: session.ready, t: Date.now() });
       this.broadcastState();
       return;
     }
@@ -564,7 +566,7 @@ export class GameRoom extends DurableObject<Env> {
       hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
       netModel: "host-authoritative-v2",
-      version: "1.4.0-netcode",
+      version: "1.5.0-netcode",
       tick: this.lastSnapshotTick,
       t: Date.now(),
     });

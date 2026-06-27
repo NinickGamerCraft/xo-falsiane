@@ -156,6 +156,8 @@ type OnlineGameplaySnapshot = {
   serverTime?: number;
   /** Date.now() do host preservado para estimar atraso. */
   sentAt?: number;
+  /** performance.now() local de quando o cliente recebeu o snapshot. Evita usar relógio do Worker para interpolação. */
+  receivedAt?: number;
   seq?: number;
   authoritativeSlot?: PlayerSlot;
   netModel?: "host-authoritative-v2" | string;
@@ -1483,7 +1485,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "1.4.0";
+const SPACE_NEWS_VERSION = "1.5.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -3045,8 +3047,8 @@ export default function JogoPage() {
   const onlineSnapshotBufferRef = useRef<OnlineGameplaySnapshot[]>([]);
   const onlineLastAppliedSnapshotTickRef = useRef(0);
   const onlineLastAppliedSnapshotSeqRef = useRef(0);
-  const onlineRenderDelayMsRef = useRef(110);
-  const onlineHardCatchUpDelayMsRef = useRef(520);
+  const onlineRenderDelayMsRef = useRef(75);
+  const onlineHardCatchUpDelayMsRef = useRef(280);
   const onlinePauseRequestedByRef = useRef<number | null>(null);
   const onlinePauseReadySlotsRef = useRef<number[]>([]);
   const onlinePausePanelOpenRef = useRef(false);
@@ -3176,8 +3178,8 @@ export default function JogoPage() {
       "storyCutscene", "tutorialChoice", "tutorial", "playing", "paused", "gameOver", "victory",
     ];
     if (previous !== estado && importantStates.includes(previous) && importantStates.includes(estado)) {
-      setScreenFade(true);
-      window.setTimeout(() => setScreenFade(false), 220);
+      setEscurecendo(true);
+      window.setTimeout(() => setEscurecendo(false), 420);
     }
     gameStateRef.current = estado;
     setGameState(estado);
@@ -3285,10 +3287,11 @@ export default function JogoPage() {
   }
 
   function danoPvpPorTipo(tipo: "normal" | "strong" | "boost" | "bump" | "power") {
-    // PvP 100 HP: dano mais baixo para rounds mais caóticos, com espaço para comeback e power-up.
-    if (tipo === "strong") return 5;
-    if (tipo === "boost") return 4;
-    if (tipo === "power") return 2;
+    // VERSUS v1.5: normal vira pressão, forte/boost viram condição real de ponto.
+    // Isso reduz o “segura tiro e espera alinhar” sem transformar em turno.
+    if (tipo === "strong") return 11;
+    if (tipo === "boost") return 8;
+    if (tipo === "power") return 4;
     if (tipo === "bump") return 0;
     return 1;
   }
@@ -3519,7 +3522,15 @@ export default function JogoPage() {
 
   function atualizarPlayerRuntime(runtime: PlayerRuntime, player: Player, meta?: Partial<OnlinePlayer>) {
     const now = performance.now();
-    const effects = efeitosDoSlotRuntime(runtime.slot, now);
+    const effects = runtime.slot >= 3
+      ? {
+          shieldUntil: runtime.powerups.shieldUntil ?? runtime.shieldUntil ?? 0,
+          fireRateUntil: runtime.powerups.fireRateUntil ?? 0,
+          powerShotUntil: runtime.powerups.powerShotUntil ?? 0,
+          homingUntil: runtime.powerups.homingUntil ?? 0,
+          flamesUntil: runtime.powerups.flamesUntil ?? 0,
+        }
+      : efeitosDoSlotRuntime(runtime.slot, now);
     aplicarMetadadosRuntime(runtime, meta);
     runtime.x = player.x;
     runtime.y = player.y;
@@ -3604,7 +3615,14 @@ export default function JogoPage() {
   function snapshotEfeitosPorSlot(slot: PlayerSlot, now: number): OnlineEffectSnapshot {
     if (slot === 1) return snapshotEfeitosPlayer1(now);
     if (slot === 2) return snapshotEfeitosPlayer2(now);
-    return { shieldMs: 0, fireRateMs: 0, powerShotMs: 0, homingShotMs: 0, flamesMs: 0 };
+    const runtime = playersRef.current.find((player) => player.slot === slot);
+    return {
+      shieldMs: Math.max(0, (runtime?.powerups.shieldUntil ?? 0) - now),
+      fireRateMs: Math.max(0, (runtime?.powerups.fireRateUntil ?? 0) - now),
+      powerShotMs: Math.max(0, (runtime?.powerups.powerShotUntil ?? 0) - now),
+      homingShotMs: Math.max(0, (runtime?.powerups.homingUntil ?? 0) - now),
+      flamesMs: Math.max(0, (runtime?.powerups.flamesUntil ?? 0) - now),
+    };
   }
 
   function snapshotPlayersOnline(now: number): OnlineRuntimePlayerSnapshot[] {
@@ -4082,13 +4100,15 @@ export default function JogoPage() {
     controlledLocally = false,
   ) {
     if (!incoming) return;
+    const oldX = target.x;
+    const oldY = target.y;
+    const oldVx = target.vx;
+    const oldVy = target.vy;
     const nextX = typeof incoming.x === "number" ? incoming.x : target.x;
     const nextY = typeof incoming.y === "number" ? incoming.y : target.y;
-    const dx = nextX - target.x;
-    const dy = nextY - target.y;
+    const dx = nextX - oldX;
+    const dy = nextY - oldY;
     const dist = Math.hypot(dx, dy);
-    const hardSnap = controlledLocally ? 220 : 160;
-    const blend = controlledLocally ? (dist < 42 ? 0.035 : 0.11) : (dist < 18 ? 0.2 : 0.42);
 
     const keepUntil = {
       dodgeUntil: target.dodgeUntil,
@@ -4098,12 +4118,36 @@ export default function JogoPage() {
 
     Object.assign(target, incoming);
 
-    if (dist > hardSnap) {
-      target.x = nextX;
-      target.y = nextY;
+    if (controlledLocally) {
+      // Client prediction: o snapshot autoritativo NÃO pode rebobinar o player local a cada frame.
+      // Ele só corrige suavemente drift grande; correções pequenas ficam por conta do input local.
+      if (dist > 320) {
+        target.x = oldX + dx * 0.28;
+        target.y = oldY + dy * 0.28;
+      } else if (dist > 120) {
+        target.x = oldX + dx * 0.055;
+        target.y = oldY + dy * 0.055;
+      } else if (dist > 72) {
+        target.x = oldX + dx * 0.018;
+        target.y = oldY + dy * 0.018;
+      } else {
+        target.x = oldX;
+        target.y = oldY;
+      }
+      target.vx = typeof incoming.vx === "number" ? oldVx * 0.88 + incoming.vx * 0.12 : oldVx;
+      target.vy = typeof incoming.vy === "number" ? oldVy * 0.88 + incoming.vy * 0.12 : oldVy;
     } else {
-      target.x = target.x - dx + dx * blend;
-      target.y = target.y - dy + dy * blend;
+      const hardSnap = 190;
+      const blend = dist < 18 ? 0.24 : 0.48;
+      if (dist > hardSnap) {
+        target.x = nextX;
+        target.y = nextY;
+      } else {
+        target.x = oldX + dx * blend;
+        target.y = oldY + dy * blend;
+      }
+      target.vx = typeof incoming.vx === "number" ? oldVx * 0.35 + incoming.vx * 0.65 : oldVx;
+      target.vy = typeof incoming.vy === "number" ? oldVy * 0.35 + incoming.vy * 0.65 : oldVy;
     }
 
     // Não deixa snapshot atrasado congelar sprites de dodge/boost no cliente.
@@ -4118,10 +4162,52 @@ export default function JogoPage() {
       target.stretchUntil = keepUntil.stretchUntil > now ? keepUntil.stretchUntil : target.stretchUntil;
     }
 
-    target.vx = typeof incoming.vx === "number" ? target.vx * 0.35 + incoming.vx * 0.65 : target.vx;
-    target.vy = typeof incoming.vy === "number" ? target.vy * 0.35 + incoming.vy * 0.65 : target.vy;
     target.x = clamp(target.x, 0, CONFIG.canvasWidth - target.w);
     target.y = clamp(target.y, 0, CONFIG.canvasHeight - target.h);
+  }
+
+  function normalizarPowerUpsSnapshotOnline(powerUps: PowerUp[], projectedPvp: boolean, localNow = performance.now()) {
+    return powerUps.map((power) => {
+      const projected = projectedPvp ? espelharObjetoOnline(power) : { ...power };
+      const age = Math.max(0, Number(projected.age ?? 0));
+      const bornAt = Number(projected.bornAt ?? 0);
+      const bornAtInvalido = !Number.isFinite(bornAt) || bornAt <= 0 || bornAt > localNow + 500 || bornAt < localNow - 30000;
+      return {
+        ...projected,
+        age,
+        bornAt: bornAtInvalido ? localNow - age : bornAt,
+        w: Math.max(Number(projected.w || 0), isLocalPvpMode() ? 44 : 32),
+        h: Math.max(Number(projected.h || 0), isLocalPvpMode() ? 44 : 32),
+      } as PowerUp;
+    });
+  }
+
+  function aplicarPlayersExtrasDoSnapshot(snapshot: OnlineGameplaySnapshot, projectedPvp: boolean) {
+    if (!Array.isArray(snapshot.players)) return;
+    const existing = new Map<PlayerSlot, PlayerRuntime>(
+      playersRef.current.map((player) => [player.slot, player] as [PlayerSlot, PlayerRuntime]),
+    );
+    for (const remote of snapshot.players) {
+      const slot = Number(remote.slot) as PlayerSlot;
+      if (slot < 3 || slot > 4) continue;
+      const incomingBase = remote.player || {};
+      const incoming = projectedPvp ? espelharPlayerOnline(incomingBase) : incomingBase;
+      const runtime = existing.get(slot) ?? criarPlayerRuntime(slot);
+      aplicarMetadadosRuntime(runtime, remote);
+      aplicarPlayerSnapshotSuave(runtime.runtime, incoming, slot === onlineSlotRef.current);
+      runtime.hp = Number(remote.hp ?? runtime.runtime.hp ?? runtime.hp);
+      runtime.maxHp = Number(remote.maxHp ?? runtime.maxHp);
+      runtime.goldenLives = Number(remote.goldenHp ?? runtime.goldenLives);
+      runtime.alive = Boolean(remote.alive ?? runtime.hp > 0);
+      runtime.ghost = Boolean(remote.ghost ?? false);
+      runtime.reviveProgress = Number(remote.reviveProgress ?? 0);
+      existing.set(slot, runtime);
+    }
+    const baseSlots = slotsMultiplayerAtivos();
+    playersRef.current = baseSlots
+      .map((slot) => existing.get(slot))
+      .filter((player): player is PlayerRuntime => Boolean(player))
+      .sort((a, b) => a.slot - b.slot);
   }
 
   function aplicarSnapshotOnline(snapshot: OnlineGameplaySnapshot) {
@@ -4209,7 +4295,8 @@ export default function JogoPage() {
     if (Array.isArray(snapshot.enemies)) enemiesRef.current = projectedPvp ? snapshot.enemies.map((enemy) => espelharObjetoOnline(enemy)) : snapshot.enemies;
     if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = projectedPvp ? snapshot.enemyProjectiles.map((bullet) => espelharObjetoOnline(bullet)) : snapshot.enemyProjectiles;
     if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = projectedPvp ? snapshot.bossProjectiles.map((projectile) => espelharObjetoOnline(projectile)) : snapshot.bossProjectiles;
-    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = snapshot.powerUps;
+    aplicarPlayersExtrasDoSnapshot(snapshot, projectedPvp);
+    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(snapshot.powerUps, projectedPvp, localNow);
     if (snapshot.boss) {
       const bossSnapshot = projectedPvp ? espelharObjetoOnline({ ...(snapshot.boss as Partial<BossState>), x: Number(snapshot.boss.x ?? bossRef.current.x), w: Number(snapshot.boss.w ?? bossRef.current.w), vx: 0 }) : snapshot.boss;
       bossRef.current = { ...bossRef.current, ...bossSnapshot };
@@ -4272,7 +4359,10 @@ export default function JogoPage() {
 
   function adicionarSnapshotOnline(rawSnapshot: OnlineGameplaySnapshot) {
     if (!rawSnapshot) return;
-    const snapshot = normalizarSnapshotOnline(rawSnapshot);
+    const snapshot = normalizarSnapshotOnline({
+      ...rawSnapshot,
+      receivedAt: performance.now(),
+    });
     const tick = Number(snapshot.tick ?? snapshot.seq ?? 0);
     const seq = Number(snapshot.seq ?? tick ?? 0);
     const lastTick = onlineLastAppliedSnapshotTickRef.current;
@@ -4297,20 +4387,21 @@ export default function JogoPage() {
     if (buffer.length === 0) return onlineLatestSnapshotRef.current;
 
     const latest = buffer[buffer.length - 1];
-    const latestServerTime = Number(latest.serverTime ?? latest.t ?? 0);
-    const nowServerEstimate = Date.now();
+    const nowLocal = performance.now();
+    const latestReceivedAt = Number(latest.receivedAt ?? nowLocal);
 
-    // Se o cliente ficou muito para trás, pula para o quadro mais recente em vez de reproduzir atraso acumulado.
-    if (latestServerTime > 0 && nowServerEstimate - latestServerTime > onlineHardCatchUpDelayMsRef.current) {
+    // Baseado no relógio LOCAL de recebimento, não no Date.now do Worker/host.
+    // Isso evita catch-up falso causado por diferença de relógio entre celular, PC e Cloudflare.
+    if (nowLocal - latestReceivedAt > onlineHardCatchUpDelayMsRef.current) {
       onlineSnapshotBufferRef.current = [latest];
       return latest;
     }
 
-    const targetTime = nowServerEstimate - onlineRenderDelayMsRef.current;
+    const targetTime = nowLocal - onlineRenderDelayMsRef.current;
     let chosenIndex = buffer.length - 1;
     for (let i = buffer.length - 1; i >= 0; i--) {
-      const serverTime = Number(buffer[i].serverTime ?? buffer[i].t ?? 0);
-      if (serverTime <= targetTime) {
+      const receivedAt = Number(buffer[i].receivedAt ?? 0);
+      if (receivedAt <= targetTime) {
         chosenIndex = i;
         break;
       }
@@ -4541,6 +4632,22 @@ export default function JogoPage() {
 
       if (msg.type === "room_state") {
         aplicarEstadoSalaOnline(msg);
+        return;
+      }
+
+      if (msg.type === "player_joined") {
+        const joined = msg.player || {};
+        const slot = Number(joined.slot || 0);
+        feedbackOnline("success", slot ? `P${slot} entrou na sala.` : "Um jogador entrou na sala.");
+        return;
+      }
+
+      if (msg.type === "ready_changed") {
+        const slot = Number(msg.slot || 0);
+        const ready = Boolean(msg.ready);
+        if (slot && slot !== onlineSlotRef.current) {
+          feedbackOnline("idle", `P${slot} ${ready ? "ficou READY" : "tirou READY"}.`);
+        }
         return;
       }
 
@@ -10239,7 +10346,9 @@ export default function JogoPage() {
       });
 
       tocarSom(CONFIG.sounds.normalShot, 0.45, "sfx");
-      player.normalCooldown = cooldownTiroNormalAtual();
+      player.normalCooldown = isLocalPvpMode()
+        ? (fireRateUntilRef.current > now ? 10 : 18)
+        : cooldownTiroNormalAtual();
 
       // No tutorial, o passo de tiro normal só avança quando o alvo de treino for destruído.
     }
@@ -10707,7 +10816,9 @@ export default function JogoPage() {
         vx: isLocalPvpMode() ? -shotSpeed : shotSpeed,
         vy: 0,
       });
-      player.normalCooldown = player2FireRateUntilRef.current > now ? Math.max(2, CONFIG.gameplay.shots.normal.cooldownFrames * 0.55) : CONFIG.gameplay.shots.normal.cooldownFrames;
+      player.normalCooldown = isLocalPvpMode()
+        ? (player2FireRateUntilRef.current > now ? 10 : 18)
+        : (player2FireRateUntilRef.current > now ? Math.max(2, CONFIG.gameplay.shots.normal.cooldownFrames * 0.55) : CONFIG.gameplay.shots.normal.cooldownFrames);
       tocarSom(CONFIG.sounds.normalShot, 0.38, "sfx");
     }
 
@@ -11011,6 +11122,205 @@ export default function JogoPage() {
       }
     }
 
+    function gamepadParaSlotExtra(slot: PlayerSlot) {
+      if (typeof navigator === "undefined" || !navigator.getGamepads) return null;
+      const pads = Array.from(navigator.getGamepads()).filter(Boolean) as Gamepad[];
+      return pads[slot - 2] ?? null;
+    }
+
+    function inputParaSlotExtra(slot: PlayerSlot): OnlineInputState {
+      if (onlineGameplayActiveRef.current) {
+        return slot === onlineSlotRef.current
+          ? inputOnlineLocalAtual()
+          : (onlineRemoteInputsRef.current[slot] || EMPTY_ONLINE_INPUT_STATE);
+      }
+      const pad = gamepadParaSlotExtra(slot);
+      if (!pad?.connected) return EMPTY_ONLINE_INPUT_STATE;
+      const deadzone = clamp(Number(CONFIG.settings.gamepadDeadzone) || 0.18, 0.06, 0.5);
+      const x = aplicarDeadzone(Number(pad.axes[0] || 0), deadzone);
+      const y = aplicarDeadzone(Number(pad.axes[1] || 0), deadzone);
+      return {
+        left: x < -0.24,
+        right: x > 0.24,
+        up: y < -0.24,
+        down: y > 0.24,
+        shot: Boolean(pad.buttons[0]?.pressed || pad.buttons[7]?.pressed),
+        strong: Boolean(pad.buttons[2]?.pressed || pad.buttons[6]?.pressed),
+        boost: Boolean(pad.buttons[1]?.pressed || pad.buttons[5]?.pressed),
+        dodge: Boolean(pad.buttons[3]?.pressed || pad.buttons[4]?.pressed),
+        pause: Boolean(pad.buttons[9]?.pressed),
+      };
+    }
+
+    function aplicarPowerUpRuntimeExtra(runtime: PlayerRuntime, kind: PowerUpKind) {
+      const now = performance.now();
+      const player = runtime.runtime;
+      if (kind === "randomBox") {
+        const options: PowerUpKind[] = ["regen", "fireRate", "shield", "powerShot", "homingShot"];
+        aplicarPowerUpRuntimeExtra(runtime, options[Math.floor(Math.random() * options.length)]);
+        return;
+      }
+      if (kind === "regen" || kind === "tripleRegen") {
+        const amount = kind === "tripleRegen" ? (isLocalPvpMode() ? 18 : 2) : (isLocalPvpMode() ? 8 : 1);
+        player.hp = Math.min(vidaMaximaLocal(), player.hp + amount);
+        runtime.hp = player.hp;
+      } else if (kind === "goldenHeart") {
+        player.goldenHp = Math.min(CONFIG.gameplay.powerups.goldenHeartMax, player.goldenHp + 1);
+        runtime.goldenLives = player.goldenHp;
+      } else if (kind === "shield") {
+        runtime.powerups.shieldUntil = now + 7200;
+        runtime.shieldUntil = runtime.powerups.shieldUntil;
+        player.invincibleUntil = Math.max(player.invincibleUntil, now + 900);
+      } else if (kind === "fireRate") {
+        runtime.powerups.fireRateUntil = now + CONFIG.gameplay.powerups.fireRateDurationMs;
+      } else if (kind === "powerShot") {
+        runtime.powerups.powerShotUntil = now + CONFIG.gameplay.powerups.powerShotDurationMs;
+      } else if (kind === "homingShot") {
+        runtime.powerups.homingUntil = now + CONFIG.gameplay.powerups.homingShotDurationMs;
+      } else if (kind === "flames") {
+        runtime.powerups.flamesUntil = now + CONFIG.gameplay.powerups.flamesDurationMs;
+      }
+      criarExplosao(player.x + player.w / 2, player.y + player.h / 2, powerUpColor(kind), 14);
+      tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.abilityReady, 0.35, "ability");
+    }
+
+    function atirarNormalRuntimeExtra(runtime: PlayerRuntime) {
+      const player = runtime.runtime;
+      const now = performance.now();
+      if (player.hp <= 0 || player.normalCooldown > 0) return;
+      const powerActive = (runtime.powerups.powerShotUntil ?? 0) > now;
+      const homingActive = (runtime.powerups.homingUntil ?? 0) > now;
+      const shotW = powerActive ? CONFIG.gameplay.powerups.powerShotWidth : CONFIG.gameplay.shots.normal.width;
+      const shotH = powerActive ? CONFIG.gameplay.powerups.powerShotHeight : CONFIG.gameplay.shots.normal.height;
+      const dir = isLocalPvpMode() && runtime.slot % 2 === 0 ? -1 : 1;
+      shotsRef.current.push({
+        id: shotIdRef.current++,
+        ownerId: runtime.slot,
+        bornAt: now,
+        stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+        x: dir > 0 ? player.x + player.w - 2 : player.x - shotW + 2,
+        y: player.y + player.h / 2 - shotH / 2,
+        w: shotW,
+        h: shotH,
+        speed: CONFIG.gameplay.shots.normal.speed,
+        damage: (CONFIG.gameplay.shots.normal.damage * (powerActive ? CONFIG.gameplay.powerups.powerShotDamageMultiplier : 1) + bonusDanoInfinito()) * danoLocalPorJogador(),
+        type: "normal",
+        variant: powerActive && homingActive ? "powerHoming" : powerActive ? "power" : homingActive ? "homing" : "normal",
+        vx: CONFIG.gameplay.shots.normal.speed * dir,
+        vy: 0,
+      });
+      player.normalCooldown = (runtime.powerups.fireRateUntil ?? 0) > now ? 10 : (isLocalPvpMode() ? 18 : CONFIG.gameplay.shots.normal.cooldownFrames);
+      tocarSom(CONFIG.sounds.normalShot, 0.28, "sfx");
+    }
+
+    function atirarForteRuntimeExtra(runtime: PlayerRuntime, dirXParam = 1, dirYParam = 0) {
+      const player = runtime.runtime;
+      const now = performance.now();
+      if (player.hp <= 0 || now < player.strongReadyAt) return;
+      const dir = normalizarDirecao(
+        dirXParam || (isLocalPvpMode() && runtime.slot % 2 === 0 ? -1 : 1),
+        dirYParam || 0,
+      );
+      const shotW = CONFIG.gameplay.shots.strong.width;
+      const shotH = CONFIG.gameplay.shots.strong.height;
+      shotsRef.current.push({
+        id: shotIdRef.current++,
+        ownerId: runtime.slot,
+        bornAt: now,
+        stretchUntil: now + CONFIG.gameplay.dynamicStretch.shotPulseMs,
+        x: dir.x >= 0 ? player.x + player.w - 2 : player.x - shotW + 2,
+        y: player.y + player.h / 2 - shotH / 2,
+        w: shotW,
+        h: shotH,
+        speed: CONFIG.gameplay.shots.strong.speed,
+        damage: (CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito()) * danoLocalPorJogador(),
+        type: "strong",
+        vx: dir.x * CONFIG.gameplay.shots.strong.speed,
+        vy: dir.y * CONFIG.gameplay.shots.strong.speed,
+      });
+      player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
+      player.vx -= dir.x * CONFIG.gameplay.player.strongShotRecoil;
+      player.vy -= dir.y * CONFIG.gameplay.player.strongShotRecoil;
+      player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+      player.stretchVx = -dir.x * CONFIG.gameplay.player.maxSpeedX;
+      player.stretchVy = -dir.y * CONFIG.gameplay.player.maxSpeedY;
+      tocarSom(CONFIG.sounds.strongShot, 0.38, "sfx");
+    }
+
+    function atualizarPlayersExtrasRuntime(delta: number, canvas: HTMLCanvasElement) {
+      if (!isLocalMode() || gameStateRef.current !== "playing") return;
+      const speedFactor = delta / 16.67;
+      const now = performance.now();
+      const runtimes = sincronizarPlayersRuntime().filter((runtime) => runtime.slot >= 3);
+      for (const runtime of runtimes) {
+        const player = runtime.runtime;
+        const predictedLocal = onlineGameplayActiveRef.current && runtime.slot === onlineSlotRef.current;
+        if (onlineGameplayActiveRef.current && !souHostOnline() && !predictedLocal) continue;
+        const input = inputParaSlotExtra(runtime.slot);
+        runtime.input = input;
+        const axes = eixosDeInputOnline(input);
+        const ghostLocal = isLocalWaveMode() && player.hp <= 0;
+        const controlFactor = ghostLocal ? 0.45 : 1;
+        if (player.hp > 0 || ghostLocal) {
+          if (axes.x !== 0) player.vx += axes.x * CONFIG.gameplay.player.acceleration * speedFactor * controlFactor;
+          else player.vx *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
+          if (axes.y !== 0) player.vy += axes.y * CONFIG.gameplay.player.acceleration * speedFactor * controlFactor;
+          else player.vy *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
+          player.vx = clamp(player.vx, -CONFIG.gameplay.player.maxSpeedX * controlFactor, CONFIG.gameplay.player.maxSpeedX * controlFactor);
+          player.vy = clamp(player.vy, -CONFIG.gameplay.player.maxSpeedY * controlFactor, CONFIG.gameplay.player.maxSpeedY * controlFactor);
+          if (now < player.boostUntil) {
+            player.vx = player.boostVx;
+            player.vy = player.boostVy;
+            criarParticulasBoost(player, 2);
+          }
+          player.x = clamp(player.x + player.vx * speedFactor, 0, canvas.width - player.w);
+          player.y = clamp(player.y + player.vy * speedFactor, 0, canvas.height - player.h);
+          player.tilt += (((player.vy / Math.max(0.001, CONFIG.gameplay.player.maxSpeedY)) * CONFIG.gameplay.player.tiltMaxDeg) - player.tilt) * CONFIG.gameplay.player.tiltResponse;
+          if (player.normalCooldown > 0) player.normalCooldown = Math.max(0, player.normalCooldown - speedFactor);
+          if (!ghostLocal && input.shot) atirarNormalRuntimeExtra(runtime);
+          if (!ghostLocal && input.strong) atirarForteRuntimeExtra(runtime, axes.x || (isLocalPvpMode() && runtime.slot % 2 === 0 ? -1 : 1), axes.y || 0);
+          if (!ghostLocal && input.boost && now >= player.boostUntil + 2400) {
+            const dir = normalizarDirecao(axes.x || (isLocalPvpMode() && runtime.slot % 2 === 0 ? -1 : 1), axes.y || 0);
+            player.boostUntil = now + CONFIG.gameplay.boost.durationMs * 0.82;
+            player.boostVx = dir.x * CONFIG.gameplay.boost.speed;
+            player.boostVy = dir.y * CONFIG.gameplay.boost.speed;
+            player.invincibleUntil = Math.max(player.invincibleUntil, player.boostUntil + 160);
+            player.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+          }
+          if (!ghostLocal && input.dodge && now >= player.dodgeUntil + CONFIG.gameplay.dodge.cooldownMs) {
+            const dir = normalizarDirecao(axes.x || player.vx || 1, axes.y || player.vy || 0);
+            player.dodgeUntil = now + CONFIG.gameplay.dodge.durationMs;
+            player.invincibleUntil = Math.max(player.invincibleUntil, player.dodgeUntil);
+            player.vx += dir.x * CONFIG.gameplay.dodge.speedImpulse;
+            player.vy += dir.y * CONFIG.gameplay.dodge.speedImpulse;
+          }
+        }
+        atualizarPlayerRuntime(runtime, player, onlinePlayers.find((item) => item.slot === runtime.slot));
+      }
+    }
+
+    function resolverPowerUpsExtrasRuntime() {
+      if (!isLocalMode() || gameStateRef.current !== "playing") return;
+      const runtimes = playersRef.current.filter((runtime) => runtime.slot >= 3 && runtime.runtime.hp > 0);
+      if (runtimes.length === 0 || powerUpsRef.current.length === 0) return;
+      const collected = new Set<number>();
+      for (const power of powerUpsRef.current) {
+        const box = { x: power.x + power.w * 0.14, y: power.y + power.h * 0.14, w: power.w * 0.72, h: power.h * 0.72 };
+        for (const runtime of runtimes) {
+          if (power.blockedPlayer === runtime.slot && performance.now() < (power.blockedUntil ?? 0)) continue;
+          if (rectsCollide(getPlayerHitbox(runtime.runtime), box)) {
+            collected.add(power.id);
+            pararLoopPowerUpTrail(power.id);
+            aplicarPowerUpRuntimeExtra(runtime, power.kind);
+            break;
+          }
+        }
+      }
+      if (collected.size > 0) {
+        powerUpsRef.current = powerUpsRef.current.filter((power) => !collected.has(power.id));
+      }
+    }
+
     function desenharIndicadorJogadorLocal(
       ctx: CanvasRenderingContext2D,
       player: Player | null,
@@ -11114,6 +11424,59 @@ export default function JogoPage() {
         ctx.restore();
       }
       ctx.restore();
+    }
+
+    function desenharPlayersExtrasRuntime(ctx: CanvasRenderingContext2D, delta: number) {
+      if (!isLocalMode()) return;
+      const now = performance.now();
+      const runtimes = sincronizarPlayersRuntime().filter((runtime) => runtime.slot >= 3);
+      if (runtimes.length === 0) return;
+      const anim = playerAnimRef.current;
+      anim.update(delta);
+      for (const runtime of runtimes) {
+        const player = runtime.runtime;
+        const ghostLocal = isLocalWaveMode() && player.hp <= 0;
+        if (!ghostLocal && player.hp <= 0 && Math.floor(now / 180) % 2 === 0) continue;
+        const moving = Math.hypot(player.vx, player.vy) > CONFIG.gameplay.player.animationMoveThreshold || now < player.boostUntil;
+        const img = moving ? assetsRef.current.getFrame("player", anim.frame) : assetsRef.current.get("player");
+        const color = runtime.color || LOCAL_PLAYER_COLORS[runtime.slot - 1] || "#ffffff";
+        ctx.save();
+        ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+        ctx.rotate((player.tilt * Math.PI) / 180);
+        if (isLocalPvpMode() && runtime.slot % 2 === 0) ctx.scale(-1, 1);
+        const pulse = getStretchPulse(player.stretchUntil, "player");
+        applyVelocityStretch(ctx, player.stretchVx, player.stretchVy, getStretchSettings("player").multiplier, pulse);
+        ctx.globalAlpha = ghostLocal ? 0.34 : 0.94;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = ghostLocal ? 24 : 14;
+        if (img) {
+          ctx.save();
+          ctx.filter = runtime.slot === 3
+            ? "sepia(0.35) saturate(1.7) hue-rotate(82deg) brightness(1.08)"
+            : "sepia(0.35) saturate(1.8) hue-rotate(210deg) brightness(1.12)";
+          ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.moveTo(player.w / 2, 0);
+          ctx.lineTo(-player.w / 2, -player.h / 2);
+          ctx.lineTo(-player.w / 2, player.h / 2);
+          ctx.closePath();
+          ctx.fill();
+        }
+        const shieldUntil = runtime.powerups.shieldUntil ?? runtime.shieldUntil ?? 0;
+        if (player.hp > 0 && now < shieldUntil) {
+          ctx.globalAlpha = 0.35 + Math.sin(now * 0.012) * 0.08;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, player.w * 0.72, player.h * 0.76, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+        desenharIndicadorJogadorLocal(ctx, player, `P${runtime.slot}`, color);
+      }
     }
 
     function desenharTiro(ctx: CanvasRenderingContext2D, shot: Shot) {
@@ -14269,6 +14632,7 @@ export default function JogoPage() {
       }
 
       atualizarPlayer2(delta, canvas);
+      atualizarPlayersExtrasRuntime(delta, canvas);
 
       if (player.x < 0) {
         player.x = 0;
@@ -14343,6 +14707,20 @@ export default function JogoPage() {
               const currentLen = Math.max(0.001, Math.hypot(vx, vy));
               vx = (vx / currentLen) * shot.speed;
               vy = (vy / currentLen) * shot.speed;
+            }
+          }
+
+          if (isLocalPvpMode() && shot.type === "normal" && shot.variant !== "homing" && shot.variant !== "powerHoming") {
+            const shotAge = performance.now() - (shot.bornAt ?? performance.now());
+            const targetPlayer = shot.ownerId === 2 ? playerRef.current : player2Ref.current;
+            if (targetPlayer && targetPlayer.hp > 0 && shotAge < 720) {
+              const targetY = targetPlayer.y + targetPlayer.h / 2;
+              const currentY = shot.y + shot.h / 2;
+              const verticalError = targetY - currentY;
+              if (Math.abs(verticalError) < 230) {
+                const assistVy = clamp(verticalError * 0.018, -2.8, 2.8);
+                vy += (assistVy - vy) * 0.055;
+              }
             }
           }
 
@@ -14498,6 +14876,7 @@ export default function JogoPage() {
       resolverColisoesPlayer2();
       reviverJogadoresLocais();
       resolverPowerUps();
+      resolverPowerUpsExtrasRuntime();
       atualizarParticulas(delta);
       atualizarPowerUpUi();
       atualizarShockwaves(delta);
@@ -14675,13 +15054,15 @@ export default function JogoPage() {
 
       limitarObjetosPesados();
       aplicarPixelArt(renderCtx);
-      let simulationRemaining = elapsedSinceRender;
-      do {
-        const simulationStep = Math.min(32, simulationRemaining || 16.67);
-        atualizar(simulationStep, renderCanvas);
-        simulationRemaining -= simulationStep;
-      } while (simulationRemaining > 0.5);
-      sincronizarGameplayOnline();
+      if (!screenFadeRef.current) {
+        let simulationRemaining = elapsedSinceRender;
+        do {
+          const simulationStep = Math.min(32, simulationRemaining || 16.67);
+          atualizar(simulationStep, renderCanvas);
+          simulationRemaining -= simulationStep;
+        } while (simulationRemaining > 0.5);
+        sincronizarGameplayOnline();
+      }
       atualizarGameOverCutscene();
       const lowHpAlarmShouldPlay =
         CONFIG.settings.enableLowHpAlarm &&
@@ -14732,6 +15113,7 @@ export default function JogoPage() {
       ) {
         desenharPlayer(renderCtx, elapsedSinceRender);
         desenharPlayer2(renderCtx, elapsedSinceRender);
+        desenharPlayersExtrasRuntime(renderCtx, elapsedSinceRender);
         const labelLocalP1 = deveProjetarOnlinePvpLocal() ? `P${onlineSlotRef.current}` : "P1";
         const labelLocalP2 = deveProjetarOnlinePvpLocal() ? `P${onlineHostSlotRef.current || 1}` : "P2";
         desenharIndicadorJogadorLocal(renderCtx, playerRef.current, labelLocalP1, LOCAL_PLAYER_COLORS[0]);
@@ -16164,11 +16546,11 @@ export default function JogoPage() {
       )}
 
       {gameState === "onlineLobby" && (
-        <section className="game-screen sn-online-lobby-screen sn-online-lobby-screen-v3">
-          <aside className={`sn-online-panel sn-online-panel-v3 is-${onlineFlow} is-${onlineFeedback}`}>
+        <section className="game-screen sn-online-lobby-screen sn-online-lobby-screen-v15">
+          <aside className={`sn-online-party-shell-v15 is-${onlineConnected ? "room" : "connect"} is-${onlineFlow} is-${onlineFeedback}`}>
             <button
               type="button"
-              className="sn-online-close sn-squish-ui"
+              className="sn-online-close-v15 sn-squish-ui"
               onClick={fecharLobbyOnline}
               aria-label="Fechar multiplayer online"
               title="Voltar"
@@ -16176,230 +16558,250 @@ export default function JogoPage() {
               ×
             </button>
 
-            <header className="sn-online-hero-v3">
-              <div>
-                <p className="game-panel-label">MULTIPLAYER ONLINE</p>
+            <header className="sn-online-party-header-v15">
+              <div className="sn-online-title-stack-v15">
+                <span>PARTY ONLINE</span>
                 <h2 className="sn-wobble-title">SPACE LINK</h2>
                 <p>
-                  Crie uma sala, compartilhe o código ou entre na sala de um amigo.
-                  Quando todos estiverem em READY, a votação decide o modo.
+                  Um fluxo por etapa: conectar, formar tripulação, votar e jogar. Cada pessoa mexe só no próprio perfil.
                 </p>
               </div>
-              <div className={`sn-online-signal sn-squish-ui ${onlineConnected ? "is-on" : "is-off"}`}>
-                <span />
-                <strong>{onlineConnected ? "ONLINE" : "OFFLINE"}</strong>
-                <small>{onlinePing === null ? "PING --" : `PING ${onlinePing}ms`}</small>
+              <div className={`sn-online-signal-v15 ${onlineConnected ? "is-on" : "is-off"}`}>
+                <i />
+                <strong>{onlineConnected ? "LINK ATIVO" : "SEM LINK"}</strong>
+                <small>{onlinePing === null ? "PING --" : `${onlinePing}ms`}</small>
               </div>
             </header>
 
-            <div className="sn-online-stepper-party" aria-hidden="true">
+            <div className="sn-online-progress-v15" aria-hidden="true">
               {[
-                ["1", onlineFlow === "choose" && !onlineConnected ? "CRIAR/ENTRAR" : "OK"],
-                ["2", onlineConnected ? "SALA" : "CÓDIGO"],
-                ["3", onlineConnected ? "PLAYERS" : "AGUARDE"],
-                ["4", onlineConnected ? "VOTAÇÃO" : "MODO"],
-              ].map(([n, label], index) => (
-                <span key={n} className={(onlineConnected || index === 0 || onlineFlow !== "choose") ? "is-lit" : ""}><b>{n}</b>{label}</span>
+                ["1", "LINK", !onlineConnected],
+                ["2", "SALA", onlineConnected],
+                ["3", "READY", onlineConnected && onlinePlayers.some((player) => player.ready)],
+                ["4", "VERSUS/TOGETHER", onlineConnected && onlineCanStart],
+              ].map(([step, label, lit]) => (
+                <span key={String(step)} className={lit ? "is-lit" : ""}>
+                  <b>{step}</b>
+                  <em>{label}</em>
+                </span>
               ))}
             </div>
 
-            <div className={`sn-online-feedback-v3 is-${onlineFeedback}`} aria-live="polite">
-              <span className="sn-online-feedback-orb" />
-              <strong>{onlineFeedback === "loading" ? "CARREGANDO" : onlineFeedback === "success" ? "ACHOU!" : onlineFeedback === "error" ? "OPS!" : onlineConnected ? `SALA ${onlineRoomCode}` : "SPACE LINK"}</strong>
-              <p>{onlineStatus}</p>
+            <div className={`sn-online-toast-v15 is-${onlineFeedback}`} aria-live="polite">
+              <span />
+              <div>
+                <strong>{onlineFeedback === "loading" ? "Processando" : onlineFeedback === "success" ? "Tudo certo" : onlineFeedback === "error" ? "Atenção" : onlineConnected ? `Sala ${onlineRoomCode}` : "Pronto para conectar"}</strong>
+                <p>{onlineStatus}</p>
+              </div>
             </div>
 
-            <div className={`sn-online-layout-v3 ${onlineConnected ? "is-connected" : "is-preconnect"}`}>
-              <section className="sn-online-left-v3">
-                {!onlineConnected && (
-                  <>
-                    <div className="sn-online-choice-v3" role="tablist" aria-label="Escolha criar ou entrar">
-                      <button
-                        type="button"
-                        className={`sn-online-choice-card sn-squish-ui ${onlineFlow === "create" ? "is-active" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
-                        onMouseEnter={() => setIndiceOnlineMenu(0)}
-                        onFocus={() => setIndiceOnlineMenu(0)}
-                        onClick={() => { setFluxoOnline("create"); if (!onlineCheckingRoom) criarSalaOnline(); }}
-                      >
-                        <span>＋</span>
-                        <strong>VOU CRIAR</strong>
-                        <small>gera um código novo</small>
-                      </button>
-                      <button
-                        type="button"
-                        className={`sn-online-choice-card sn-squish-ui ${onlineFlow === "join" ? "is-active" : ""} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
-                        onMouseEnter={() => setIndiceOnlineMenu(1)}
-                        onFocus={() => setIndiceOnlineMenu(1)}
-                        onClick={() => setFluxoOnline("join")}
-                      >
-                        <span>⌁</span>
-                        <strong>VOU ENTRAR</strong>
-                        <small>usa o código do amigo</small>
-                      </button>
-                    </div>
+            {!onlineConnected ? (
+              <div className="sn-online-connect-layout-v15">
+                <section className="sn-online-connect-card-v15 is-main">
+                  <div className="sn-online-choice-row-v15" role="tablist" aria-label="Criar ou entrar em sala">
+                    <button
+                      type="button"
+                      className={`sn-online-choice-pill-v15 sn-squish-ui ${onlineFlow === "create" ? "is-active" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
+                      onMouseEnter={() => setIndiceOnlineMenu(0)}
+                      onFocus={() => setIndiceOnlineMenu(0)}
+                      onClick={() => { setFluxoOnline("create"); feedbackOnline("idle", "Vou criar uma sala nova para mandar o código."); }}
+                    >
+                      <span>HOST</span>
+                      <strong>Vou criar</strong>
+                    </button>
+                    <button
+                      type="button"
+                      className={`sn-online-choice-pill-v15 sn-squish-ui ${onlineFlow === "join" ? "is-active" : ""} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
+                      onMouseEnter={() => setIndiceOnlineMenu(1)}
+                      onFocus={() => setIndiceOnlineMenu(1)}
+                      onClick={() => { setFluxoOnline("join"); feedbackOnline("idle", "Digite o código da sala do seu amigo."); }}
+                    >
+                      <span>GUEST</span>
+                      <strong>Vou entrar</strong>
+                    </button>
+                  </div>
 
-                    <div className="sn-online-form-v3">
-                      <label className="sn-online-name-field-v3">
-                        <span>NOME DO PLAYER</span>
-                        <input
-                          value={onlinePlayerName}
-                          maxLength={16}
-                          onChange={(event) => setOnlinePlayerName(limparNomeOnline(event.target.value))}
-                          placeholder="Ninick"
-                          autoComplete="nickname"
-                        />
-                      </label>
+                  <div className="sn-online-preflight-v15">
+                    <label className="sn-online-field-v15">
+                      <span>Seu nome</span>
+                      <input
+                        value={onlinePlayerName}
+                        maxLength={16}
+                        onChange={(event) => setOnlinePlayerName(event.target.value.toUpperCase().slice(0, 16))}
+                        placeholder="NIC"
+                      />
+                    </label>
 
-                      <div className={`sn-device-picker sn-squish-ui ${onlineMenuIndex === 2 ? "is-gamepad-selected" : ""}`}>
-                        <span>DISPOSITIVO</span>
+                    <div className="sn-online-device-card-v15">
+                      <span>Dispositivo</span>
+                      <div>
                         <button type="button" onClick={() => setDispositivoOnline(onlineDeviceIndex - 1)} aria-label="Dispositivo anterior">‹</button>
-                        <strong>{dispositivoOnlineAtual()?.icon} {dispositivoOnlineAtual()?.label}</strong>
+                        <strong>{dispositivoOnlineAtual().icon} {dispositivoOnlineAtual().label}</strong>
                         <button type="button" onClick={() => setDispositivoOnline(onlineDeviceIndex + 1)} aria-label="Próximo dispositivo">›</button>
-                        <small>{dispositivoOnlineAtual()?.description}</small>
                       </div>
+                      <small>{dispositivoOnlineAtual().description}</small>
+                    </div>
+                  </div>
 
-                      {onlineFlow === "choose" && (
-                        <div className="sn-online-empty-action-v3">
-                          <strong>ESCOLHA UMA OPÇÃO</strong>
-                          <span>Você pode criar uma sala ou entrar com o código de alguém.</span>
+                  <div className="sn-online-action-stage-v15">
+                    {onlineFlow === "choose" && (
+                      <div className="sn-online-empty-action-v15">
+                        <b>Escolha uma rota acima</b>
+                        <span>Criar mostra o código automaticamente. Entrar libera o campo do código.</span>
+                      </div>
+                    )}
+
+                    {onlineFlow === "create" && (
+                      <div className="sn-online-create-box-v15">
+                        <div>
+                          <span>Código será gerado</span>
+                          <strong>{onlineRoomCode || "------"}</strong>
                         </div>
-                      )}
+                        <button
+                          type="button"
+                          className={`sn-online-primary-v15 sn-squish-ui ${onlineMenuIndex === 3 ? "is-gamepad-selected" : ""}`}
+                          onMouseEnter={() => setIndiceOnlineMenu(3)}
+                          onFocus={() => setIndiceOnlineMenu(3)}
+                          onClick={criarSalaOnline}
+                          disabled={onlineCheckingRoom}
+                        >
+                          {onlineCheckingRoom ? "CRIANDO..." : "CRIAR SALA"}
+                        </button>
+                      </div>
+                    )}
 
-                      {onlineFlow === "create" && (
-                        <div className="sn-online-action-zone-v3">
-                          <div className="sn-online-big-code-v3">
-                            <span>CÓDIGO DA SALA</span>
-                            <strong>{onlineRoomCode || "------"}</strong>
+                    {onlineFlow === "join" && (
+                      <div className="sn-online-join-box-v15">
+                        <label className="sn-online-field-v15 is-code">
+                          <span>Código da sala</span>
+                          <input
+                            value={onlineJoinCode}
+                            maxLength={12}
+                            onChange={(event) => setOnlineJoinCode(limparCodigoSalaOnline(event.target.value))}
+                            placeholder="ABC123"
+                            inputMode="text"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className={`sn-online-primary-v15 sn-squish-ui ${onlineMenuIndex === 3 ? "is-gamepad-selected" : ""}`}
+                          onMouseEnter={() => setIndiceOnlineMenu(3)}
+                          onFocus={() => setIndiceOnlineMenu(3)}
+                          onClick={entrarSalaOnline}
+                          disabled={onlineCheckingRoom}
+                        >
+                          {onlineCheckingRoom ? "PROCURANDO..." : "ENTRAR"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="sn-online-connect-card-v15 is-side">
+                  <strong>Como funciona</strong>
+                  <p>O host roda a simulação principal. Os outros mandam input e renderizam snapshots com suavização, sem rebobinar o próprio controle.</p>
+                  <ul>
+                    <li>Sem mouse para confirmar player</li>
+                    <li>Touch aparece uma vez</li>
+                    <li>Gamepad navega a UI</li>
+                  </ul>
+                </section>
+              </div>
+            ) : (
+              <div className="sn-online-room-layout-v15">
+                <section className="sn-online-room-code-v15">
+                  <span>CÓDIGO DA SALA</span>
+                  <strong>{onlineRoomCode}</strong>
+                  <div>
+                    <button
+                      type="button"
+                      className="sn-squish-ui"
+                      onMouseEnter={() => setIndiceOnlineMenu(4)}
+                      onFocus={() => setIndiceOnlineMenu(4)}
+                      onClick={copiarCodigoSalaOnline}
+                    >
+                      COPIAR CÓDIGO
+                    </button>
+                    <button
+                      type="button"
+                      className="sn-squish-ui sn-online-danger-v15"
+                      onMouseEnter={() => setIndiceOnlineMenu(5)}
+                      onFocus={() => setIndiceOnlineMenu(5)}
+                      onClick={sairSalaOnline}
+                    >
+                      SAIR
+                    </button>
+                  </div>
+                </section>
+
+                <section className="sn-online-crew-v15">
+                  <header>
+                    <strong>TRIPULAÇÃO</strong>
+                    <span>{onlinePlayers.length}/4 online</span>
+                  </header>
+                  <div className="sn-online-crew-grid-v15">
+                    {[1, 2, 3, 4].map((slot) => {
+                      const player = onlinePlayers.find((item) => item.slot === slot);
+                      return (
+                        <article
+                          key={slot}
+                          className={`sn-online-crew-member-v15 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""} ${onlineHostSlot === slot ? "is-host" : ""}`}
+                          style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
+                        >
+                          <b>P{slot}</b>
+                          <div>
+                            <strong>{player?.name || "VAZIO"}</strong>
+                            <span>{player ? (player.ready ? "READY" : "AGUARDANDO") : "LIVRE"}</span>
                           </div>
-                          <button
-                            type="button"
-                            className={`sn-online-main-button-v3 sn-squish-ui ${onlineMenuIndex === 3 ? "is-gamepad-selected" : ""}`}
-                            onMouseEnter={() => setIndiceOnlineMenu(3)}
-                            onFocus={() => setIndiceOnlineMenu(3)}
-                            onClick={criarSalaOnline}
-                            disabled={onlineCheckingRoom}
-                          >
-                            {onlineCheckingRoom ? "CRIANDO..." : "CRIAR SALA"}
-                          </button>
-                        </div>
-                      )}
+                          <small>{player ? `${player.device || "dispositivo"}${onlineHostSlot === slot ? " · HOST" : ""}${onlineSlot === slot ? " · VOCÊ" : ""}` : "aguardando conexão"}</small>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
 
-                      {onlineFlow === "join" && (
-                        <div className="sn-online-action-zone-v3">
-                          <label className="sn-online-code-field-v3">
-                            <span>CÓDIGO DO AMIGO</span>
-                            <input
-                              value={onlineJoinCode}
-                              maxLength={12}
-                              onChange={(event) => setOnlineJoinCode(limparCodigoSalaOnline(event.target.value))}
-                              placeholder="ABC123"
-                              inputMode="text"
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            className={`sn-online-main-button-v3 sn-squish-ui ${onlineMenuIndex === 3 ? "is-gamepad-selected" : ""}`}
-                            onMouseEnter={() => setIndiceOnlineMenu(3)}
-                            onFocus={() => setIndiceOnlineMenu(3)}
-                            onClick={entrarSalaOnline}
-                            disabled={onlineCheckingRoom}
-                          >
-                            {onlineCheckingRoom ? "PROCURANDO..." : "ENTRAR NA SALA"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
+                <section className="sn-online-vote-v15">
+                  <header>
+                    <strong>VOTAÇÃO DE MODO</strong>
+                    <span>selecionado: {labelModoMultiplayer(onlineSelectedMode)}</span>
+                  </header>
+                  <div className="sn-online-vote-grid-v15">
+                    {LOCAL_MODE_OPTIONS.map((option, index) => {
+                      const votes = Object.entries(onlineModeVotes).filter(([, mode]) => mode === option.mode);
+                      const selected = onlineSelectedMode === option.mode;
+                      return (
+                        <button
+                          key={option.mode}
+                          type="button"
+                          className={`sn-online-mode-card-v15 sn-squish-ui ${selected ? "is-selected" : ""} ${onlineMenuIndex === index + 2 ? "is-gamepad-selected" : ""}`}
+                          style={{ "--vote-color": LOCAL_PLAYER_COLORS[index] } as CSSProperties}
+                          onMouseEnter={() => setIndiceOnlineMenu(index + 2)}
+                          onFocus={() => setIndiceOnlineMenu(index + 2)}
+                          onClick={() => votarModoOnline(option.mode)}
+                        >
+                          <span>{option.mode === "localCoop" ? "🤝" : "⚔"}</span>
+                          <strong>{option.label}</strong>
+                          <small>{option.description}</small>
+                          <em>{votes.length ? votes.map(([slot]) => `P${slot}`).join(" · ") : "sem votos"}</em>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
 
-                {onlineConnected && (
-                  <>
-                    <div className="sn-online-room-banner-v3">
-                      <span>SALA</span>
-                      <strong>{onlineRoomCode}</strong>
-                      <button
-                        type="button"
-                        className={`sn-squish-ui ${onlineMenuIndex === 4 ? "is-gamepad-selected" : ""}`}
-                        onMouseEnter={() => setIndiceOnlineMenu(6)}
-                        onFocus={() => setIndiceOnlineMenu(6)}
-                        onClick={copiarCodigoSalaOnline}
-                      >
-                        COPIAR
-                      </button>
-                    </div>
-
-                    <div className="sn-mode-vote-panel-v3">
-                      <header>
-                        <strong>VOTAÇÃO DE MODO</strong>
-                        <span>{labelModoMultiplayer(onlineSelectedMode)} selecionado</span>
-                      </header>
-                      <div className="sn-mode-vote-grid-v3">
-                        {LOCAL_MODE_OPTIONS.map((option, index) => {
-                          const votes = Object.entries(onlineModeVotes).filter(([, mode]) => mode === option.mode);
-                          const selected = onlineSelectedMode === option.mode;
-                          return (
-                            <button
-                              key={option.mode}
-                              type="button"
-                              className={`sn-mode-vote-card-v3 sn-squish-ui ${selected ? "is-selected" : ""} ${onlineMenuIndex === index + 2 ? "is-gamepad-selected" : ""}`}
-                              style={{ "--vote-color": LOCAL_PLAYER_COLORS[index] } as CSSProperties}
-                              onMouseEnter={() => setIndiceOnlineMenu(index + 2)}
-                              onFocus={() => setIndiceOnlineMenu(index + 2)}
-                              onClick={() => votarModoOnline(option.mode)}
-                            >
-                              <strong>{option.label}</strong>
-                              <small>{option.description}</small>
-                              <span className="sn-vote-dots-v3">
-                                {votes.length === 0 ? <em>sem votos</em> : votes.map(([slot]) => (
-                                  <b key={slot} style={{ backgroundColor: LOCAL_PLAYER_COLORS[Number(slot) - 1] }}>P{slot}</b>
-                                ))}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </section>
-
-              <section className="sn-online-right-v3">
-                <div className="sn-online-section-title-v3">
-                  <strong>TRIPULAÇÃO</strong>
-                  <span>{onlinePlayers.length}/4 conectados</span>
-                </div>
-                <div className="sn-online-room-grid-v3">
-                  {[1, 2, 3, 4].map((slot) => {
-                    const player = onlinePlayers.find((item) => item.slot === slot);
-                    return (
-                      <div
-                        key={slot}
-                        className={`sn-online-player-card-v3 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""} ${onlineHostSlot === slot ? "is-host" : ""}`}
-                        style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
-                      >
-                        <span>P{slot}</span>
-                        <strong>{player?.name || "---"}</strong>
-                        <small>{player ? (player.ready ? "READY" : "UNREADY") : "VAZIO"}</small>
-                        <em>{player ? `${player.device || "dispositivo"}${onlineHostSlot === slot ? " · HOST" : ""}` : "sem dispositivo"}</em>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="sn-online-actions-v3">
+                <section className="sn-online-command-v15">
                   <button
                     type="button"
-                    className={`sn-squish-ui ${!onlineConnected ? "is-disabled" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
+                    className={`sn-online-ready-v15 sn-squish-ui ${onlineIsReady ? "is-ready" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
                     onMouseEnter={() => setIndiceOnlineMenu(0)}
                     onFocus={() => setIndiceOnlineMenu(0)}
                     onClick={alternarReadyOnline}
-                    disabled={!onlineConnected}
                   >
-                    {onlineIsReady ? "UNREADY" : "READY"}
+                    {onlineIsReady ? "TIRAR READY" : "FICAR READY"}
                   </button>
                   <button
                     type="button"
-                    className={`sn-squish-ui ${!onlineCanStart ? "is-disabled" : "sn-online-start-ready"} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
+                    className={`sn-online-start-v15 sn-squish-ui ${onlineCanStart ? "is-ready" : "is-disabled"} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
                     onMouseEnter={() => setIndiceOnlineMenu(1)}
                     onFocus={() => setIndiceOnlineMenu(1)}
                     onClick={iniciarPartidaOnline}
@@ -16407,23 +16809,14 @@ export default function JogoPage() {
                   >
                     INICIAR {labelModoMultiplayer(onlineSelectedMode)}
                   </button>
-                  <button
-                    type="button"
-                    className={`sn-squish-ui ${!onlineConnected ? "is-disabled" : "sn-online-danger"} ${onlineMenuIndex === 5 ? "is-gamepad-selected" : ""}`}
-                    onMouseEnter={() => setIndiceOnlineMenu(7)}
-                    onFocus={() => setIndiceOnlineMenu(7)}
-                    onClick={sairSalaOnline}
-                    disabled={!onlineConnected}
-                  >
-                    SAIR DA SALA
-                  </button>
-                </div>
-              </section>
-            </div>
+                </section>
+              </div>
+            )}
 
-            <p className="game-menu-help sn-online-help-v3">
-              Gamepad: D-Pad/analógico navega · A confirma · B volta. No online você só muda seu nome, seu dispositivo e seu READY.
-            </p>
+            <footer className="sn-online-footer-v15">
+              <span>Gamepad: D-Pad/analógico navega · A confirma · B volta</span>
+              <strong>{onlineConnected ? `Host atual: P${onlineHostSlot}` : "Crie ou entre sem bagunçar a tela"}</strong>
+            </footer>
           </aside>
         </section>
       )}
