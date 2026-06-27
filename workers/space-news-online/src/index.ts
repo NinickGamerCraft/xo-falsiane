@@ -48,6 +48,7 @@ type ClientMessage =
   | { type: "ready"; ready?: boolean }
   | { type: "input"; input?: PlayerInput; seq?: number }
   | { type: "sync"; snapshot?: HostSnapshot }
+  | { type: "token_collect"; slot?: number; amount?: number }
   | { type: "pause_request" }
   | { type: "pause_ready"; ready?: boolean }
   | { type: "ping"; t?: number }
@@ -147,7 +148,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "1.7.0-netcode", netModel: "host-authoritative-v2" });
+      return json({ ok: true, service: "Space News Online", version: "1.9.0-netcode", netModel: "host-authoritative-v2" });
     }
 
     if (url.pathname === "/create") {
@@ -189,6 +190,7 @@ export class GameRoom extends DurableObject<Env> {
   private hostSlot = 1;
   private lastSnapshotTick = 0;
   private lastInputSeqBySlot = new Map<number, number>();
+  private pendingDisconnectTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -408,6 +410,16 @@ export class GameRoom extends DurableObject<Env> {
       return;
     }
 
+    if (msg.type === "token_collect") {
+      if (session.slot !== this.ensureHost() || !this.gameActive) return;
+      const slot = Math.max(1, Math.min(4, Number(msg.slot || 0)));
+      const amount = Math.max(0, Math.min(99, Math.floor(Number(msg.amount || 0))));
+      if (slot && amount > 0) {
+        this.broadcast({ type: "token_collect", room: this.roomCode, slot, amount, t: Date.now() });
+      }
+      return;
+    }
+
     if (msg.type === "pause_request") {
       if (session.slot === 0) return;
       if (!this.pauseRequestedBy) {
@@ -469,55 +481,99 @@ export class GameRoom extends DurableObject<Env> {
     }
   }
 
-  async webSocketClose(ws: WebSocket) {
+
+  private clearPendingDisconnect(slot: number) {
+    const timer = this.pendingDisconnectTimers.get(slot);
+    if (timer) clearTimeout(timer);
+    this.pendingDisconnectTimers.delete(slot);
+  }
+
+  private beginDisconnectTimeout(session: PlayerSession, wasHost: boolean) {
+    const slot = session.slot;
+    if (!slot) return;
+    this.clearPendingDisconnect(slot);
+    const timeoutMs = 12000;
+    const remainingNow = this.players().length;
+    if (wasHost && remainingNow > 0) {
+      this.lastSnapshotTick = 0;
+      const nextHost = this.ensureHost();
+      this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
+      this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: slot, hostSlot: nextHost, t: Date.now() });
+    }
+    this.broadcast({
+      type: "player_timeout_start",
+      room: this.roomCode,
+      slot,
+      name: session.name,
+      timeoutMs,
+      remainingPlayers: remainingNow,
+      t: Date.now(),
+    });
+    const timer = setTimeout(() => {
+      this.pendingDisconnectTimers.delete(slot);
+      this.finalizePlayerLeft(slot);
+    }, timeoutMs);
+    this.pendingDisconnectTimers.set(slot, timer);
+  }
+
+  private finalizePlayerLeft(slot: number) {
+    const remainingPlayers = this.players().length;
+    const shouldReturnToLobby = this.gameActive && remainingPlayers <= 1;
+    if (shouldReturnToLobby) {
+      this.gameActive = false;
+      this.pauseRequestedBy = null;
+      this.pauseCommitted = false;
+      this.pauseReadySlots.clear();
+    }
+    this.broadcast({
+      type: "player_left",
+      room: this.roomCode,
+      slot,
+      remainingPlayers,
+      shouldReturnToLobby,
+      continueMatch: this.gameActive && remainingPlayers > 1,
+      t: Date.now(),
+    });
+    this.broadcastState();
+  }
+
+  private handleSocketGone(ws: WebSocket) {
     const session = this.sessions.get(ws);
-    if (session?.slot) this.pauseReadySlots.delete(session.slot);
+    if (session?.slot) {
+      this.pauseReadySlots.delete(session.slot);
+      this.clearPendingDisconnect(session.slot);
+    }
     if (session?.slot === this.pauseRequestedBy) this.pauseRequestedBy = null;
     const wasHost = Boolean(session?.slot && session.slot === this.hostSlot);
     this.sessions.delete(ws);
+
     if (this.gameActive && session?.slot) {
-      const nextHost = this.ensureHost();
-      if (wasHost && this.players().length > 0) {
-        this.lastSnapshotTick = 0;
-        this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
-        this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: session.slot, hostSlot: nextHost, t: Date.now() });
-      } else {
-        this.gameActive = false;
-        this.pauseRequestedBy = null;
-        this.pauseCommitted = false;
-        this.pauseReadySlots.clear();
-        this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
-      }
+      this.beginDisconnectTimeout(session, wasHost);
     } else {
       const nextHost = this.ensureHost();
+      if (session?.slot) {
+        this.broadcast({
+          type: "player_left",
+          room: this.roomCode,
+          slot: session.slot,
+          remainingPlayers: this.players().length,
+          shouldReturnToLobby: false,
+          continueMatch: false,
+          t: Date.now(),
+        });
+      }
       this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, t: Date.now() });
+      this.broadcastState();
     }
-    this.broadcastState();
     if (this.pauseRequestedBy) this.broadcastPauseState();
   }
 
+  async webSocketClose(ws: WebSocket) {
+    this.handleSocketGone(ws);
+  }
+
   async webSocketError(ws: WebSocket) {
-    const session = this.sessions.get(ws);
-    const wasHost = Boolean(session?.slot && session.slot === this.hostSlot);
-    this.sessions.delete(ws);
-    if (this.gameActive && session?.slot) {
-      const nextHost = this.ensureHost();
-      if (wasHost && this.players().length > 0) {
-        this.lastSnapshotTick = 0;
-        this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
-        this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: session.slot, hostSlot: nextHost, t: Date.now() });
-      } else {
-        this.gameActive = false;
-        this.pauseRequestedBy = null;
-        this.pauseCommitted = false;
-        this.pauseReadySlots.clear();
-        this.broadcast({ type: "player_left", room: this.roomCode, slot: session.slot, t: Date.now() });
-      }
-    } else {
-      const nextHost = this.ensureHost();
-      this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, t: Date.now() });
-    }
-    this.broadcastState();
+    this.handleSocketGone(ws);
   }
 
   private publicPlayer(session: PlayerSession) {
@@ -572,7 +628,7 @@ export class GameRoom extends DurableObject<Env> {
       hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
       netModel: "host-authoritative-v2",
-      version: "1.7.0-netcode",
+      version: "1.9.0-netcode",
       tick: this.lastSnapshotTick,
       t: Date.now(),
     });

@@ -180,6 +180,7 @@ type OnlineGameplaySnapshot = {
   enemyProjectiles?: EnemyProjectile[];
   bossProjectiles?: BossProjectile[];
   powerUps?: PowerUp[];
+  tokens?: TokenPickup[];
   boss?: Partial<BossState>;
   p1ShieldActive?: boolean;
   p2ShieldActive?: boolean;
@@ -388,6 +389,47 @@ type PowerUp = {
   bornAt: number;
   blockedPlayer?: 1 | 2 | 3 | 4;
   blockedUntil?: number;
+};
+
+type TokenPickup = {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  vx: number;
+  vy: number;
+  age: number;
+  life: number;
+  wavePhase: number;
+  bornAt: number;
+  value: number;
+  frameOffset: number;
+};
+
+type LocalFriend = {
+  id: string;
+  name: string;
+  lastRoom?: string;
+  lastSeenAt: number;
+};
+
+type LocalProfile = {
+  id: string;
+  name: string;
+  tokens: number;
+  friends: LocalFriend[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+type OnlineEventOverlayState = {
+  id: number;
+  title: string;
+  message: string;
+  kind: "info" | "warning" | "danger" | "success";
+  until: number;
+  countdownUntil?: number;
 };
 
 type StatusEffectKind = PowerUpKind | "badFlashbang" | "badInvert" | "badSlow";
@@ -1485,7 +1527,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "1.8.0";
+const SPACE_NEWS_VERSION = "1.9.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -2726,6 +2768,50 @@ function drawShotFallbackSprite(
   ctx.restore();
 }
 
+
+const SPACE_NEWS_PROFILE_KEY = "spaceNews.localProfile.v1";
+
+function criarIdPerfilLocal() {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  } catch {
+    // fallback abaixo
+  }
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function criarPerfilLocalPadrao(): LocalProfile {
+  const now = Date.now();
+  return {
+    id: criarIdPerfilLocal(),
+    name: "Player",
+    tokens: 0,
+    friends: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function carregarPerfilLocalInicial(): LocalProfile {
+  if (typeof window === "undefined") return criarPerfilLocalPadrao();
+  try {
+    const raw = window.localStorage.getItem(SPACE_NEWS_PROFILE_KEY);
+    if (!raw) return criarPerfilLocalPadrao();
+    const parsed = JSON.parse(raw) as Partial<LocalProfile>;
+    const fallback = criarPerfilLocalPadrao();
+    return {
+      ...fallback,
+      ...parsed,
+      name: String(parsed.name || fallback.name).slice(0, 16),
+      tokens: Math.max(0, Math.floor(Number(parsed.tokens ?? 0))),
+      friends: Array.isArray(parsed.friends) ? parsed.friends.slice(0, 40) as LocalFriend[] : [],
+      updatedAt: Number(parsed.updatedAt || Date.now()),
+    };
+  } catch {
+    return criarPerfilLocalPadrao();
+  }
+}
+
 export default function JogoPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const customCursorRef = useRef<HTMLDivElement | null>(null);
@@ -2895,6 +2981,9 @@ export default function JogoPage() {
   const [onlinePauseReadySlots, setOnlinePauseReadySlots] = useState<number[]>([]);
   const [onlinePausePanelOpen, setOnlinePausePanelOpen] = useState(false);
   const [onlineSyncWarning, setOnlineSyncWarning] = useState("");
+  const [onlineEventOverlay, setOnlineEventOverlay] = useState<OnlineEventOverlayState | null>(null);
+  const [localProfile, setLocalProfile] = useState<LocalProfile>(() => carregarPerfilLocalInicial());
+  const [tokensVisibleUntil, setTokensVisibleUntil] = useState(0);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
     flashWhite: false,
     flashBlur: false,
@@ -3047,8 +3136,9 @@ export default function JogoPage() {
   const onlineSnapshotBufferRef = useRef<OnlineGameplaySnapshot[]>([]);
   const onlineLastAppliedSnapshotTickRef = useRef(0);
   const onlineLastAppliedSnapshotSeqRef = useRef(0);
-  const onlineRenderDelayMsRef = useRef(96);
-  const onlineHardCatchUpDelayMsRef = useRef(430);
+  const onlineRenderDelayMsRef = useRef(28);
+  const onlineHardCatchUpDelayMsRef = useRef(180);
+  const onlinePredictedBoostReadyAtRef = useRef(0);
   const onlinePauseRequestedByRef = useRef<number | null>(null);
   const onlinePauseReadySlotsRef = useRef<number[]>([]);
   const onlinePausePanelOpenRef = useRef(false);
@@ -3075,6 +3165,12 @@ export default function JogoPage() {
   const bossProjectilesRef = useRef<BossProjectile[]>([]);
   const powerUpsRef = useRef<PowerUp[]>([]);
   const powerUpIdRef = useRef(0);
+  const tokensRef = useRef<TokenPickup[]>([]);
+  const tokenIdRef = useRef(0);
+  const nextTokenSpawnAtRef = useRef(0);
+  const localProfileRef = useRef<LocalProfile>(localProfile);
+  const tokensVisibleUntilRef = useRef(0);
+  const onlineEventOverlayIdRef = useRef(0);
   const fireRateUntilRef = useRef(0);
   const powerShotUntilRef = useRef(0);
   const homingShotUntilRef = useRef(0);
@@ -4027,36 +4123,46 @@ export default function JogoPage() {
     const target = (deveProjetarOnlinePvpLocal() || onlineSlotRef.current === 1) ? playerRef.current : player2Ref.current;
     if (!target || target.hp <= 0) return;
     const speedFactor = delta / 16.67;
-    const rawAxes = eixosLocaisAtuais();
-    let ax = rawAxes.x;
-    let ay = rawAxes.y;
-    if (Math.abs(ax) < 0.12) ax = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    if (Math.abs(ay) < 0.12) ay = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    const axes = eixosDeInputOnline(input);
+    let ax = deveProjetarOnlinePvpLocal() ? -axes.x : axes.x;
+    let ay = axes.y;
+    if (Math.abs(ax) < 0.05) ax = 0;
+    if (Math.abs(ay) < 0.05) ay = 0;
+
     const maxSpeedX = CONFIG.gameplay.player.maxSpeedX;
     const maxSpeedY = CONFIG.gameplay.player.maxSpeedY;
     const acceleration = CONFIG.gameplay.player.acceleration;
-    // Predição precisa ser próxima da física do host. Acima de 1.0 o guest parecia mais rápido e dessincronizava.
-    target.vx = clamp((target.vx || 0) + ax * acceleration * speedFactor, -maxSpeedX, maxSpeedX);
-    target.vy = clamp((target.vy || 0) + ay * acceleration * speedFactor, -maxSpeedY, maxSpeedY);
-    target.x = clamp(target.x + target.vx * speedFactor, 0, CONFIG.canvasWidth - target.w);
-    target.y = clamp(target.y + target.vy * speedFactor, 0, CONFIG.canvasHeight - target.h);
-    target.tilt = clamp((target.tilt || 0) + ax * 0.9, -12, 12);
-    target.lastInputX = ax;
-    target.lastInputY = ay;
-    if (input.boost && performance.now() > target.boostUntil + 90) {
-      // Predição visual leve e limitada: antes isso somava impulso a cada frame segurando boost,
-      // deixando o guest muito mais rápido que o host e fazendo tiros nascerem em lugares diferentes.
-      const nowBoost = performance.now();
-      const dir = normalizarDirecao(ax || 1, ay || 0);
-      target.boostUntil = nowBoost + 155;
-      target.boostVx = dir.x * Math.min(CONFIG.gameplay.player.maxSpeedX + 1.2, 8.8);
-      target.boostVy = dir.y * Math.min(CONFIG.gameplay.player.maxSpeedY + 1.2, 7.6);
+    if (ax !== 0) target.vx += ax * acceleration * speedFactor;
+    else target.vx *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
+    if (ay !== 0) target.vy += ay * acceleration * speedFactor;
+    else target.vy *= Math.pow(CONFIG.gameplay.player.friction, speedFactor);
+    target.vx = clamp(target.vx || 0, -maxSpeedX, maxSpeedX);
+    target.vy = clamp(target.vy || 0, -maxSpeedY, maxSpeedY);
+    if (Math.abs(target.vx) < 0.02) target.vx = 0;
+    if (Math.abs(target.vy) < 0.02) target.vy = 0;
+
+    const now = performance.now();
+    if (input.boost && now >= onlinePredictedBoostReadyAtRef.current) {
+      const dir = normalizarDirecao(ax || (deveProjetarOnlinePvpLocal() ? 1 : target.vx || 1), ay || target.vy || 0);
+      target.boostUntil = now + CONFIG.gameplay.boost.durationMs * 0.78;
+      target.boostVx = dir.x * CONFIG.gameplay.boost.speed;
+      target.boostVy = dir.y * CONFIG.gameplay.boost.speed;
+      onlinePredictedBoostReadyAtRef.current = now + 3600;
+      target.stretchUntil = now + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+      target.stretchVx = target.boostVx;
+      target.stretchVy = target.boostVy;
+    }
+
+    if (now < target.boostUntil) {
       target.vx = target.boostVx;
       target.vy = target.boostVy;
-      target.stretchUntil = nowBoost + CONFIG.gameplay.dynamicStretch.playerPulseMs;
-      target.stretchVx = target.vx;
-      target.stretchVy = target.vy;
     }
+
+    target.x = clamp(target.x + target.vx * speedFactor, 0, CONFIG.canvasWidth - target.w);
+    target.y = clamp(target.y + target.vy * speedFactor, 0, CONFIG.canvasHeight - target.h);
+    target.tilt += ((((target.vy || 0) / Math.max(0.001, maxSpeedY)) * CONFIG.gameplay.player.tiltMaxDeg) - (target.tilt || 0)) * CONFIG.gameplay.player.tiltResponse;
+    target.lastInputX = ax;
+    target.lastInputY = ay;
     if (canvas) {
       target.x = clamp(target.x, 0, CONFIG.canvasWidth - target.w);
       target.y = clamp(target.y, 0, CONFIG.canvasHeight - target.h);
@@ -4092,7 +4198,8 @@ export default function JogoPage() {
       enemies: enemiesRef.current.slice(-36),
       enemyProjectiles: enemyProjectilesRef.current.slice(-42),
       bossProjectiles: bossProjectilesRef.current.slice(-28),
-      powerUps: powerUpsRef.current.slice(-8),
+      powerUps: powerUpsRef.current.slice(-10),
+      tokens: tokensRef.current.slice(-32),
       boss: { ...bossRef.current },
       p1ShieldActive: shieldActiveRef.current,
       p2ShieldActive: Boolean(player2Ref.current && now < player2ShieldUntilRef.current),
@@ -4131,23 +4238,26 @@ export default function JogoPage() {
     Object.assign(target, incoming);
 
     if (controlledLocally) {
-      // Client prediction: o snapshot autoritativo NÃO pode rebobinar o player local a cada frame.
-      // Ele só corrige suavemente drift grande; correções pequenas ficam por conta do input local.
-      if (dist > 320) {
-        target.x = oldX + dx * 0.28;
-        target.y = oldY + dy * 0.28;
-      } else if (dist > 120) {
-        target.x = oldX + dx * 0.055;
-        target.y = oldY + dy * 0.055;
-      } else if (dist > 72) {
-        target.x = oldX + dx * 0.018;
-        target.y = oldY + dy * 0.018;
+      // Client prediction com reconciliação curta: mantém resposta local, mas não deixa o guest
+      // acumular drift a ponto de tiros nascerem em outra altura no host.
+      if (dist > 220) {
+        target.x = nextX;
+        target.y = nextY;
+      } else if (dist > 96) {
+        target.x = oldX + dx * 0.42;
+        target.y = oldY + dy * 0.42;
+      } else if (dist > 32) {
+        target.x = oldX + dx * 0.22;
+        target.y = oldY + dy * 0.22;
+      } else if (dist > 10) {
+        target.x = oldX + dx * 0.10;
+        target.y = oldY + dy * 0.10;
       } else {
         target.x = oldX;
         target.y = oldY;
       }
-      target.vx = typeof incoming.vx === "number" ? oldVx * 0.88 + incoming.vx * 0.12 : oldVx;
-      target.vy = typeof incoming.vy === "number" ? oldVy * 0.88 + incoming.vy * 0.12 : oldVy;
+      target.vx = typeof incoming.vx === "number" ? oldVx * 0.72 + incoming.vx * 0.28 : oldVx;
+      target.vy = typeof incoming.vy === "number" ? oldVy * 0.72 + incoming.vy * 0.28 : oldVy;
     } else {
       const hardSnap = 190;
       const blend = dist < 18 ? 0.24 : 0.48;
@@ -4309,6 +4419,7 @@ export default function JogoPage() {
     if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = projectedPvp ? snapshot.bossProjectiles.map((projectile) => espelharObjetoOnline(projectile)) : snapshot.bossProjectiles;
     aplicarPlayersExtrasDoSnapshot(snapshot, projectedPvp);
     if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(snapshot.powerUps, projectedPvp, localNow);
+    if (Array.isArray(snapshot.tokens)) tokensRef.current = projectedPvp ? snapshot.tokens.map((token) => espelharObjetoOnline(token) as TokenPickup) : snapshot.tokens;
     if (snapshot.boss) {
       const bossSnapshot = projectedPvp ? espelharObjetoOnline({ ...(snapshot.boss as Partial<BossState>), x: Number(snapshot.boss.x ?? bossRef.current.x), w: Number(snapshot.boss.w ?? bossRef.current.w), vx: 0 }) : snapshot.boss;
       bossRef.current = { ...bossRef.current, ...bossSnapshot };
@@ -4370,6 +4481,9 @@ export default function JogoPage() {
         y: power.y + power.vy * speedFactor + Math.sin((power.age + delta) * cfg.waveFrequency + power.wavePhase) * cfg.waveAmplitude * 0.035 * speedFactor,
       }))
       .filter((power) => power.life > 0 && power.x > -140 && power.x < canvas.width + 140 && power.y > -110 && power.y < canvas.height + 110);
+    tokensRef.current = tokensRef.current
+      .map((token) => ({ ...token, age: token.age + delta, life: token.life - delta, x: token.x + token.vx * speedFactor, y: token.y + token.vy * speedFactor }))
+      .filter((token) => token.life > 0 && token.x > -80 && token.x < canvas.width + 160 && token.y > -80 && token.y < canvas.height + 80);
   }
 
   function adicionarSnapshotOnline(rawSnapshot: OnlineGameplaySnapshot) {
@@ -4405,26 +4519,14 @@ export default function JogoPage() {
     const nowLocal = performance.now();
     const latestReceivedAt = Number(latest.receivedAt ?? nowLocal);
 
-    // Baseado no relógio LOCAL de recebimento, não no Date.now do Worker/host.
-    // Isso evita catch-up falso causado por diferença de relógio entre celular, PC e Cloudflare.
-    if (nowLocal - latestReceivedAt > onlineHardCatchUpDelayMsRef.current) {
+    // v1.9: no Space News o delay visual era pior que o pequeno tremido.
+    // Usamos o snapshot mais recente e deixamos a suavização por entidade resolver o encaixe.
+    if (buffer.length >= 2 || nowLocal - latestReceivedAt > onlineRenderDelayMsRef.current) {
       onlineSnapshotBufferRef.current = [latest];
       return latest;
     }
 
-    const targetTime = nowLocal - onlineRenderDelayMsRef.current;
-    let chosenIndex = buffer.length - 1;
-    for (let i = buffer.length - 1; i >= 0; i--) {
-      const receivedAt = Number(buffer[i].receivedAt ?? 0);
-      if (receivedAt <= targetTime) {
-        chosenIndex = i;
-        break;
-      }
-    }
-
-    const chosen = buffer[chosenIndex] ?? latest;
-    onlineSnapshotBufferRef.current = buffer.slice(Math.max(0, chosenIndex - 1));
-    return chosen;
+    return latest;
   }
 
   function sincronizarGameplayOnline() {
@@ -4435,7 +4537,7 @@ export default function JogoPage() {
 
     if (souHostOnline()) {
       // Menos snapshots gigantes = menos fila no WebSocket e menos efeito "voltar no tempo" no não-host.
-      if (now - onlineLastSyncSentAtRef.current < 33) return;
+      if (now - onlineLastSyncSentAtRef.current < 16) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -4445,7 +4547,7 @@ export default function JogoPage() {
     // Aplicar de novo aqui causava dois pequenos encaixes por frame.
 
     if (onlineLastSyncReceivedAtRef.current && now - onlineLastSyncReceivedAtRef.current > 2600) {
-      setOnlineSyncWarning("Conexão instável: aguardando estado do host...");
+      setOnlineSyncWarning("LINK OSCILANDO · segurando último quadro do host");
     } else if (onlineSyncWarning) {
       setOnlineSyncWarning("");
     }
@@ -4463,6 +4565,7 @@ export default function JogoPage() {
     onlineLastAppliedSnapshotSeqRef.current = 0;
     onlineLastExtrapolatedAtRef.current = 0;
     onlineSnapshotSeqRef.current = 0;
+    onlinePredictedBoostReadyAtRef.current = 0;
     setOnlineSyncWarning("");
     onlinePauseRequestedByRef.current = null;
     onlinePauseReadySlotsRef.current = [];
@@ -4470,6 +4573,99 @@ export default function JogoPage() {
     setOnlinePauseRequestedBy(null);
     setOnlinePauseReadySlots([]);
     setOnlinePausePanelOpen(false);
+  }
+
+
+  function salvarPerfilLocal(next: LocalProfile) {
+    localProfileRef.current = next;
+    setLocalProfile(next);
+    try {
+      window.localStorage.setItem(SPACE_NEWS_PROFILE_KEY, JSON.stringify(next));
+    } catch {
+      // sem storage disponível
+    }
+  }
+
+  function atualizarNomePerfilLocal(name: string) {
+    const clean = limparNomeOnline(name).trim() || "Player";
+    const next = { ...localProfileRef.current, name: clean, updatedAt: Date.now() };
+    salvarPerfilLocal(next);
+    setOnlinePlayerName(clean);
+  }
+
+  function mostrarTokensPorTempo(ms = 1050) {
+    const until = performance.now() + ms;
+    tokensVisibleUntilRef.current = until;
+    setTokensVisibleUntil(until);
+  }
+
+  function adicionarTokensPerfil(amount: number, reason = "coleta") {
+    const safeAmount = Math.max(0, Math.floor(amount));
+    if (safeAmount <= 0) return;
+    const current = localProfileRef.current;
+    salvarPerfilLocal({
+      ...current,
+      tokens: Math.max(0, Math.floor(current.tokens + safeAmount)),
+      updatedAt: Date.now(),
+    });
+    mostrarTokensPorTempo(reason === "bonus" ? 1800 : 1200);
+  }
+
+  function mostrarEventoOnline(title: string, message: string, kind: OnlineEventOverlayState["kind"] = "info", ms = 2600, countdownMs?: number) {
+    const now = performance.now();
+    const overlay: OnlineEventOverlayState = {
+      id: ++onlineEventOverlayIdRef.current,
+      title,
+      message,
+      kind,
+      until: now + ms,
+      countdownUntil: countdownMs ? now + countdownMs : undefined,
+    };
+    setOnlineEventOverlay(overlay);
+    window.setTimeout(() => {
+      setOnlineEventOverlay((current) => current?.id === overlay.id ? null : current);
+    }, ms + 80);
+  }
+
+  function salvarAmigosDaSalaOnline() {
+    const now = Date.now();
+    const current = localProfileRef.current;
+    const friendsById = new Map(current.friends.map((friend) => [friend.id, friend]));
+    for (const player of onlinePlayers) {
+      if (!player.id || player.slot === onlineSlotRef.current) continue;
+      friendsById.set(player.id, {
+        id: player.id,
+        name: player.name || `P${player.slot}`,
+        lastRoom: onlineRoomCode || undefined,
+        lastSeenAt: now,
+      });
+    }
+    const friends = [...friendsById.values()]
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .slice(0, 40);
+    salvarPerfilLocal({ ...current, friends, updatedAt: now });
+    feedbackOnline("success", friends.length ? "Amigos da sala salvos no perfil local." : "Nenhum amigo novo para salvar.");
+  }
+
+  function conviteOnlineAtual() {
+    const room = limparCodigoSalaOnline(onlineRoomCode || onlineJoinCode);
+    if (!room) return "";
+    const base = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "/jogo";
+    return `${base}?room=${room}`;
+  }
+
+  async function copiarConviteOnline() {
+    const invite = conviteOnlineAtual();
+    if (!invite) {
+      feedbackOnline("error", "Entre ou crie uma sala antes de copiar convite.");
+      return;
+    }
+    try {
+      await navigator.clipboard?.writeText(invite);
+      feedbackOnline("success", "Convite copiado. Seu amigo abre e o código já fica pronto.");
+    } catch {
+      feedbackOnline("success", `Convite: ${invite}`);
+    }
   }
 
   function limparNomeOnline(value: string) {
@@ -4645,7 +4841,7 @@ export default function JogoPage() {
         const slot = Number(msg.player?.slot || 0);
         onlineSlotRef.current = slot;
         setOnlineSlot(slot);
-        feedbackOnline("success", `Você entrou como P${slot || "?"}. Escolha modo e READY.`);
+        feedbackOnline("success", `Você entrou como P${slot || "?"}. Confirme READY quando estiver pronto.`);
         return;
       }
 
@@ -4719,14 +4915,47 @@ export default function JogoPage() {
         return;
       }
 
+      if (msg.type === "token_collect") {
+        const slot = Number(msg.slot || 0);
+        const amount = Math.max(0, Math.floor(Number(msg.amount || 0)));
+        if (slot === onlineSlotRef.current && amount > 0) {
+          adicionarTokensPerfil(amount);
+        }
+        return;
+      }
+
+      if (msg.type === "player_timeout_start") {
+        const slot = Number(msg.slot || 0);
+        const timeoutMs = Number(msg.timeoutMs || 10000);
+        mostrarEventoOnline(
+          slot ? `P${slot} perdeu conexão` : "Jogador perdeu conexão",
+          "Aguardando timeout antes de reorganizar a sala.",
+          "warning",
+          timeoutMs + 600,
+          timeoutMs,
+        );
+        feedbackOnline("error", slot ? `P${slot} caiu. Timeout em ${Math.ceil(timeoutMs / 1000)}s.` : "Jogador caiu. Aguardando timeout.");
+        return;
+      }
+
       if (msg.type === "player_left") {
         const slot = Number(msg.slot || 0);
-        feedbackOnline("error", slot ? `P${slot} saiu da partida. Partida encerrada.` : "Um jogador saiu da partida. Partida encerrada.");
-        encerrarGameplayOnline();
-        limparCombate();
-        setOnlineCanStart(false);
-        setOnlineIsReady(false);
-        setEstado("onlineLobby");
+        const remaining = Number(msg.remainingPlayers || 0);
+        const shouldReturn = Boolean(msg.shouldReturnToLobby ?? remaining <= 1);
+        mostrarEventoOnline(
+          slot ? `P${slot} saiu!` : "Jogador saiu!",
+          shouldReturn ? "Só sobrou 1 jogador. Voltando ao lobby." : `${remaining} jogadores continuam na partida.`,
+          shouldReturn ? "danger" : "warning",
+          3400,
+        );
+        feedbackOnline(shouldReturn ? "error" : "idle", shouldReturn ? "Jogador saiu. Voltando ao lobby." : `P${slot || "?"} saiu, mas a partida continua.`);
+        if (shouldReturn) {
+          encerrarGameplayOnline();
+          limparCombate();
+          setOnlineCanStart(false);
+          setOnlineIsReady(false);
+          setEstado("onlineLobby");
+        }
         return;
       }
 
@@ -9584,6 +9813,32 @@ export default function JogoPage() {
     };
   }, []);
 
+
+  useEffect(() => {
+    localProfileRef.current = localProfile;
+    try {
+      window.localStorage.setItem(SPACE_NEWS_PROFILE_KEY, JSON.stringify(localProfile));
+    } catch {
+      // sem storage disponível
+    }
+  }, [localProfile]);
+
+  useEffect(() => {
+    const cleanName = limparNomeOnline(localProfileRef.current.name || "Player").trim() || "Player";
+    setOnlinePlayerName(cleanName);
+    try {
+      const url = new URL(window.location.href);
+      const room = limparCodigoSalaOnline(url.searchParams.get("room") || "");
+      if (room) {
+        setOnlineJoinCode(room);
+        setFluxoOnline("join");
+        setOnlineStatus(`Convite detectado. Código ${room} pronto para entrar.`);
+      }
+    } catch {
+      // ignora URL inválida
+    }
+  }, []);
+
   useEffect(() => {
     try {
       const savedSettings = window.localStorage.getItem("spaceNews.settings");
@@ -13110,6 +13365,122 @@ export default function JogoPage() {
       });
     }
 
+
+    function agendarProximoToken(now = performance.now()) {
+      nextTokenSpawnAtRef.current = now + rand(850, isLocalPvpMode() ? 1900 : 2700);
+    }
+
+    function spawnTokenPattern(force = false) {
+      if (gameStateRef.current !== "playing") return;
+      if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+      const now = performance.now();
+      if (!force && now < nextTokenSpawnAtRef.current) return;
+      const amount = Math.floor(rand(3, isLocalPvpMode() ? 7 : 9));
+      const baseY = rand(76, CONFIG.canvasHeight - 92);
+      const wave = Math.random() < 0.5;
+      for (let i = 0; i < amount; i++) {
+        tokensRef.current.push({
+          id: tokenIdRef.current++,
+          x: CONFIG.canvasWidth + 28 + i * 34,
+          y: clamp(baseY + (wave ? Math.sin(i * 0.95) * 34 : (i % 2) * 24), 42, CONFIG.canvasHeight - 42),
+          w: 24,
+          h: 24,
+          vx: isLocalPvpMode() ? -2.2 : -2.8,
+          vy: 0,
+          age: 0,
+          life: 12000,
+          wavePhase: rand(0, Math.PI * 2),
+          bornAt: now,
+          value: 1,
+          frameOffset: Math.floor(rand(0, 4)),
+        });
+      }
+      tokensRef.current = tokensRef.current.slice(-48);
+      agendarProximoToken(now);
+    }
+
+    function atualizarTokens(delta: number, canvas: HTMLCanvasElement) {
+      if (gameStateRef.current !== "playing") return;
+      if (!nextTokenSpawnAtRef.current) agendarProximoToken();
+      spawnTokenPattern(false);
+      const speedFactor = delta / 16.67;
+      tokensRef.current = tokensRef.current
+        .map((token) => ({
+          ...token,
+          age: token.age + delta,
+          life: token.life - delta,
+          x: token.x + token.vx * speedFactor,
+          y: token.y + token.vy * speedFactor + Math.sin((token.age + delta) * 0.006 + token.wavePhase) * 0.28 * speedFactor,
+        }))
+        .filter((token) => token.life > 0 && token.x > -80 && token.x < canvas.width + 160 && token.y > -80 && token.y < canvas.height + 80);
+    }
+
+    function desenharTokenFallback(ctx: CanvasRenderingContext2D, token: TokenPickup) {
+      const cx = token.x + token.w / 2;
+      const cy = token.y + token.h / 2;
+      const frame = (Math.floor(token.age / 110) + token.frameOffset) % 4;
+      const squash = [1, 0.72, 0.42, 0.72][frame] ?? 1;
+      const glow = 0.78 + Math.sin(token.age * 0.012) * 0.18;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(squash, 1);
+      ctx.globalAlpha = clamp(token.life / 450, 0, 1);
+      ctx.shadowColor = "#ffd45a";
+      ctx.shadowBlur = 14 * glow;
+      ctx.fillStyle = "#ffcc33";
+      ctx.strokeStyle = "#fff3a3";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, token.w * 0.48, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "rgba(114, 63, 0, 0.58)";
+      ctx.fillRect(-2, -token.h * 0.34, 4, token.h * 0.68);
+      ctx.restore();
+    }
+
+    function desenharTokens(ctx: CanvasRenderingContext2D) {
+      if (tokensRef.current.length === 0) return;
+      for (const token of tokensRef.current) desenharTokenFallback(ctx, token);
+    }
+
+    function resolverTokens() {
+      if (gameStateRef.current !== "playing") return;
+      if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+      if (tokensRef.current.length === 0) return;
+      const collectors: Array<{ slot: PlayerSlot; player: Player | null }> = [
+        { slot: 1, player: playerRef.current },
+        { slot: 2, player: player2Ref.current },
+        ...playersRef.current.filter((runtime) => runtime.slot >= 3).map((runtime) => ({ slot: runtime.slot, player: runtime.runtime })),
+      ];
+      const collected = new Set<number>();
+      const collectedBySlot = new Map<PlayerSlot, number>();
+      for (const token of tokensRef.current) {
+        const tokenBox = { x: token.x + token.w * 0.12, y: token.y + token.h * 0.12, w: token.w * 0.76, h: token.h * 0.76 };
+        for (const collector of collectors) {
+          if (!collector.player || collector.player.hp <= 0) continue;
+          if (rectsCollide(getPlayerHitbox(collector.player), tokenBox)) {
+            collected.add(token.id);
+            collectedBySlot.set(collector.slot, (collectedBySlot.get(collector.slot) || 0) + token.value);
+            criarParticulasHit(token.x + token.w / 2, token.y + token.h / 2, "#ffd45a", 5);
+            break;
+          }
+        }
+      }
+      if (collected.size > 0) {
+        tokensRef.current = tokensRef.current.filter((token) => !collected.has(token.id));
+        for (const [slot, amount] of collectedBySlot.entries()) {
+          if (!onlineGameplayActiveRef.current || slot === onlineSlotRef.current) {
+            adicionarTokensPerfil(amount);
+          } else if (souHostOnline()) {
+            enviarOnline({ type: "token_collect", slot, amount });
+          }
+        }
+        tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.menuConfirm, 0.22, "sfx");
+      }
+    }
+
     function atualizarPowerUps(delta: number, canvas: HTMLCanvasElement) {
       if (gameStateRef.current !== "playing") return;
 
@@ -14472,10 +14843,12 @@ export default function JogoPage() {
         atualizarBossProjectiles(delta);
         atualizarCapturaAlien(delta, canvas);
         atualizarPowerUps(delta, canvas);
+        atualizarTokens(delta, canvas);
       if (isLocalPvpMode() && performance.now() - lastPvpPowerDropAtRef.current > 13500) {
         spawnPowerUpPvp(false);
       }
         resolverPowerUps();
+        resolverTokens();
         atualizarParticulas(delta);
         atualizarPowerUpUi();
         atualizarShockwaves(delta);
@@ -14908,11 +15281,13 @@ export default function JogoPage() {
         spawnPowerUpPvp(false);
       }
       atualizarPowerUps(delta, canvas);
+      atualizarTokens(delta, canvas);
       resolverColisoes();
       resolverColisoesPlayer2();
       reviverJogadoresLocais();
       resolverPowerUps();
       resolverPowerUpsExtrasRuntime();
+      resolverTokens();
       atualizarParticulas(delta);
       atualizarPowerUpUi();
       atualizarShockwaves(delta);
@@ -15134,7 +15509,10 @@ export default function JogoPage() {
         desenharEnemyProjectile(renderCtx, bullet);
       for (const projectile of bossProjectilesRef.current)
         desenharBossProjectile(renderCtx, projectile);
-      if (!mirrorOnlinePvp) desenharPowerUps(renderCtx);
+      if (!mirrorOnlinePvp) {
+        desenharPowerUps(renderCtx);
+        desenharTokens(renderCtx);
+      }
       if (!reducedNow || CONFIG.settings.enableParticles)
         desenharShockwaves(renderCtx);
       desenharIndicadorMira(renderCtx);
@@ -15159,7 +15537,10 @@ export default function JogoPage() {
 
       if (mirrorOnlinePvp) renderCtx.restore();
 
-      if (mirrorOnlinePvp) desenharPowerUps(renderCtx);
+      if (mirrorOnlinePvp) {
+        desenharPowerUps(renderCtx);
+        desenharTokens(renderCtx);
+      }
       renderCtx.restore();
       desenharHUD(renderCtx);
 
@@ -15999,6 +16380,23 @@ export default function JogoPage() {
 
       <div className="sn-version-badge">v{SPACE_NEWS_VERSION}</div>
 
+      {(gameState === "playing" || gameState === "paused") && (tokensVisibleUntil > performance.now()) && (
+        <div className="sn-token-counter-v19" aria-label="Tokens do perfil">
+          <span className="sn-token-icon-v19" aria-hidden="true" />
+          <strong>{localProfile.tokens}</strong>
+        </div>
+      )}
+
+      {onlineEventOverlay && onlineEventOverlay.until > performance.now() && (
+        <div className={`sn-online-event-overlay-v19 is-${onlineEventOverlay.kind}`}>
+          <strong>{onlineEventOverlay.title}</strong>
+          <span>{onlineEventOverlay.message}</span>
+          {onlineEventOverlay.countdownUntil && (
+            <em>{Math.max(0, Math.ceil((onlineEventOverlay.countdownUntil - performance.now()) / 1000))}s</em>
+          )}
+        </div>
+      )}
+
       {onlineGameplayActive && isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (gameState === "playing" || gameState === "paused") && onlineMatchIntroUntil > Date.now() && (
         <div className="sn-online-vs-intro" aria-hidden="true">
           <div className="sn-online-vs-side is-p1">
@@ -16668,7 +17066,7 @@ export default function JogoPage() {
                       <input
                         value={onlinePlayerName}
                         maxLength={16}
-                        onChange={(event) => setOnlinePlayerName(event.target.value.toUpperCase().slice(0, 16))}
+                        onChange={(event) => atualizarNomePerfilLocal(event.target.value.toUpperCase().slice(0, 16))}
                         placeholder="PLAYER"
                       />
                     </label>
@@ -16746,6 +17144,11 @@ export default function JogoPage() {
                     <li>Touch aparece uma vez</li>
                     <li>Gamepad navega a UI</li>
                   </ul>
+                  <div className="sn-local-profile-card-v19">
+                    <span>PERFIL LOCAL</span>
+                    <strong>{localProfile.name}</strong>
+                    <small>🪙 {localProfile.tokens} tokens · {localProfile.friends.length} amigos salvos</small>
+                  </div>
                 </section>
               </div>
             ) : (
@@ -16763,6 +17166,20 @@ export default function JogoPage() {
                       onClick={copiarCodigoSalaOnline}
                     >
                       COPIAR
+                    </button>
+                    <button
+                      type="button"
+                      className="sn-squish-ui"
+                      onClick={copiarConviteOnline}
+                    >
+                      CONVITE
+                    </button>
+                    <button
+                      type="button"
+                      className="sn-squish-ui"
+                      onClick={salvarAmigosDaSalaOnline}
+                    >
+                      + AMIGOS
                     </button>
                     <button
                       type="button"
