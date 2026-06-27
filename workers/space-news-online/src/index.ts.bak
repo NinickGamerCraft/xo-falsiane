@@ -148,7 +148,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.0.0-netcode", netModel: "server-tick-input-v1" });
+      return json({ ok: true, service: "Space News Online", version: "1.9.0-netcode", netModel: "host-authoritative-v2" });
     }
 
     if (url.pathname === "/create") {
@@ -189,7 +189,6 @@ export class GameRoom extends DurableObject<Env> {
   private gameActive = false;
   private hostSlot = 1;
   private lastSnapshotTick = 0;
-  private serverInputTick = 0;
   private lastInputSeqBySlot = new Map<number, number>();
   private pendingDisconnectTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
@@ -344,7 +343,6 @@ export class GameRoom extends DurableObject<Env> {
       this.pauseReadySlots.clear();
       this.pauseCommitted = false;
       this.lastSnapshotTick = 0;
-      this.serverInputTick = 0;
       this.lastInputSeqBySlot.clear();
       this.gameActive = true;
       const hostSlot = this.ensureHost();
@@ -372,23 +370,20 @@ export class GameRoom extends DurableObject<Env> {
       if (seq > 0) this.lastInputSeqBySlot.set(session.slot, seq);
       session.input = normalizeInput(msg.input);
       ws.serializeAttachment(session);
-      const serverTick = ++this.serverInputTick;
       this.broadcast({
         type: "input",
         from: session.slot,
         hostSlot: this.ensureHost(),
         seq,
-        tick: serverTick,
         input: session.input,
         serverTime: Date.now(),
         t: Date.now(),
-        netModel: "server-tick-input-v1",
       });
       return;
     }
 
     if (msg.type === "sync") {
-      // server-tick-input-v1: inputs ganham tick no Worker; snapshots viram correção visual leve.
+      // Host-authoritative v2: o host é a fonte da verdade; o Worker só relaya o quadro mais novo.
       if (session.slot !== this.ensureHost() || !this.gameActive) return;
       const rawSnapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
       const incomingTick = Number(rawSnapshot.tick ?? rawSnapshot.seq ?? 0) || this.lastSnapshotTick + 1;
@@ -400,7 +395,7 @@ export class GameRoom extends DurableObject<Env> {
         tick: incomingTick,
         seq: Number(rawSnapshot.seq ?? incomingTick) || incomingTick,
         serverTime,
-        netModel: "server-tick-input-v1",
+        netModel: "host-authoritative-v2",
       };
       this.broadcast({
         type: "sync",
@@ -410,7 +405,7 @@ export class GameRoom extends DurableObject<Env> {
         serverTime,
         t: serverTime,
         priority: "host-frame",
-        netModel: "server-tick-input-v1",
+        netModel: "host-authoritative-v2",
       }, ws);
       return;
     }
@@ -501,7 +496,6 @@ export class GameRoom extends DurableObject<Env> {
     const remainingNow = this.players().length;
     if (wasHost && remainingNow > 0) {
       this.lastSnapshotTick = 0;
-      this.serverInputTick = 0;
       const nextHost = this.ensureHost();
       this.broadcast({ type: "host_changed", room: this.roomCode, hostSlot: nextHost, migrated: true, t: Date.now() });
       this.broadcast({ type: "host_migrated", room: this.roomCode, oldHost: slot, hostSlot: nextHost, t: Date.now() });
@@ -633,10 +627,9 @@ export class GameRoom extends DurableObject<Env> {
       selectedMode,
       hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
-      netModel: "server-tick-input-v1",
-      version: "2.0.0-netcode",
-      tick: Math.max(this.lastSnapshotTick, this.serverInputTick),
-      serverTick: this.serverInputTick,
+      netModel: "host-authoritative-v2",
+      version: "1.9.0-netcode",
+      tick: this.lastSnapshotTick,
       t: Date.now(),
     });
   }

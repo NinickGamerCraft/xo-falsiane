@@ -160,7 +160,7 @@ type OnlineGameplaySnapshot = {
   receivedAt?: number;
   seq?: number;
   authoritativeSlot?: PlayerSlot;
-  netModel?: "server-tick-input-v1" | string;
+  netModel?: "host-authoritative-v2" | string;
   mode: GameMode | null;
   state: GameState;
   players?: OnlineRuntimePlayerSnapshot[];
@@ -405,59 +405,20 @@ type TokenPickup = {
   bornAt: number;
   value: number;
   frameOffset: number;
-  targetSlot?: PlayerSlot;
-  magnetDelay?: number;
-  burst?: boolean;
-  collectScale?: number;
 };
 
 type LocalFriend = {
   id: string;
   name: string;
-  code?: string;
-  status?: "pending" | "accepted" | "blocked";
   lastRoom?: string;
   lastSeenAt: number;
-};
-
-type LocalFriendRequest = {
-  id: string;
-  code: string;
-  name: string;
-  direction: "sent" | "received";
-  createdAt: number;
-};
-
-type LocalProfileStats = {
-  playTimeMs: number;
-  runsStarted: number;
-  enemiesKilled: number;
-  deaths: number;
-  chocadosKilled: number;
-  pvpDamage: number;
-  pvpWins: number;
-  tokensCollected: number;
-  bestInfiniteWave: number;
-  bestInfiniteScore: number;
-};
-
-type LocalAchievement = {
-  id: string;
-  title: string;
-  description: string;
-  unlockedAt?: number;
 };
 
 type LocalProfile = {
   id: string;
   name: string;
-  color: string;
-  friendCode: string;
   tokens: number;
   friends: LocalFriend[];
-  friendRequests: LocalFriendRequest[];
-  stats: LocalProfileStats;
-  achievements: LocalAchievement[];
   createdAt: number;
   updatedAt: number;
 };
@@ -1297,8 +1258,6 @@ const CONFIG = {
 
     abilityReady: "/sounds/ability-ready.mp3",
     powerUpPickup: "/sounds/powerup-pickup.mp3",
-    tokenCollect: TOKEN_COLLECT_SOUND_SRC,
-    tokenBurst: TOKEN_BURST_SOUND_SRC,
     powerUpSpawn: "/sounds/powerup-spawn.mp3",
     powerUpTrail: "/sounds/powerup-trail.mp3",
     flamesStart: "/sounds/flames-start.mp3",
@@ -1568,17 +1527,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.0.0";
-
-const TOKEN_SPRITE_SHEET_SRC = "/assets/space-news/tokens/token-sprite.png";
-const TOKEN_FRAME_SRCS = [
-  "/assets/space-news/tokens/token_0.png",
-  "/assets/space-news/tokens/token_1.png",
-  "/assets/space-news/tokens/token_2.png",
-  "/assets/space-news/tokens/token_3.png",
-];
-const TOKEN_COLLECT_SOUND_SRC = "/sounds/space-news/tokens/token-collect.wav";
-const TOKEN_BURST_SOUND_SRC = "/sounds/space-news/tokens/token-burst.wav";
+const SPACE_NEWS_VERSION = "1.9.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -2820,20 +2769,7 @@ function drawShotFallbackSprite(
 }
 
 
-const SPACE_NEWS_PROFILE_KEY = "spaceNews.localProfile.v2";
-const SPACE_NEWS_OLD_PROFILE_KEY = "spaceNews.localProfile.v1";
-
-const PROFILE_COLOR_OPTIONS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9", "#facc15", "#67e8f9"];
-
-const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
-  { id: "first-token", title: "Primeiro Token", description: "Coletou sua primeira moeda de transmissão." },
-  { id: "ten-tokens", title: "Colecionador", description: "Acumulou 10 tokens no perfil." },
-  { id: "first-kill", title: "Refutador Júnior", description: "Derrubou o primeiro inimigo." },
-  { id: "hundred-kills", title: "Faxina Espacial", description: "Derrubou 100 inimigos." },
-  { id: "first-chocado", title: "Chocado? Nem tanto", description: "Derrotou o Chocado pela primeira vez." },
-  { id: "infinite-10", title: "Sinal Forte", description: "Chegou na wave 10 do modo infinito." },
-  { id: "pvp-win", title: "Arena News", description: "Venceu uma partida Versus." },
-];
+const SPACE_NEWS_PROFILE_KEY = "spaceNews.localProfile.v1";
 
 function criarIdPerfilLocal() {
   try {
@@ -2844,44 +2780,13 @@ function criarIdPerfilLocal() {
   return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function criarCodigoAmizadeLocal(id = "") {
-  const base = String(id || criarIdPerfilLocal()).replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase();
-  return `SN-${base || Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-}
-
-function criarStatsPerfilPadrao(): LocalProfileStats {
-  return {
-    playTimeMs: 0,
-    runsStarted: 0,
-    enemiesKilled: 0,
-    deaths: 0,
-    chocadosKilled: 0,
-    pvpDamage: 0,
-    pvpWins: 0,
-    tokensCollected: 0,
-    bestInfiniteWave: 0,
-    bestInfiniteScore: 0,
-  };
-}
-
-function normalizarConquistasPerfil(list?: LocalAchievement[]): LocalAchievement[] {
-  const unlocked = new Map((Array.isArray(list) ? list : []).map((item) => [item.id, item.unlockedAt]));
-  return ACHIEVEMENT_CATALOG.map((item) => ({ ...item, unlockedAt: unlocked.get(item.id) }));
-}
-
 function criarPerfilLocalPadrao(): LocalProfile {
   const now = Date.now();
-  const id = criarIdPerfilLocal();
   return {
-    id,
+    id: criarIdPerfilLocal(),
     name: "Player",
-    color: PROFILE_COLOR_OPTIONS[0],
-    friendCode: criarCodigoAmizadeLocal(id),
     tokens: 0,
     friends: [],
-    friendRequests: [],
-    stats: criarStatsPerfilPadrao(),
-    achievements: normalizarConquistasPerfil(),
     createdAt: now,
     updatedAt: now,
   };
@@ -2890,37 +2795,16 @@ function criarPerfilLocalPadrao(): LocalProfile {
 function carregarPerfilLocalInicial(): LocalProfile {
   if (typeof window === "undefined") return criarPerfilLocalPadrao();
   try {
-    const raw = window.localStorage.getItem(SPACE_NEWS_PROFILE_KEY) || window.localStorage.getItem(SPACE_NEWS_OLD_PROFILE_KEY);
+    const raw = window.localStorage.getItem(SPACE_NEWS_PROFILE_KEY);
     if (!raw) return criarPerfilLocalPadrao();
     const parsed = JSON.parse(raw) as Partial<LocalProfile>;
     const fallback = criarPerfilLocalPadrao();
-    const id = String(parsed.id || fallback.id);
-    const parsedStats = (parsed.stats || {}) as Partial<LocalProfileStats>;
     return {
       ...fallback,
       ...parsed,
-      id,
       name: String(parsed.name || fallback.name).slice(0, 16),
-      color: PROFILE_COLOR_OPTIONS.includes(String(parsed.color)) ? String(parsed.color) : fallback.color,
-      friendCode: String(parsed.friendCode || criarCodigoAmizadeLocal(id)).slice(0, 16),
       tokens: Math.max(0, Math.floor(Number(parsed.tokens ?? 0))),
-      friends: Array.isArray(parsed.friends) ? parsed.friends.slice(0, 60).map((friend) => ({ ...friend, status: friend.status || "accepted" })) as LocalFriend[] : [],
-      friendRequests: Array.isArray(parsed.friendRequests) ? parsed.friendRequests.slice(0, 40) as LocalFriendRequest[] : [],
-      stats: {
-        ...criarStatsPerfilPadrao(),
-        ...parsedStats,
-        playTimeMs: Math.max(0, Number(parsedStats.playTimeMs ?? 0)),
-        runsStarted: Math.max(0, Math.floor(Number(parsedStats.runsStarted ?? 0))),
-        enemiesKilled: Math.max(0, Math.floor(Number(parsedStats.enemiesKilled ?? 0))),
-        deaths: Math.max(0, Math.floor(Number(parsedStats.deaths ?? 0))),
-        chocadosKilled: Math.max(0, Math.floor(Number(parsedStats.chocadosKilled ?? 0))),
-        pvpDamage: Math.max(0, Math.floor(Number(parsedStats.pvpDamage ?? 0))),
-        pvpWins: Math.max(0, Math.floor(Number(parsedStats.pvpWins ?? 0))),
-        tokensCollected: Math.max(0, Math.floor(Number(parsedStats.tokensCollected ?? 0))),
-        bestInfiniteWave: Math.max(0, Math.floor(Number(parsedStats.bestInfiniteWave ?? 0))),
-        bestInfiniteScore: Math.max(0, Math.floor(Number(parsedStats.bestInfiniteScore ?? 0))),
-      },
-      achievements: normalizarConquistasPerfil(parsed.achievements),
+      friends: Array.isArray(parsed.friends) ? parsed.friends.slice(0, 40) as LocalFriend[] : [],
       updatedAt: Number(parsed.updatedAt || Date.now()),
     };
   } catch {
@@ -3099,9 +2983,6 @@ export default function JogoPage() {
   const [onlineSyncWarning, setOnlineSyncWarning] = useState("");
   const [onlineEventOverlay, setOnlineEventOverlay] = useState<OnlineEventOverlayState | null>(null);
   const [localProfile, setLocalProfile] = useState<LocalProfile>(() => carregarPerfilLocalInicial());
-  const [profileManagerOpen, setProfileManagerOpen] = useState(false);
-  const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
-  const [profileToast, setProfileToast] = useState("");
   const [tokensVisibleUntil, setTokensVisibleUntil] = useState(0);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
     flashWhite: false,
@@ -3289,10 +3170,6 @@ export default function JogoPage() {
   const nextTokenSpawnAtRef = useRef(0);
   const localProfileRef = useRef<LocalProfile>(localProfile);
   const tokensVisibleUntilRef = useRef(0);
-  const tokenSpriteRef = useRef<HTMLImageElement | null>(null);
-  const tokenSpriteReadyRef = useRef(false);
-  const tokenUiPulseUntilRef = useRef(0);
-  const profilePlayTickRef = useRef(performance.now());
   const onlineEventOverlayIdRef = useRef(0);
   const fireRateUntilRef = useRef(0);
   const powerShotUntilRef = useRef(0);
@@ -3637,7 +3514,6 @@ export default function JogoPage() {
     );
 
     const matchPoint = Math.max(nextP1, nextP2) >= 3;
-    if (matchPoint) atualizarStatsPerfilLocal((stats) => ({ ...stats, pvpWins: stats.pvpWins + 1 }));
     setLocalModeNotice(
       matchPoint
         ? `${winner === 1 ? "P1" : "P2"} VENCEU A MELHOR DE 5!`
@@ -3931,7 +3807,6 @@ export default function JogoPage() {
     if (isLocalPvpMode()) {
       for (const power of powerUpsRef.current) pararLoopPowerUpTrail(power.id);
       powerUpsRef.current = [];
-      limparTokensDaRun();
       spawnPowerUpPvp(true);
     }
     limparRoundPvp();
@@ -4304,7 +4179,7 @@ export default function JogoPage() {
       sentAt,
       seq: tick,
       authoritativeSlot: onlineHostSlotRef.current as PlayerSlot,
-      netModel: "server-tick-input-v1",
+      netModel: "host-authoritative-v2",
       players: snapshotPlayersOnline(now),
       mode: currentModeRef.current,
       state: gameStateRef.current,
@@ -4363,19 +4238,26 @@ export default function JogoPage() {
     Object.assign(target, incoming);
 
     if (controlledLocally) {
-      // v2.0: o jogador local não recebe microcorreção visual a cada snapshot.
-      // Isso tira o efeito feio de “nave puxada”. Só corrigimos quando o drift é absurdo.
-      if (dist > 360) {
+      // Client prediction com reconciliação curta: mantém resposta local, mas não deixa o guest
+      // acumular drift a ponto de tiros nascerem em outra altura no host.
+      if (dist > 220) {
         target.x = nextX;
         target.y = nextY;
-        target.vx = typeof incoming.vx === "number" ? incoming.vx : oldVx;
-        target.vy = typeof incoming.vy === "number" ? incoming.vy : oldVy;
+      } else if (dist > 96) {
+        target.x = oldX + dx * 0.42;
+        target.y = oldY + dy * 0.42;
+      } else if (dist > 32) {
+        target.x = oldX + dx * 0.22;
+        target.y = oldY + dy * 0.22;
+      } else if (dist > 10) {
+        target.x = oldX + dx * 0.10;
+        target.y = oldY + dy * 0.10;
       } else {
         target.x = oldX;
         target.y = oldY;
-        target.vx = oldVx;
-        target.vy = oldVy;
       }
+      target.vx = typeof incoming.vx === "number" ? oldVx * 0.72 + incoming.vx * 0.28 : oldVx;
+      target.vy = typeof incoming.vy === "number" ? oldVy * 0.72 + incoming.vy * 0.28 : oldVy;
     } else {
       const hardSnap = 190;
       const blend = dist < 18 ? 0.24 : 0.48;
@@ -4655,7 +4537,7 @@ export default function JogoPage() {
 
     if (souHostOnline()) {
       // Menos snapshots gigantes = menos fila no WebSocket e menos efeito "voltar no tempo" no não-host.
-      if (now - onlineLastSyncSentAtRef.current < 33) return;
+      if (now - onlineLastSyncSentAtRef.current < 16) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -4709,89 +4591,6 @@ export default function JogoPage() {
     const next = { ...localProfileRef.current, name: clean, updatedAt: Date.now() };
     salvarPerfilLocal(next);
     setOnlinePlayerName(clean);
-    if (onlineConnected) enviarOnline({ type: "profile", name: clean, device: dispositivoOnlineAtual().label });
-  }
-
-  function atualizarCorPerfilLocal(color: string) {
-    if (!PROFILE_COLOR_OPTIONS.includes(color)) return;
-    salvarPerfilLocal({ ...localProfileRef.current, color, updatedAt: Date.now() });
-  }
-
-  function mostrarToastPerfil(message: string) {
-    setProfileToast(message);
-    window.setTimeout(() => setProfileToast((current) => current === message ? "" : current), 2200);
-  }
-
-  function atualizarStatsPerfilLocal(updater: (stats: LocalProfileStats) => LocalProfileStats) {
-    const current = localProfileRef.current;
-    const nextStats = updater({ ...criarStatsPerfilPadrao(), ...current.stats });
-    const now = Date.now();
-    let achievements = normalizarConquistasPerfil(current.achievements);
-    const unlock = (id: string) => {
-      achievements = achievements.map((achievement) => achievement.id === id && !achievement.unlockedAt ? { ...achievement, unlockedAt: now } : achievement);
-    };
-    if (current.tokens > 0 || nextStats.tokensCollected > 0) unlock("first-token");
-    if (current.tokens >= 10 || nextStats.tokensCollected >= 10) unlock("ten-tokens");
-    if (nextStats.enemiesKilled >= 1) unlock("first-kill");
-    if (nextStats.enemiesKilled >= 100) unlock("hundred-kills");
-    if (nextStats.chocadosKilled >= 1) unlock("first-chocado");
-    if (nextStats.bestInfiniteWave >= 10) unlock("infinite-10");
-    if (nextStats.pvpWins >= 1) unlock("pvp-win");
-    salvarPerfilLocal({ ...current, stats: nextStats, achievements, updatedAt: now });
-  }
-
-  function adicionarPedidoAmizadeLocal(codeRaw: string) {
-    const code = codeRaw.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16);
-    if (!code || code === localProfileRef.current.friendCode) {
-      mostrarToastPerfil("Código inválido.");
-      return;
-    }
-    const current = localProfileRef.current;
-    if (current.friends.some((friend) => friend.code === code || friend.id === code) || current.friendRequests.some((request) => request.code === code)) {
-      mostrarToastPerfil("Esse código já está na sua lista.");
-      return;
-    }
-    const request: LocalFriendRequest = {
-      id: criarIdPerfilLocal(),
-      code,
-      name: `Pedido ${code}`,
-      direction: "sent",
-      createdAt: Date.now(),
-    };
-    salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
-    setProfileFriendCodeInput("");
-    mostrarToastPerfil("Pedido de amizade salvo localmente.");
-  }
-
-  function aceitarPedidoAmizadeLocal(requestId: string) {
-    const current = localProfileRef.current;
-    const request = current.friendRequests.find((item) => item.id === requestId);
-    if (!request) return;
-    const friend: LocalFriend = { id: request.code, code: request.code, name: request.name || request.code, status: "accepted", lastSeenAt: Date.now() };
-    salvarPerfilLocal({
-      ...current,
-      friends: [friend, ...current.friends.filter((item) => item.code !== request.code)].slice(0, 60),
-      friendRequests: current.friendRequests.filter((item) => item.id !== requestId),
-      updatedAt: Date.now(),
-    });
-    mostrarToastPerfil("Amigo aceito.");
-  }
-
-  function removerAmizadeOuPedidoLocal(id: string) {
-    const current = localProfileRef.current;
-    salvarPerfilLocal({
-      ...current,
-      friends: current.friends.filter((friend) => friend.id !== id && friend.code !== id),
-      friendRequests: current.friendRequests.filter((request) => request.id !== id && request.code !== id),
-      updatedAt: Date.now(),
-    });
-  }
-
-  function deletarPerfilLocal() {
-    const next = criarPerfilLocalPadrao();
-    salvarPerfilLocal(next);
-    setOnlinePlayerName(next.name);
-    setProfileManagerOpen(false);
   }
 
   function mostrarTokensPorTempo(ms = 1050) {
@@ -4804,26 +4603,12 @@ export default function JogoPage() {
     const safeAmount = Math.max(0, Math.floor(amount));
     if (safeAmount <= 0) return;
     const current = localProfileRef.current;
-    const now = Date.now();
-    const nextTokens = Math.max(0, Math.floor(current.tokens + safeAmount));
-    const nextStats = {
-      ...criarStatsPerfilPadrao(),
-      ...current.stats,
-      tokensCollected: Math.max(0, Math.floor((current.stats?.tokensCollected ?? 0) + safeAmount)),
-    };
-    let achievements = normalizarConquistasPerfil(current.achievements);
-    if (nextTokens > 0 || nextStats.tokensCollected > 0) achievements = achievements.map((item) => item.id === "first-token" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
-    if (nextTokens >= 10 || nextStats.tokensCollected >= 10) achievements = achievements.map((item) => item.id === "ten-tokens" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
     salvarPerfilLocal({
       ...current,
-      tokens: nextTokens,
-      stats: nextStats,
-      achievements,
-      updatedAt: now,
+      tokens: Math.max(0, Math.floor(current.tokens + safeAmount)),
+      updatedAt: Date.now(),
     });
-    tokenUiPulseUntilRef.current = performance.now() + 360;
     mostrarTokensPorTempo(reason === "bonus" ? 1800 : 1200);
-    tocarSom(CONFIG.sounds.tokenCollect || CONFIG.sounds.powerUpPickup, 0.28, "sfx");
   }
 
   function mostrarEventoOnline(title: string, message: string, kind: OnlineEventOverlayState["kind"] = "info", ms = 2600, countdownMs?: number) {
@@ -4843,26 +4628,30 @@ export default function JogoPage() {
   }
 
   function salvarAmigosDaSalaOnline() {
+    const now = Date.now();
     const current = localProfileRef.current;
-    const existing = new Set([...current.friends.map((friend) => friend.id), ...current.friendRequests.map((request) => request.code)]);
-    const nextRequests = [...current.friendRequests];
+    const friendsById = new Map(current.friends.map((friend) => [friend.id, friend]));
     for (const player of onlinePlayers) {
-      if (!player.id || player.slot === onlineSlotRef.current || existing.has(player.id)) continue;
-      nextRequests.push({ id: criarIdPerfilLocal(), code: player.id, name: player.name || `P${player.slot}`, direction: "sent", createdAt: Date.now() });
-      existing.add(player.id);
+      if (!player.id || player.slot === onlineSlotRef.current) continue;
+      friendsById.set(player.id, {
+        id: player.id,
+        name: player.name || `P${player.slot}`,
+        lastRoom: onlineRoomCode || undefined,
+        lastSeenAt: now,
+      });
     }
-    salvarPerfilLocal({ ...current, friendRequests: nextRequests.slice(0, 40), updatedAt: Date.now() });
-    feedbackOnline("success", "Pedidos de amizade criados. O outro jogador precisa aceitar pelo perfil.");
+    const friends = [...friendsById.values()]
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .slice(0, 40);
+    salvarPerfilLocal({ ...current, friends, updatedAt: now });
+    feedbackOnline("success", friends.length ? "Amigos da sala salvos no perfil local." : "Nenhum amigo novo para salvar.");
   }
 
   function conviteOnlineAtual() {
     const room = limparCodigoSalaOnline(onlineRoomCode || onlineJoinCode);
     if (!room) return "";
-    if (typeof window === "undefined") return room;
-    const url = new URL(`${window.location.origin}${window.location.pathname}`);
-    url.searchParams.set("room", room);
-    url.searchParams.set("inviteFrom", nomeOnlineSeguro());
-    return url.toString();
+    const base = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}` : "/jogo";
+    return `${base}?room=${room}`;
   }
 
   async function copiarConviteOnline() {
@@ -5281,8 +5070,8 @@ export default function JogoPage() {
     return Boolean(data.exists);
   }
 
-  async function entrarSalaOnline(roomOverride?: string) {
-    const room = limparCodigoSalaOnline(roomOverride || onlineJoinCode);
+  async function entrarSalaOnline() {
+    const room = limparCodigoSalaOnline(onlineJoinCode);
     if (room.length < 4) {
       feedbackOnline("error", "Digite um código de sala válido.");
       return;
@@ -6499,8 +6288,6 @@ export default function JogoPage() {
     setTutorialLaunchZoom(false);
     shotsRef.current = [];
     powerUpsRef.current = [];
-    tokensRef.current = [];
-    nextTokenSpawnAtRef.current = 0;
     enemyProjectilesRef.current = [];
     bossProjectilesRef.current = [];
 
@@ -7190,14 +6977,11 @@ export default function JogoPage() {
 
     limparCombate();
     resetarWaves(mode);
-    tokensRef.current = [];
-    nextTokenSpawnAtRef.current = 0;
 
     strongCooldownRef.current = 0;
     setStrongCooldown(0);
     scoreRef.current = 0;
     setScore(0);
-    atualizarStatsPerfilLocal((stats) => ({ ...stats, runsStarted: stats.runsStarted + 1 }));
     localP1ScoreRef.current = 0;
     localP2ScoreRef.current = 0;
     localPvpRoundRef.current = 1;
@@ -7290,12 +7074,6 @@ export default function JogoPage() {
     const player = playerRef.current;
     const now = performance.now();
     const waveDied = Math.max(0, waveStateRef.current.wave);
-    atualizarStatsPerfilLocal((stats) => ({
-      ...stats,
-      deaths: stats.deaths + 1,
-      bestInfiniteWave: currentModeRef.current === "infinite" ? Math.max(stats.bestInfiniteWave, waveDied) : stats.bestInfiniteWave,
-      bestInfiniteScore: currentModeRef.current === "infinite" ? Math.max(stats.bestInfiniteScore, scoreRef.current) : stats.bestInfiniteScore,
-    }));
 
     setGameOverWave(waveDied);
     setGameOverTaunt(
@@ -7657,7 +7435,6 @@ export default function JogoPage() {
 
   function registrarAbate(kind: EnemyKind, ownerId: PlayerSlot = 1) {
     adicionarPontuacao(CONFIG.gameplay.score[kind], ownerId);
-    atualizarStatsPerfilLocal((stats) => ({ ...stats, enemiesKilled: stats.enemiesKilled + 1 }));
   }
 
   function normalizarDirecao(dirX: number, dirY: number) {
@@ -10046,35 +9823,6 @@ export default function JogoPage() {
     }
   }, [localProfile]);
 
-
-  useEffect(() => {
-    const image = new Image();
-    image.onload = () => {
-      tokenSpriteReadyRef.current = true;
-    };
-    image.onerror = () => {
-      tokenSpriteReadyRef.current = false;
-    };
-    image.src = assetUrl(TOKEN_SPRITE_SHEET_SRC);
-    tokenSpriteRef.current = image;
-    for (const frameSrc of TOKEN_FRAME_SRCS) {
-      const frame = new Image();
-      frame.src = assetUrl(frameSrc);
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const now = performance.now();
-      const elapsed = Math.max(0, now - profilePlayTickRef.current);
-      profilePlayTickRef.current = now;
-      if (gameStateRef.current === "playing" && elapsed > 0) {
-        atualizarStatsPerfilLocal((stats) => ({ ...stats, playTimeMs: stats.playTimeMs + elapsed }));
-      }
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   useEffect(() => {
     const cleanName = limparNomeOnline(localProfileRef.current.name || "Player").trim() || "Player";
     setOnlinePlayerName(cleanName);
@@ -10082,13 +9830,9 @@ export default function JogoPage() {
       const url = new URL(window.location.href);
       const room = limparCodigoSalaOnline(url.searchParams.get("room") || "");
       if (room) {
-        const inviteFrom = limparNomeOnline(url.searchParams.get("inviteFrom") || "amigo").trim() || "amigo";
         setOnlineJoinCode(room);
         setFluxoOnline("join");
-        setOnlineFeedback("success");
-        setOnlineStatus(`${inviteFrom} está te convidando para Space News! Entrando na sala ${room}...`);
-        setEstado("onlineLobby");
-        window.setTimeout(() => entrarSalaOnline(room), 120);
+        setOnlineStatus(`Convite detectado. Código ${room} pronto para entrar.`);
       }
     } catch {
       // ignora URL inválida
@@ -10297,8 +10041,6 @@ export default function JogoPage() {
       CONFIG.sounds.asteroidBreak,
       CONFIG.sounds.powerUpPickup,
       CONFIG.sounds.powerUpSpawn,
-      CONFIG.sounds.tokenCollect,
-      CONFIG.sounds.tokenBurst,
       CONFIG.sounds.goldenHeart,
       CONFIG.sounds.randomPowerUp,
       CONFIG.sounds.badPowerUp,
@@ -11463,11 +11205,7 @@ export default function JogoPage() {
       setPlayer2Hp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#60a5fa", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode()) {
-        atualizarStatsPerfilLocal((stats) => ({ ...stats, pvpDamage: stats.pvpDamage + danoAplicado }));
-        spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 1, 5);
-        if (Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
-      }
+      if (isLocalPvpMode() && Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -11498,11 +11236,7 @@ export default function JogoPage() {
       setPlayerHp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode()) {
-        atualizarStatsPerfilLocal((stats) => ({ ...stats, pvpDamage: stats.pvpDamage + danoAplicado }));
-        spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 2, 5);
-        if (Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
-      }
+      if (isLocalPvpMode() && Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -11561,10 +11295,10 @@ export default function JogoPage() {
 
         if (player.normalCooldown > 0) player.normalCooldown = Math.max(0, player.normalCooldown - speedFactor);
 
-        const keyboardShot = !onlineGameplayActiveRef.current && keysRef.current["u"];
-        const keyboardStrong = !onlineGameplayActiveRef.current && keysRef.current["o"];
-        const keyboardBoost = !onlineGameplayActiveRef.current && keysRef.current["p"];
-        const keyboardDodge = !onlineGameplayActiveRef.current && keysRef.current["h"];
+        const keyboardShot = keysRef.current["u"];
+        const keyboardStrong = keysRef.current["o"];
+        const keyboardBoost = keysRef.current["p"];
+        const keyboardDodge = keysRef.current["h"];
 
         if (!ghostLocal) {
           if (keyboardShot || p2Segurando("1", "7")) atirarNormalPlayer2();
@@ -12993,7 +12727,6 @@ export default function JogoPage() {
       if (boss.hp <= 0 && !boss.defeated) {
         boss.hp = 0;
         boss.defeated = true;
-        atualizarStatsPerfilLocal((stats) => ({ ...stats, chocadosKilled: stats.chocadosKilled + 1 }));
         boss.intro = false;
         boss.nextAttackAt = Number.POSITIVE_INFINITY;
         bossProjectilesRef.current = [];
@@ -13633,163 +13366,77 @@ export default function JogoPage() {
     }
 
 
-    function limparTokensDaRun() {
-      tokensRef.current = [];
-      nextTokenSpawnAtRef.current = 0;
-    }
-
-    function centroPlayerPorSlot(slot: PlayerSlot) {
-      const player = slot === 1 ? playerRef.current : slot === 2 ? player2Ref.current : playersRef.current.find((runtime) => runtime.slot === slot)?.runtime;
-      if (!player) return { x: CONFIG.canvasWidth * 0.24, y: CONFIG.canvasHeight * 0.3 };
-      return { x: player.x + player.w / 2, y: player.y + player.h / 2 };
-    }
-
-    function spawnTokenBurst(x: number, y: number, targetSlot: PlayerSlot = 1, maxAmount = 6) {
-      if (gameStateRef.current === "tutorial") return;
-      if (onlineGameplayActiveRef.current && !souHostOnline()) return;
-      if (Math.random() < 0.28) return;
-      const amount = Math.max(1, Math.min(maxAmount, Math.floor(rand(2, maxAmount + 1))));
-      const now = performance.now();
-      for (let i = 0; i < amount; i++) {
-        const angle = rand(-Math.PI * 0.85, Math.PI * 0.85);
-        const speed = rand(2.4, 5.8);
-        tokensRef.current.push({
-          id: tokenIdRef.current++,
-          x: x - 14 + rand(-10, 10),
-          y: y - 14 + rand(-10, 10),
-          w: 28,
-          h: 28,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - rand(0.5, 1.4),
-          age: 0,
-          life: rand(2200, 3600),
-          wavePhase: rand(0, Math.PI * 2),
-          bornAt: now,
-          value: 1,
-          frameOffset: Math.floor(rand(0, 4)),
-          targetSlot,
-          magnetDelay: rand(160, 380),
-          burst: true,
-          collectScale: 1,
-        });
-      }
-      tokensRef.current = tokensRef.current.slice(-64);
-      criarExplosao(x, y, "#ffd45a", 10);
-      tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.18, "sfx");
-    }
-
     function agendarProximoToken(now = performance.now()) {
       nextTokenSpawnAtRef.current = now + rand(850, isLocalPvpMode() ? 1900 : 2700);
     }
 
     function spawnTokenPattern(force = false) {
-      if (gameStateRef.current === "tutorial") return;
+      if (gameStateRef.current !== "playing") return;
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
-      const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
-      const laneCount = Math.random() < 0.35 ? 5 : 3;
-      const startX = CONFIG.canvasWidth + 34;
-      const baseY = clamp(playerCenter.y + rand(-130, 130), 86, CONFIG.canvasHeight - 104);
-      const spacing = rand(34, 46);
-      const arc = Math.random() < 0.55;
-      for (let i = 0; i < laneCount; i++) {
-        const offset = i - (laneCount - 1) / 2;
-        const y = clamp(baseY + offset * spacing + (arc ? Math.sin(i / Math.max(1, laneCount - 1) * Math.PI) * -28 : 0), 72, CONFIG.canvasHeight - 82);
+      const amount = Math.floor(rand(3, isLocalPvpMode() ? 7 : 9));
+      const baseY = rand(76, CONFIG.canvasHeight - 92);
+      const wave = Math.random() < 0.5;
+      for (let i = 0; i < amount; i++) {
         tokensRef.current.push({
           id: tokenIdRef.current++,
-          x: startX + i * rand(18, 34),
-          y,
-          w: 26,
-          h: 26,
-          vx: -rand(1.25, 2.15),
-          vy: rand(-0.05, 0.05),
+          x: CONFIG.canvasWidth + 28 + i * 34,
+          y: clamp(baseY + (wave ? Math.sin(i * 0.95) * 34 : (i % 2) * 24), 42, CONFIG.canvasHeight - 42),
+          w: 24,
+          h: 24,
+          vx: isLocalPvpMode() ? -2.2 : -2.8,
+          vy: 0,
           age: 0,
-          life: rand(5200, 7600),
+          life: 12000,
           wavePhase: rand(0, Math.PI * 2),
           bornAt: now,
           value: 1,
-          frameOffset: i % 4,
-          collectScale: 1,
+          frameOffset: Math.floor(rand(0, 4)),
         });
       }
-      tokensRef.current = tokensRef.current.slice(-56);
+      tokensRef.current = tokensRef.current.slice(-48);
       agendarProximoToken(now);
     }
 
     function atualizarTokens(delta: number, canvas: HTMLCanvasElement) {
+      if (gameStateRef.current !== "playing") return;
       if (!nextTokenSpawnAtRef.current) agendarProximoToken();
       spawnTokenPattern(false);
       const speedFactor = delta / 16.67;
       tokensRef.current = tokensRef.current
-        .map((token) => {
-          let vx = token.vx;
-          let vy = token.vy;
-          const age = token.age + delta;
-          if (token.targetSlot && age > (token.magnetDelay ?? 180)) {
-            const target = centroPlayerPorSlot(token.targetSlot);
-            const cx = token.x + token.w / 2;
-            const cy = token.y + token.h / 2;
-            const dx = target.x - cx;
-            const dy = target.y - cy;
-            const dist = Math.max(1, Math.hypot(dx, dy));
-            const magnet = clamp((age - (token.magnetDelay ?? 180)) / 650, 0.12, 0.82);
-            vx = vx * (1 - magnet) + (dx / dist) * rand(5.4, 8.2) * magnet;
-            vy = vy * (1 - magnet) + (dy / dist) * rand(5.4, 8.2) * magnet;
-          } else {
-            vy += token.burst ? 0.06 * speedFactor : 0;
-          }
-          return {
-            ...token,
-            vx,
-            vy,
-            age,
-            life: token.life - delta,
-            collectScale: 0.92 + Math.sin(age * 0.018 + token.frameOffset) * 0.08,
-            x: token.x + vx * speedFactor,
-            y: token.y + vy * speedFactor + (token.burst ? 0 : Math.sin(age * 0.006 + token.wavePhase) * 0.28 * speedFactor),
-          };
-        })
-        .filter((token) => token.life > 0 && token.x > -100 && token.x < canvas.width + 180 && token.y > -100 && token.y < canvas.height + 110);
+        .map((token) => ({
+          ...token,
+          age: token.age + delta,
+          life: token.life - delta,
+          x: token.x + token.vx * speedFactor,
+          y: token.y + token.vy * speedFactor + Math.sin((token.age + delta) * 0.006 + token.wavePhase) * 0.28 * speedFactor,
+        }))
+        .filter((token) => token.life > 0 && token.x > -80 && token.x < canvas.width + 160 && token.y > -80 && token.y < canvas.height + 80);
     }
 
     function desenharTokenFallback(ctx: CanvasRenderingContext2D, token: TokenPickup) {
       const cx = token.x + token.w / 2;
       const cy = token.y + token.h / 2;
-      const frame = (Math.floor(token.age / 95) + token.frameOffset) % 4;
-      const squash = (token.collectScale ?? 1) * ([1, 0.82, 0.58, 0.82][frame] ?? 1);
-      const stretchY = 1 + (1 - squash) * 0.22;
-      const glow = 0.55 + Math.sin(token.age * 0.014) * 0.16;
-      const alpha = clamp(token.life / 450, 0, 1);
+      const frame = (Math.floor(token.age / 110) + token.frameOffset) % 4;
+      const squash = [1, 0.72, 0.42, 0.72][frame] ?? 1;
+      const glow = 0.78 + Math.sin(token.age * 0.012) * 0.18;
       ctx.save();
       ctx.translate(cx, cy);
-      ctx.scale(squash, stretchY);
-      ctx.globalAlpha = alpha;
-      const sprite = tokenSpriteRef.current;
-      if (sprite && tokenSpriteReadyRef.current && sprite.naturalWidth > 0) {
-        const frameW = sprite.naturalWidth / 4;
-        ctx.shadowColor = "#ffe28a";
-        ctx.shadowBlur = 8 * glow;
-        ctx.drawImage(sprite, frameW * frame, 0, frameW, sprite.naturalHeight, -token.w / 2, -token.h / 2, token.w, token.h);
-        ctx.restore();
-        return;
-      }
-      const gradient = ctx.createRadialGradient(-token.w * 0.18, -token.h * 0.22, 2, 0, 0, token.w * 0.52);
-      gradient.addColorStop(0, "#fff7b8");
-      gradient.addColorStop(0.45, "#f9c851");
-      gradient.addColorStop(1, "#9b5d12");
-      ctx.shadowColor = "#ffd166";
-      ctx.shadowBlur = 10 * glow;
-      ctx.fillStyle = gradient;
-      ctx.strokeStyle = "rgba(255, 245, 180, 0.85)";
-      ctx.lineWidth = 2;
+      ctx.scale(squash, 1);
+      ctx.globalAlpha = clamp(token.life / 450, 0, 1);
+      ctx.shadowColor = "#ffd45a";
+      ctx.shadowBlur = 14 * glow;
+      ctx.fillStyle = "#ffcc33";
+      ctx.strokeStyle = "#fff3a3";
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.ellipse(0, 0, token.w * 0.42, token.h * 0.48, 0, 0, Math.PI * 2);
+      ctx.arc(0, 0, token.w * 0.48, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       ctx.shadowBlur = 0;
-      ctx.fillStyle = "rgba(72, 43, 8, 0.58)";
-      ctx.fillRect(-1.5, -token.h * 0.32, 3, token.h * 0.64);
+      ctx.fillStyle = "rgba(114, 63, 0, 0.58)";
+      ctx.fillRect(-2, -token.h * 0.34, 4, token.h * 0.68);
       ctx.restore();
     }
 
@@ -13816,8 +13463,7 @@ export default function JogoPage() {
           if (rectsCollide(getPlayerHitbox(collector.player), tokenBox)) {
             collected.add(token.id);
             collectedBySlot.set(collector.slot, (collectedBySlot.get(collector.slot) || 0) + token.value);
-            criarParticulasHit(token.x + token.w / 2, token.y + token.h / 2, "#ffd45a", 7);
-            criarExplosao(token.x + token.w / 2, token.y + token.h / 2, "#fff1a8", 4);
+            criarParticulasHit(token.x + token.w / 2, token.y + token.h / 2, "#ffd45a", 5);
             break;
           }
         }
@@ -14845,7 +14491,6 @@ export default function JogoPage() {
             if (enemy.hp <= 0 || enemy.removedByStrong) {
               enemiesToRemove.add(enemy.id);
               registrarAbate(enemy.kind, shot.ownerId ?? 1);
-              if (gameStateRef.current !== "tutorial") spawnTokenBurst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, (shot.ownerId ?? 1) as PlayerSlot, enemy.kind === "asteroid" ? 4 : 7);
               if (gameStateRef.current !== "tutorial") {
                 tentarSpawnPowerUp(
                   enemy.x + enemy.w / 2,
@@ -15008,7 +14653,6 @@ export default function JogoPage() {
             if (enemy.hp <= 0) {
               enemiesToRemove.add(enemy.id);
               registrarAbate(enemy.kind);
-              if (gameStateRef.current !== "tutorial") spawnTokenBurst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, 1, enemy.kind === "asteroid" ? 4 : 7);
               if (gameStateRef.current !== "tutorial") {
                 tentarSpawnPowerUp(
                   enemy.x + enemy.w / 2,
@@ -16737,9 +16381,9 @@ export default function JogoPage() {
       <div className="sn-version-badge">v{SPACE_NEWS_VERSION}</div>
 
       {(gameState === "playing" || gameState === "paused") && (tokensVisibleUntil > performance.now()) && (
-        <div className={`sn-token-counter-v20 ${tokenUiPulseUntilRef.current > performance.now() ? "is-pulsing" : ""}`} aria-label="Tokens do perfil">
-          <span className="sn-token-icon-v20" aria-hidden="true" />
-          <strong>x{localProfile.tokens}</strong>
+        <div className="sn-token-counter-v19" aria-label="Tokens do perfil">
+          <span className="sn-token-icon-v19" aria-hidden="true" />
+          <strong>{localProfile.tokens}</strong>
         </div>
       )}
 
@@ -17205,16 +16849,6 @@ export default function JogoPage() {
             <p className="game-menu-help">ESC/Q: voltar</p>
           </aside>
 
-          <button
-            type="button"
-            className="sn-profile-orb-v20"
-            style={{ "--profile-color": localProfile.color } as CSSProperties}
-            onClick={() => setProfileManagerOpen(true)}
-            aria-label="Abrir perfil local"
-          >
-            <span>{localProfile.name.slice(0, 1).toUpperCase()}</span>
-          </button>
-
           <div className="game-menu-logo">
             <strong>SPACE NEWS</strong>
           </div>
@@ -17504,7 +17138,7 @@ export default function JogoPage() {
 
                 <section className="sn-online-connect-card-v15 is-side">
                   <strong>Como funciona</strong>
-                  <p>Modo v2: inputs por tick no Worker e correção leve. O snapshot agora serve mais como segurança do que como “puxão” visual.</p>
+                  <p>O host roda a simulação principal. Os outros mandam input e renderizam snapshots com suavização, sem rebobinar o próprio controle.</p>
                   <ul>
                     <li>Sem mouse para confirmar player</li>
                     <li>Touch aparece uma vez</li>
@@ -17513,7 +17147,7 @@ export default function JogoPage() {
                   <div className="sn-local-profile-card-v19">
                     <span>PERFIL LOCAL</span>
                     <strong>{localProfile.name}</strong>
-                    <small>{localProfile.tokens} tokens · {localProfile.friends.length} amigos · {localProfile.friendRequests.length} pedidos</small>
+                    <small>🪙 {localProfile.tokens} tokens · {localProfile.friends.length} amigos salvos</small>
                   </div>
                 </section>
               </div>
@@ -18018,123 +17652,6 @@ export default function JogoPage() {
             </div>
           </aside>
         </section>
-      )}
-
-      {profileManagerOpen && (
-        <div className="sn-profile-backdrop-v20" role="dialog" aria-modal="true">
-          <section className="sn-profile-manager-v20">
-            <header className="sn-profile-header-v20">
-              <div>
-                <span>PERFIL LOCAL</span>
-                <h2>{localProfile.name}</h2>
-                <p>Código: <strong>{localProfile.friendCode}</strong></p>
-              </div>
-              <button type="button" onClick={() => setProfileManagerOpen(false)} aria-label="Fechar perfil">×</button>
-            </header>
-
-            <div className="sn-profile-main-v20">
-              <article className="sn-profile-card-v20 is-identity">
-                <div className="sn-profile-avatar-v20" style={{ "--profile-color": localProfile.color } as CSSProperties}>
-                  {localProfile.name.slice(0, 1).toUpperCase()}
-                </div>
-                <label>
-                  Nome
-                  <input
-                    value={localProfile.name}
-                    maxLength={16}
-                    onChange={(event) => atualizarNomePerfilLocal(event.target.value)}
-                  />
-                </label>
-                <div className="sn-profile-colors-v20" aria-label="Cores do perfil">
-                  {PROFILE_COLOR_OPTIONS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      className={localProfile.color === color ? "is-selected" : ""}
-                      style={{ "--profile-color": color } as CSSProperties}
-                      onClick={() => atualizarCorPerfilLocal(color)}
-                      aria-label={`Usar cor ${color}`}
-                    />
-                  ))}
-                </div>
-                <div className="sn-profile-token-line-v20">
-                  <span className="sn-token-icon-v20" />
-                  <strong>x{localProfile.tokens}</strong>
-                </div>
-              </article>
-
-              <article className="sn-profile-card-v20">
-                <h3>AMIZADES</h3>
-                <p className="sn-profile-muted-v20">Adicione por código. Convite por notificação real fica para push/backend.</p>
-                <div className="sn-profile-friend-add-v20">
-                  <input
-                    value={profileFriendCodeInput}
-                    onChange={(event) => setProfileFriendCodeInput(event.target.value.toUpperCase())}
-                    placeholder="SN-ABC123"
-                  />
-                  <button type="button" onClick={() => adicionarPedidoAmizadeLocal(profileFriendCodeInput)}>PEDIR</button>
-                </div>
-                <div className="sn-profile-list-v20">
-                  {localProfile.friendRequests.length === 0 && localProfile.friends.length === 0 && <em>Nenhum pedido ou amigo ainda.</em>}
-                  {localProfile.friendRequests.map((request) => (
-                    <div key={request.id}>
-                      <span>{request.name}</span>
-                      <small>{request.direction === "sent" ? "pedido enviado" : "pedido recebido"} · {request.code}</small>
-                      <div>
-                        {request.direction === "incoming" && <button type="button" onClick={() => aceitarPedidoAmizadeLocal(request.id)}>ACEITAR</button>}
-                        <button type="button" onClick={() => removerAmizadeOuPedidoLocal(request.id)}>REMOVER</button>
-                      </div>
-                    </div>
-                  ))}
-                  {localProfile.friends.map((friend) => (
-                    <div key={friend.id}>
-                      <span>{friend.name}</span>
-                      <small>{friend.code || friend.id}</small>
-                      <div>
-                        <button type="button" onClick={() => removerAmizadeOuPedidoLocal(friend.id)}>APAGAR</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </article>
-
-              <article className="sn-profile-card-v20">
-                <h3>ESTATÍSTICAS</h3>
-                <div className="sn-profile-stats-v20">
-                  <span><b>{Math.floor(localProfile.stats.playTimeMs / 60000)}</b><small>min jogados</small></span>
-                  <span><b>{localProfile.stats.runsStarted}</b><small>runs</small></span>
-                  <span><b>{localProfile.stats.enemiesKilled}</b><small>inimigos</small></span>
-                  <span><b>{localProfile.stats.deaths}</b><small>mortes</small></span>
-                  <span><b>{localProfile.stats.chocadosKilled}</b><small>Chocado</small></span>
-                  <span><b>{localProfile.stats.pvpWins}</b><small>vitórias PvP</small></span>
-                  <span><b>{localProfile.stats.bestInfiniteWave}</b><small>recorde wave</small></span>
-                  <span><b>{localProfile.stats.bestInfiniteScore}</b><small>recorde score</small></span>
-                </div>
-              </article>
-
-              <article className="sn-profile-card-v20">
-                <h3>ACHIEVEMENTS</h3>
-                <div className="sn-achievements-v20">
-                  {localProfile.achievements.map((achievement) => (
-                    <div key={achievement.id} className={achievement.unlockedAt ? "is-unlocked" : "is-locked"}>
-                      <strong>{achievement.unlockedAt ? "★" : "☆"} {achievement.title}</strong>
-                      <small>{achievement.description}</small>
-                    </div>
-                  ))}
-                  <div className="is-future">
-                    <strong>☆ Loja e pets</strong>
-                    <small>Cosméticos, pets e ranking online entram na próxima fase.</small>
-                  </div>
-                </div>
-              </article>
-            </div>
-
-            <footer className="sn-profile-footer-v20">
-              {profileToast && <span>{profileToast}</span>}
-              <button type="button" onClick={deletarPerfilLocal}>DELETAR CONTA LOCAL</button>
-            </footer>
-          </section>
-        </div>
       )}
 
       {keyBindPrompt && (
