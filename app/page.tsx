@@ -771,9 +771,7 @@ export default function Home() {
     setResultado("");
     const controller = new AbortController();
     const connectionProfile = getConnectionProfile();
-    const timeoutMs = connectionProfile.mobile
-      ? MOBILE_ANALYSIS_TIMEOUT_MS
-      : ANALYSIS_TIMEOUT_MS;
+    const timeoutMs = ANALYSIS_TIMEOUT_MS;
     const timeoutId = window.setTimeout(() => {
       controller.abort(
         new DOMException(
@@ -796,7 +794,7 @@ export default function Home() {
           spaceNewsCode: payload?.code ?? null,
           // Mobile não usa mais modo rápido automaticamente: isso causava respostas diferentes do PC.
           // Só usa modo econômico quando o próprio navegador informa economia de dados.
-          preferFast: connectionProfile.saveData,
+          preferFast: false,
           clientProfile: connectionProfile,
         }),
       });
@@ -899,7 +897,7 @@ export default function Home() {
         );
       } else if (foiTimeout || status === 504 || codigo === "ia_timeout") {
         setResultado(
-          "⏳ A análise ultrapassou o tempo de espera. Ativei um modo mais leve para celular/conexão lenta; tente novamente com uma entrada um pouco menor ou aguarde alguns segundos.",
+          "⏳ A análise ultrapassou o tempo de espera. Mantive o mesmo modo de análise do PC para evitar respostas diferentes; tente novamente com uma entrada um pouco menor ou aguarde alguns segundos.",
         );
       } else if (
         codigo === "campo_link_incorreto" ||

@@ -97,6 +97,7 @@ type ExtraSection = "home" | "credits" | "wiki" | "records";
 
 type LeaderboardEntry = {
   id: string;
+  profileId?: string;
   name: string;
   score: number;
   wave: number;
@@ -492,6 +493,46 @@ type LocalAchievement = {
   unlockedAt?: number;
 };
 
+type ShopSlot = "front" | "middle" | "pet" | "recolor";
+
+type ShopBuffs = {
+  speed?: number;
+  shotSpeed?: number;
+  damage?: number;
+  maxHp?: number;
+  size?: number;
+  regenSeconds?: number;
+  magnet?: number;
+  extraEnemies?: number;
+  dodgeCooldown?: number;
+  flames?: number;
+  defense?: number;
+  waveSkipChance?: number;
+  freezeOnStart?: number;
+};
+
+type ShopItem = {
+  id: string;
+  name: string;
+  slot: ShopSlot;
+  price: number;
+  rarity: "basic" | "rare" | "epic" | "event" | "legendary";
+  description: string;
+  asset: string;
+  dodgeAsset?: string;
+  frames?: string[];
+  buffs?: ShopBuffs;
+  disabled?: boolean;
+  tag?: string;
+};
+
+type EquippedCosmetics = {
+  front?: string;
+  middle?: string;
+  pet?: string;
+  recolor?: string;
+};
+
 type LocalProfile = {
   id: string;
   name: string;
@@ -502,6 +543,8 @@ type LocalProfile = {
   friendRequests: LocalFriendRequest[];
   stats: LocalProfileStats;
   achievements: LocalAchievement[];
+  inventory: string[];
+  equipped: EquippedCosmetics;
   createdAt: number;
   updatedAt: number;
 };
@@ -1622,7 +1665,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.1.3";
+const SPACE_NEWS_VERSION = "2.2.0";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2870,6 +2913,38 @@ const SPACE_NEWS_OLD_PROFILE_KEY = "spaceNews.localProfile.v1";
 
 const PROFILE_COLOR_OPTIONS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9", "#facc15", "#67e8f9"];
 
+const SHOP_ITEMS: ShopItem[] = [
+  { id: "recolor-classic", name: "Nave Clássica", slot: "recolor", price: 0, rarity: "basic", description: "Visual padrão da nave Space News.", asset: "/game/shop/recolors/recolor-classic-idle.png", dodgeAsset: "/game/shop/recolors/recolor-classic-dodge.png" },
+  { id: "recolor-aurora", name: "Recolor Aurora", slot: "recolor", price: 80, rarity: "rare", description: "Pintura fria e brilhante. +tempo de power-ups, -defesa leve.", asset: "/game/shop/recolors/recolor-aurora-idle.png", dodgeAsset: "/game/shop/recolors/recolor-aurora-dodge.png", buffs: { defense: -0.04 } },
+  { id: "recolor-circus", name: "Nave do Circo", slot: "recolor", price: 95, rarity: "event", description: "Paleta circense para combinar com acessórios de palhaço.", asset: "/game/shop/recolors/recolor-circus-idle.png", dodgeAsset: "/game/shop/recolors/recolor-circus-dodge.png" },
+  { id: "front-lunar-hat", name: "Chapéu Lunar", slot: "front", price: 60, rarity: "basic", description: "Chapéu pequeno encaixado na ponta da nave.", asset: "/game/shop/accessories/front/front-lunar-hat.png", dodgeAsset: "/game/shop/accessories/front/front-lunar-hat-dodge.png" },
+  { id: "front-space-horn", name: "Chifre Espacial", slot: "front", price: 90, rarity: "rare", description: "Bico agressivo. +dano leve, -velocidade mínima.", asset: "/game/shop/accessories/front/front-space-horn.png", dodgeAsset: "/game/shop/accessories/front/front-space-horn-dodge.png", buffs: { damage: 0.06, speed: -0.02 } },
+  { id: "front-rinaldo-horn", name: "Chifre do Rinaldo", slot: "front", price: 120, rarity: "epic", description: "Chifre exagerado, mas balanceado. +dano, -tamanho visual leve.", asset: "/game/shop/accessories/front/front-rinaldo-horn.png", dodgeAsset: "/game/shop/accessories/front/front-rinaldo-horn-dodge.png", buffs: { damage: 0.09, size: 0.03 } },
+  { id: "front-sonic-fin", name: "Barbatana Sonic", slot: "front", price: 110, rarity: "epic", description: "Muda a ponta da nave. +velocidade, -defesa leve.", asset: "/game/shop/accessories/front/front-sonic-fin.png", dodgeAsset: "/game/shop/accessories/front/front-sonic-fin-dodge.png", buffs: { speed: 0.07, defense: -0.05 } },
+  { id: "front-parabolic", name: "Antena Parabólica", slot: "front", price: 85, rarity: "rare", description: "Melhora rastreio dos sinais e combina com tiros teleguiados.", asset: "/game/shop/accessories/front/front-parabolic.png", dodgeAsset: "/game/shop/accessories/front/front-parabolic-dodge.png", buffs: { shotSpeed: 0.03 } },
+  { id: "middle-mahoraga-ring", name: "Anel Branco Orbital", slot: "middle", price: 150, rarity: "legendary", description: "Um aro branco giratório, inspirado em energia cósmica. +dano, -velocidade.", asset: "/game/shop/accessories/middle/middle-mahoraga-ring.png", dodgeAsset: "/game/shop/accessories/middle/middle-mahoraga-ring-dodge.png", buffs: { damage: 0.1, speed: -0.04 } },
+  { id: "middle-giant-cap", name: "Touca Gigante", slot: "middle", price: 100, rarity: "rare", description: "Grande, engraçada e sem cobrir a nave toda.", asset: "/game/shop/accessories/middle/middle-giant-cap.png", dodgeAsset: "/game/shop/accessories/middle/middle-giant-cap-dodge.png", buffs: { maxHp: 1, speed: -0.04 } },
+  { id: "middle-bat-wings", name: "Asas de Morcego", slot: "middle", price: 130, rarity: "event", description: "Halloween 2026. +velocidade, -dodge um pouco mais lento.", asset: "/game/shop/accessories/middle/middle-bat-wings.png", dodgeAsset: "/game/shop/accessories/middle/middle-bat-wings-dodge.png", buffs: { speed: 0.06, dodgeCooldown: 0.08 }, tag: "HALLOWEEN 2026" },
+  { id: "middle-clown-kit", name: "Kit Palhaço", slot: "middle", price: 75, rarity: "event", description: "Cabelo e nariz de palhaço para a Nave do Circo.", asset: "/game/shop/accessories/middle/middle-clown-kit.png", dodgeAsset: "/game/shop/accessories/middle/middle-clown-kit-dodge.png" },
+  { id: "middle-extra-arms", name: "Armamento Extra", slot: "middle", price: 170, rarity: "legendary", description: "Duas mini-naves decorativas. +velocidade de tiro, -velocidade, +vida.", asset: "/game/shop/accessories/middle/middle-extra-arms.png", dodgeAsset: "/game/shop/accessories/middle/middle-extra-arms-dodge.png", buffs: { shotSpeed: 0.12, speed: -0.05, maxHp: 1 } },
+  { id: "pet-star", name: "Pet Estrela", slot: "pet", price: 90, rarity: "rare", description: "+velocidade. Fica flutuando perto da nave.", asset: "/game/shop/pets/pet-star-0.png", frames: ["/game/shop/pets/pet-star-0.png", "/game/shop/pets/pet-star-1.png", "/game/shop/pets/pet-star-2.png", "/game/shop/pets/pet-star-3.png"], buffs: { speed: 0.08 } },
+  { id: "pet-comet", name: "Pet Cometa", slot: "pet", price: 100, rarity: "rare", description: "+vida, -velocidade. Deixa uma cauda suave.", asset: "/game/shop/pets/pet-comet-0.png", frames: ["/game/shop/pets/pet-comet-0.png", "/game/shop/pets/pet-comet-1.png", "/game/shop/pets/pet-comet-2.png", "/game/shop/pets/pet-comet-3.png"], buffs: { maxHp: 1, speed: -0.05 } },
+  { id: "pet-black-hole", name: "Pet Buraco Negro", slot: "pet", price: 220, rarity: "legendary", description: "+dano e magnetismo leve, -velocidade, tamanho maior.", asset: "/game/shop/pets/pet-black-hole-0.png", frames: ["/game/shop/pets/pet-black-hole-0.png", "/game/shop/pets/pet-black-hole-1.png", "/game/shop/pets/pet-black-hole-2.png", "/game/shop/pets/pet-black-hole-3.png"], buffs: { damage: 0.12, magnet: 0.18, speed: -0.08, size: 0.05 } },
+  { id: "pet-earth", name: "Pet Terra", slot: "pet", price: 210, rarity: "legendary", description: "+1 vida e regeneração lenta. Invoca mais desafio.", asset: "/game/shop/pets/pet-earth-0.png", frames: ["/game/shop/pets/pet-earth-0.png", "/game/shop/pets/pet-earth-1.png", "/game/shop/pets/pet-earth-2.png", "/game/shop/pets/pet-earth-3.png"], buffs: { maxHp: 1, regenSeconds: 25, extraEnemies: 0.06 } },
+  { id: "pet-moon", name: "Pet Lua", slot: "pet", price: 180, rarity: "epic", description: "Tiros ganham assistência quando a vida está baixa.", asset: "/game/shop/pets/pet-moon-0.png", frames: ["/game/shop/pets/pet-moon-0.png", "/game/shop/pets/pet-moon-1.png", "/game/shop/pets/pet-moon-2.png", "/game/shop/pets/pet-moon-3.png"] },
+  { id: "pet-white-hole", name: "Pet Buraco Branco", slot: "pet", price: 160, rarity: "epic", description: "+velocidade e tamanho menor, -dano.", asset: "/game/shop/pets/pet-white-hole-0.png", frames: ["/game/shop/pets/pet-white-hole-0.png", "/game/shop/pets/pet-white-hole-1.png", "/game/shop/pets/pet-white-hole-2.png", "/game/shop/pets/pet-white-hole-3.png"], buffs: { speed: 0.09, damage: -0.06, size: -0.04 } },
+  { id: "pet-wormhole", name: "Pet Buraco de Minhoca", slot: "pet", price: 190, rarity: "epic", description: "+velocidade e tiro, -vida e dodge.", asset: "/game/shop/pets/pet-wormhole-0.png", frames: ["/game/shop/pets/pet-wormhole-0.png", "/game/shop/pets/pet-wormhole-1.png", "/game/shop/pets/pet-wormhole-2.png", "/game/shop/pets/pet-wormhole-3.png"], buffs: { speed: 0.09, shotSpeed: 0.1, maxHp: -1, dodgeCooldown: 0.12 } },
+  { id: "pet-alien", name: "Pet Nave Alienígena", slot: "pet", price: 150, rarity: "rare", description: "Regenera energia de boost mais rápido.", asset: "/game/shop/pets/pet-alien-0.png", frames: ["/game/shop/pets/pet-alien-0.png", "/game/shop/pets/pet-alien-1.png", "/game/shop/pets/pet-alien-2.png", "/game/shop/pets/pet-alien-3.png"], buffs: { speed: 0.03 } },
+  { id: "pet-satellite", name: "Pet Satélite", slot: "pet", price: 200, rarity: "legendary", description: "Chance baixa de pular wave, mas remove dodge enquanto equipado.", asset: "/game/shop/pets/pet-satellite-0.png", frames: ["/game/shop/pets/pet-satellite-0.png", "/game/shop/pets/pet-satellite-1.png", "/game/shop/pets/pet-satellite-2.png", "/game/shop/pets/pet-satellite-3.png"], buffs: { waveSkipChance: 0.015, dodgeCooldown: 1 } },
+  { id: "pet-tundra", name: "Pet Tundra", slot: "pet", price: 185, rarity: "epic", description: "Congela inimigos ao início da run e reduz um pouco a pressão.", asset: "/game/shop/pets/pet-tundra-0.png", frames: ["/game/shop/pets/pet-tundra-0.png", "/game/shop/pets/pet-tundra-1.png", "/game/shop/pets/pet-tundra-2.png", "/game/shop/pets/pet-tundra-3.png"], buffs: { freezeOnStart: 1 } },
+  { id: "pet-sun", name: "Pet Sol", slot: "pet", price: 180, rarity: "epic", description: "+tamanho e tempo do lança-chamas.", asset: "/game/shop/pets/pet-sun-0.png", frames: ["/game/shop/pets/pet-sun-0.png", "/game/shop/pets/pet-sun-1.png", "/game/shop/pets/pet-sun-2.png", "/game/shop/pets/pet-sun-3.png"], buffs: { flames: 0.18 } },
+  { id: "pet-milky-way", name: "Pet Via Láctea", slot: "pet", price: 260, rarity: "legendary", description: "+buff geral, invoca mais inimigos e aumenta tamanho.", asset: "/game/shop/pets/pet-milky-way-0.png", frames: ["/game/shop/pets/pet-milky-way-0.png", "/game/shop/pets/pet-milky-way-1.png", "/game/shop/pets/pet-milky-way-2.png", "/game/shop/pets/pet-milky-way-3.png"], buffs: { speed: 0.04, damage: 0.06, maxHp: 1, size: 0.04, extraEnemies: 0.08 } },
+];
+
+const SHOP_DEFAULT_OWNED = ["recolor-classic"];
+const SHOP_SLOTS: ShopSlot[] = ["recolor", "front", "middle", "pet"];
+const SHOP_SLOT_LABEL: Record<ShopSlot, string> = { recolor: "RECOLOR", front: "FRENTE", middle: "MEIO", pet: "PET" };
+
 const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
   { id: "first-token", title: "Primeiro Token", description: "Coletou sua primeira moeda de transmissão." },
   { id: "ten-tokens", title: "Colecionador", description: "Acumulou 10 tokens no perfil." },
@@ -2930,6 +3005,8 @@ function criarPerfilLocalPadrao(): LocalProfile {
     friendRequests: [],
     stats: criarStatsPerfilPadrao(),
     achievements: normalizarConquistasPerfil(),
+    inventory: [...SHOP_DEFAULT_OWNED],
+    equipped: { recolor: "recolor-classic" },
     createdAt: now,
     updatedAt: now,
   };
@@ -2980,6 +3057,14 @@ function carregarPerfilLocalInicial(): LocalProfile {
         bestInfiniteScore: Math.max(0, Math.floor(Number(parsedStats.bestInfiniteScore ?? 0))),
       },
       achievements: normalizarConquistasPerfil(parsed.achievements),
+      inventory: Array.from(new Set([
+        ...SHOP_DEFAULT_OWNED,
+        ...(Array.isArray((parsed as Partial<LocalProfile>).inventory) ? ((parsed as Partial<LocalProfile>).inventory as string[]) : []),
+      ].map(String).filter(Boolean))),
+      equipped: {
+        ...fallback.equipped,
+        ...(((parsed as Partial<LocalProfile>).equipped || {}) as EquippedCosmetics),
+      },
       updatedAt: Number(parsed.updatedAt || Date.now()),
     };
   } catch {
@@ -3161,7 +3246,9 @@ export default function JogoPage() {
   const [localProfile, setLocalProfile] = useState<LocalProfile>(() => carregarPerfilLocalInicial());
   const [profileManagerOpen, setProfileManagerOpen] = useState(false);
   const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
+  const [shopTab, setShopTab] = useState<ShopSlot>("front");
   const [profileToast, setProfileToast] = useState("");
+  const [achievementPopup, setAchievementPopup] = useState<LocalAchievement | null>(null);
   const [inviteFriendsOpen, setInviteFriendsOpen] = useState(false);
   const [tokensVisibleUntil, setTokensVisibleUntil] = useState(0);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
@@ -3316,7 +3403,7 @@ export default function JogoPage() {
   const onlineSnapshotBufferRef = useRef<OnlineGameplaySnapshot[]>([]);
   const onlineLastAppliedSnapshotTickRef = useRef(0);
   const onlineLastAppliedSnapshotSeqRef = useRef(0);
-  const onlineRenderDelayMsRef = useRef(28);
+  const onlineRenderDelayMsRef = useRef(12);
   const onlineHardCatchUpDelayMsRef = useRef(180);
   const onlinePredictedBoostReadyAtRef = useRef(0);
   const onlinePauseRequestedByRef = useRef<number | null>(null);
@@ -3354,10 +3441,16 @@ export default function JogoPage() {
   const tokenSpriteReadyRef = useRef(false);
   const tokenFrameImagesRef = useRef<HTMLImageElement[]>([]);
   const tokenUiPulseUntilRef = useRef(0);
+  const shopImagesRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const petFrameRef = useRef(0);
+  const lastPetFrameAtRef = useRef(0);
+  const lastPassiveRegenAtRef = useRef(0);
   const profilePlayTickRef = useRef(performance.now());
   const onlineEventOverlayIdRef = useRef(0);
   const onlineVisualEventSeqRef = useRef(0);
   const onlineVisualEventLogRef = useRef<OnlineVisualEvent[]>([]);
+  const lastDeviceRefreshAtRef = useRef(0);
+  const achievementPopupTimerRef = useRef<number | null>(null);
   const onlineSeenVisualEventsRef = useRef<Set<number>>(new Set());
   const fireRateUntilRef = useRef(0);
   const powerShotUntilRef = useRef(0);
@@ -4493,11 +4586,19 @@ export default function JogoPage() {
       const strictOnline = onlineGameplayActiveRef.current && !souHostOnline();
       const bumpLike = velocityDrift > 2.4 || dist > 10 || Math.abs(Number(incoming.throwVx ?? 0)) > 0.1 || Math.abs(Number(incoming.throwVy ?? 0)) > 0.1;
       if (strictOnline) {
-        const blend = dist > 360 ? 0.82 : dist > 160 ? 0.58 : dist > 58 ? 0.38 : dist > 12 ? 0.24 : dist > 3 ? 0.12 : 0;
-        target.x = oldX + dx * blend;
-        target.y = oldY + dy * blend;
-        target.vx = oldVx * 0.34 + incomingVx * 0.66;
-        target.vy = oldVy * 0.34 + incomingVy * 0.66;
+        if (bumpLike) {
+          const bumpBlend = dist > 180 ? 0.74 : dist > 72 ? 0.56 : 0.36;
+          target.x = oldX + dx * bumpBlend;
+          target.y = oldY + dy * bumpBlend;
+          target.vx = oldVx * 0.2 + incomingVx * 0.8;
+          target.vy = oldVy * 0.2 + incomingVy * 0.8;
+        } else {
+          const blend = dist > 320 ? 0.62 : dist > 160 ? 0.3 : dist > 64 ? 0.16 : dist > 20 ? 0.08 : 0;
+          target.x = oldX + dx * blend;
+          target.y = oldY + dy * blend;
+          target.vx = oldVx * 0.5 + incomingVx * 0.5;
+          target.vy = oldVy * 0.5 + incomingVy * 0.5;
+        }
       } else if (dist > 760) {
         target.x = oldX + dx * 0.45;
         target.y = oldY + dy * 0.45;
@@ -4626,20 +4727,27 @@ export default function JogoPage() {
     const incomingTokens = Array.isArray(snapshot.tokens) ? snapshot.tokens : [];
 
     const shotIds = new Set(incomingShots.map((shot) => shot.id));
+    let syncShotSounds = 0;
     for (const shot of incomingShots) {
       if (shotsRef.current.some((old) => old.id === shot.id)) continue;
       if ((shot.ownerId ?? 0) === onlineSlotRef.current) continue;
-      tocarSom(shot.type === "strong" ? CONFIG.sounds.strongShot : CONFIG.sounds.normalShot, shot.type === "strong" ? 0.32 : 0.2, "sfx");
+      if (syncShotSounds >= 2) break;
+      syncShotSounds += 1;
+      tocarSom(shot.type === "strong" ? CONFIG.sounds.strongShot : CONFIG.sounds.normalShot, shot.type === "strong" ? 0.28 : 0.18, "sfx");
     }
 
     const nextEnemyIds = new Set(incomingEnemies.map((enemy) => enemy.id));
+    let syncExplosions = 0;
     for (const oldEnemy of enemiesRef.current) {
       if (nextEnemyIds.has(oldEnemy.id)) continue;
       const cx = oldEnemy.x + oldEnemy.w / 2;
       const cy = oldEnemy.y + oldEnemy.h / 2;
       if (cx < -60 || cx > CONFIG.canvasWidth + 60 || cy < -60 || cy > CONFIG.canvasHeight + 60) continue;
-      criarExplosao(cx, cy, oldEnemy.kind === "asteroid" ? "#d1d5db" : "#ffe18c", oldEnemy.kind === "asteroid" ? 8 : 13);
-      tocarSom(oldEnemy.kind === "asteroid" ? CONFIG.sounds.asteroidBreak : CONFIG.sounds.enemyDeath, 0.22, "hit");
+      if (syncExplosions < 3) {
+        syncExplosions += 1;
+        criarExplosao(cx, cy, oldEnemy.kind === "asteroid" ? "#d1d5db" : "#ffe18c", oldEnemy.kind === "asteroid" ? 7 : 11);
+        tocarSom(oldEnemy.kind === "asteroid" ? CONFIG.sounds.asteroidBreak : CONFIG.sounds.enemyDeath, 0.2, "hit");
+      }
     }
 
     for (const shot of shotsRef.current) {
@@ -4837,7 +4945,7 @@ export default function JogoPage() {
 
     buffer.push(snapshot);
     buffer.sort((a, b) => Number(a.tick ?? a.seq ?? 0) - Number(b.tick ?? b.seq ?? 0));
-    onlineSnapshotBufferRef.current = buffer.slice(-14);
+    onlineSnapshotBufferRef.current = buffer.slice(-8);
     onlineLatestSnapshotRef.current = onlineSnapshotBufferRef.current[onlineSnapshotBufferRef.current.length - 1] ?? snapshot;
   }
 
@@ -4867,7 +4975,7 @@ export default function JogoPage() {
 
     if (souHostOnline()) {
       // Snapshots menores em ~20 Hz com eventos visuais dedicados evitam fila no WebSocket e queda forte de FPS.
-      if (now - onlineLastSyncSentAtRef.current < 50) return;
+      if (now - onlineLastSyncSentAtRef.current < 42) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -4947,14 +5055,28 @@ export default function JogoPage() {
     window.setTimeout(() => setProfileToast((current) => current === message ? "" : current), 2200);
   }
 
+  function mostrarPopupConquista(achievement: LocalAchievement) {
+    setAchievementPopup(achievement);
+    if (achievementPopupTimerRef.current !== null) window.clearTimeout(achievementPopupTimerRef.current);
+    achievementPopupTimerRef.current = window.setTimeout(() => setAchievementPopup(null), 2800);
+  }
+
   function atualizarStatsPerfilLocal(updater: (stats: LocalProfileStats) => LocalProfileStats) {
     const current = localProfileRef.current;
     const nextStats = updater({ ...criarStatsPerfilPadrao(), ...current.stats });
     const now = Date.now();
     let achievements = normalizarConquistasPerfil(current.achievements);
-    const unlock = (id: string) => {
-      achievements = achievements.map((achievement) => achievement.id === id && !achievement.unlockedAt ? { ...achievement, unlockedAt: now } : achievement);
-    };
+    function unlock(id: string) {
+      let unlockedNow: LocalAchievement | null = null;
+      achievements = achievements.map((achievement) => {
+        if (achievement.id === id && !achievement.unlockedAt) {
+          unlockedNow = { ...achievement, unlockedAt: now };
+          return unlockedNow;
+        }
+        return achievement;
+      });
+      if (unlockedNow) mostrarPopupConquista(unlockedNow);
+    }
     if (current.tokens > 0 || nextStats.tokensCollected > 0) unlock("first-token");
     if (current.tokens >= 10 || nextStats.tokensCollected >= 10) unlock("ten-tokens");
     if (nextStats.enemiesKilled >= 1) unlock("first-kill");
@@ -5019,6 +5141,169 @@ export default function JogoPage() {
     setProfileManagerOpen(false);
   }
 
+  function itemShopPorId(id?: string) {
+    return SHOP_ITEMS.find((item) => item.id === id);
+  }
+
+  function perfilPossuiItem(id: string) {
+    return localProfileRef.current.inventory.includes(id);
+  }
+
+  function buffsCosmeticosEquipados(profile = localProfileRef.current): Required<ShopBuffs> {
+    const total: Required<ShopBuffs> = {
+      speed: 0,
+      shotSpeed: 0,
+      damage: 0,
+      maxHp: 0,
+      size: 0,
+      regenSeconds: 0,
+      magnet: 0,
+      extraEnemies: 0,
+      dodgeCooldown: 0,
+      flames: 0,
+      defense: 0,
+      waveSkipChance: 0,
+      freezeOnStart: 0,
+    };
+    for (const id of Object.values(profile.equipped || {})) {
+      const item = itemShopPorId(id);
+      if (!item?.buffs) continue;
+      for (const [key, value] of Object.entries(item.buffs) as Array<[keyof ShopBuffs, number]>) {
+        total[key] = (total[key] || 0) + Number(value || 0);
+      }
+    }
+    total.speed = clamp(total.speed, -0.25, 0.22);
+    total.shotSpeed = clamp(total.shotSpeed, -0.2, 0.24);
+    total.damage = clamp(total.damage, -0.18, 0.25);
+    total.maxHp = clamp(Math.round(total.maxHp), -2, 2);
+    total.size = clamp(total.size, -0.1, 0.12);
+    total.regenSeconds = total.regenSeconds > 0 ? clamp(total.regenSeconds, 18, 45) : 0;
+    total.dodgeCooldown = clamp(total.dodgeCooldown, -0.18, 1);
+    total.flames = clamp(total.flames, 0, 0.4);
+    total.defense = clamp(total.defense, -0.2, 0.2);
+    total.waveSkipChance = clamp(total.waveSkipChance, 0, 0.03);
+    return total;
+  }
+
+  function descricaoBuffs(item: ShopItem) {
+    const buffs = item.buffs || {};
+    const labels: string[] = [];
+    if (buffs.speed) labels.push(`${buffs.speed > 0 ? "+" : ""}${Math.round(buffs.speed * 100)}% velocidade`);
+    if (buffs.shotSpeed) labels.push(`${buffs.shotSpeed > 0 ? "+" : ""}${Math.round(buffs.shotSpeed * 100)}% velocidade dos tiros`);
+    if (buffs.damage) labels.push(`${buffs.damage > 0 ? "+" : ""}${Math.round(buffs.damage * 100)}% dano`);
+    if (buffs.maxHp) labels.push(`${buffs.maxHp > 0 ? "+" : ""}${buffs.maxHp} vida`);
+    if (buffs.size) labels.push(`${buffs.size > 0 ? "+" : ""}${Math.round(buffs.size * 100)}% tamanho`);
+    if (buffs.regenSeconds) labels.push(`regen a cada ${buffs.regenSeconds}s`);
+    if (buffs.dodgeCooldown) labels.push(`${buffs.dodgeCooldown >= 1 ? "sem dodge" : `${buffs.dodgeCooldown > 0 ? "+" : ""}${Math.round(buffs.dodgeCooldown * 100)}% cooldown dodge`}`);
+    if (buffs.waveSkipChance) labels.push(`${Math.round(buffs.waveSkipChance * 100)}% pular wave`);
+    return labels.length ? labels.join(" · ") : "Cosmético puro";
+  }
+
+  function comprarItemShop(item: ShopItem) {
+    if (item.disabled) {
+      mostrarToastPerfil("Item ainda não disponível.");
+      return;
+    }
+    const current = localProfileRef.current;
+    if (current.inventory.includes(item.id)) {
+      equiparItemShop(item);
+      return;
+    }
+    if (current.tokens < item.price) {
+      mostrarToastPerfil(`Faltam ${item.price - current.tokens} tokens.`);
+      return;
+    }
+    salvarPerfilLocal({
+      ...current,
+      tokens: current.tokens - item.price,
+      inventory: [...current.inventory, item.id],
+      equipped: { ...current.equipped, [item.slot]: item.id },
+      updatedAt: Date.now(),
+    });
+    mostrarToastPerfil(`${item.name} comprado e equipado.`);
+    tocarSom(CONFIG.sounds.tokenCollect || CONFIG.sounds.menuConfirm, 0.32, "menu");
+  }
+
+  function equiparItemShop(item: ShopItem) {
+    const current = localProfileRef.current;
+    if (!current.inventory.includes(item.id)) return;
+    salvarPerfilLocal({
+      ...current,
+      equipped: { ...current.equipped, [item.slot]: item.id },
+      updatedAt: Date.now(),
+    });
+    mostrarToastPerfil(`${item.name} equipado.`);
+    tocarSom(CONFIG.sounds.menuConfirm, 0.3, "menu");
+  }
+
+  function desequiparSlotShop(slot: ShopSlot) {
+    const current = localProfileRef.current;
+    if (slot === "recolor") {
+      salvarPerfilLocal({ ...current, equipped: { ...current.equipped, recolor: "recolor-classic" }, updatedAt: Date.now() });
+      return;
+    }
+    const nextEquipped = { ...current.equipped };
+    delete nextEquipped[slot];
+    salvarPerfilLocal({ ...current, equipped: nextEquipped, updatedAt: Date.now() });
+  }
+
+  function imagemShop(src?: string) {
+    if (!src || typeof window === "undefined") return null;
+    const cache = shopImagesRef.current;
+    const cached = cache.get(src);
+    if (cached) return cached.complete && cached.naturalWidth > 0 ? cached : null;
+    const img = new Image();
+    img.src = assetUrl(src);
+    cache.set(src, img);
+    return null;
+  }
+
+  function assetCosmetico(item: ShopItem | undefined, dodge = false) {
+    if (!item) return null;
+    return imagemShop(dodge ? item.dodgeAsset || item.asset : item.asset);
+  }
+
+  function desenharCosmeticosNave(ctx: CanvasRenderingContext2D, player: Player, options?: { dodge?: boolean; alpha?: number }) {
+    const profile = localProfileRef.current;
+    const equipped = profile.equipped || {};
+    const now = performance.now();
+    const dodge = Boolean(options?.dodge);
+    const alpha = options?.alpha ?? 1;
+    const drawFull = (itemId?: string) => {
+      const item = itemShopPorId(itemId);
+      const img = assetCosmetico(item, dodge);
+      if (!img) return;
+      ctx.save();
+      ctx.globalAlpha *= alpha;
+      ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+      ctx.restore();
+    };
+    const recolor = itemShopPorId(equipped.recolor);
+    if (recolor && recolor.id !== "recolor-classic") drawFull(recolor.id);
+    drawFull(equipped.middle);
+    drawFull(equipped.front);
+
+    const pet = itemShopPorId(equipped.pet);
+    if (pet) {
+      const frames = pet.frames?.length ? pet.frames : [pet.asset];
+      if (now - lastPetFrameAtRef.current > 120) {
+        petFrameRef.current = (petFrameRef.current + 1) % frames.length;
+        lastPetFrameAtRef.current = now;
+      }
+      const img = imagemShop(frames[petFrameRef.current] || pet.asset);
+      if (img) {
+        const bob = Math.sin(now * 0.004) * 5;
+        const petSize = Math.max(28, Math.min(46, player.h * 0.38));
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.shadowColor = "rgba(250, 204, 21, .55)";
+        ctx.shadowBlur = 10;
+        ctx.drawImage(img, -player.w * 0.64, -player.h * 0.48 + bob, petSize, petSize);
+        ctx.restore();
+      }
+    }
+  }
+
   function mostrarTokensPorTempo(ms = 1050) {
     const until = performance.now() + ms;
     tokensVisibleUntilRef.current = until;
@@ -5037,9 +5322,20 @@ export default function JogoPage() {
       tokensCollected: Math.max(0, Math.floor((current.stats?.tokensCollected ?? 0) + safeAmount)),
     };
     let achievements = normalizarConquistasPerfil(current.achievements);
-    if (nextTokens > 0 || nextStats.tokensCollected > 0) achievements = achievements.map((item) => item.id === "first-token" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
-    if (nextTokens >= 10 || nextStats.tokensCollected >= 10) achievements = achievements.map((item) => item.id === "ten-tokens" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
-    if (nextTokens >= 100 || nextStats.tokensCollected >= 100) achievements = achievements.map((item) => item.id === "hundred-tokens" && !item.unlockedAt ? { ...item, unlockedAt: now } : item);
+    function unlockTokenAchievement(id: string) {
+      let unlockedNow: LocalAchievement | null = null;
+      achievements = achievements.map((item) => {
+        if (item.id === id && !item.unlockedAt) {
+          unlockedNow = { ...item, unlockedAt: now };
+          return unlockedNow;
+        }
+        return item;
+      });
+      if (unlockedNow) mostrarPopupConquista(unlockedNow);
+    }
+    if (nextTokens > 0 || nextStats.tokensCollected > 0) unlockTokenAchievement("first-token");
+    if (nextTokens >= 10 || nextStats.tokensCollected >= 10) unlockTokenAchievement("ten-tokens");
+    if (nextTokens >= 100 || nextStats.tokensCollected >= 100) unlockTokenAchievement("hundred-tokens");
     salvarPerfilLocal({
       ...current,
       tokens: nextTokens,
@@ -6654,6 +6950,7 @@ export default function JogoPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          profileId: localProfileRef.current.id,
           name: entry.name,
           score: entry.score,
           wave: entry.wave,
@@ -10866,6 +11163,7 @@ export default function JogoPage() {
       );
       if (mode === "performance") return true;
       if (mode === "quality") return false;
+      if (onlineGameplayActiveRef.current && adaptivePerformanceRef.current.reduced) return true;
       return lowHardware || adaptivePerformanceRef.current.reduced;
     }
 
@@ -11153,7 +11451,8 @@ export default function JogoPage() {
       }
       const powerActive = powerShotUntilRef.current > now;
       const homingActive = homingShotUntilRef.current > now;
-      const shotSpeed = CONFIG.gameplay.shots.normal.speed;
+      const shopBuffs = buffsCosmeticosEquipados();
+      const shotSpeed = CONFIG.gameplay.shots.normal.speed * (1 + shopBuffs.shotSpeed);
       const shotW = powerActive
         ? CONFIG.gameplay.powerups.powerShotWidth
         : CONFIG.gameplay.shots.normal.width;
@@ -11180,7 +11479,7 @@ export default function JogoPage() {
             (powerActive
               ? CONFIG.gameplay.powerups.powerShotDamageMultiplier
               : 1) +
-          bonusDanoInfinito()) * danoLocalPorJogador(),
+          bonusDanoInfinito()) * danoLocalPorJogador() * (1 + shopBuffs.damage),
         type: "normal",
         variant:
           powerActive && homingActive
@@ -11206,6 +11505,8 @@ export default function JogoPage() {
       const player = playerRef.current;
       const now = performance.now();
       const dir = normalizarDirecao(dirXParam, dirYParam);
+      const shopBuffsStrong = buffsCosmeticosEquipados();
+      const strongSpeed = CONFIG.gameplay.shots.strong.speed * (1 + shopBuffsStrong.shotSpeed);
 
       if (isLocalWaveMode() && player.hp <= 0) return;
 
@@ -11226,11 +11527,11 @@ export default function JogoPage() {
         y: player.y + player.h / 2 - CONFIG.gameplay.shots.strong.height / 2,
         w: CONFIG.gameplay.shots.strong.width,
         h: CONFIG.gameplay.shots.strong.height,
-        speed: CONFIG.gameplay.shots.strong.speed,
-        damage: (CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito()) * danoLocalPorJogador(),
+        speed: strongSpeed,
+        damage: (CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito()) * danoLocalPorJogador() * (1 + shopBuffsStrong.damage),
         type: "strong",
-        vx: dir.x * CONFIG.gameplay.shots.strong.speed,
-        vy: dir.y * CONFIG.gameplay.shots.strong.speed,
+        vx: dir.x * strongSpeed,
+        vy: dir.y * strongSpeed,
       });
 
       tocarSom(CONFIG.sounds.strongShot, 0.5, "sfx");
@@ -11537,6 +11838,8 @@ export default function JogoPage() {
         ctx.fillStyle = CONFIG.colors.playerDetail;
         ctx.fillRect(player.w * 0.12, -7, 14, 14);
       }
+
+      desenharCosmeticosNave(ctx, player, { dodge: isDodging, alpha: ghostLocal ? 0.42 : 1 });
 
       if (isDodging && !dodgeAsset && Math.floor(now / 70) % 2 === 0) {
         ctx.save();
@@ -12277,6 +12580,8 @@ export default function JogoPage() {
         ctx.closePath();
         ctx.fill();
       }
+      desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.3 : 0.88 });
+
       if (shieldVisual) {
         const t = now * 0.006;
         ctx.save();
@@ -15488,12 +15793,29 @@ export default function JogoPage() {
         performance.now() < slowPlayerUntilRef.current
           ? CONFIG.gameplay.powerups.randomBadSlowMultiplier
           : 1;
-      const effectiveAcceleration =
+      const equippedBuffs = buffsCosmeticosEquipados();
+      let effectiveAcceleration =
         CONFIG.gameplay.player.acceleration * slowMultiplier;
-      const effectiveMaxSpeedX =
+      let effectiveMaxSpeedX =
         CONFIG.gameplay.player.maxSpeedX * slowMultiplier;
-      const effectiveMaxSpeedY =
+      let effectiveMaxSpeedY =
         CONFIG.gameplay.player.maxSpeedY * slowMultiplier;
+      if (!isLocalPvpMode()) {
+        effectiveAcceleration *= 1 + equippedBuffs.speed * 0.45;
+        effectiveMaxSpeedX *= 1 + equippedBuffs.speed;
+        effectiveMaxSpeedY *= 1 + equippedBuffs.speed * 0.82;
+      }
+
+      if (!isTutorialMode && !isLocalPvpMode() && equippedBuffs.regenSeconds > 0 && player.hp > 0) {
+        const maxBuffHp = Math.max(1, CONFIG.gameplay.player.maxHp + equippedBuffs.maxHp);
+        const nowRegen = performance.now();
+        if (player.hp < maxBuffHp && nowRegen - lastPassiveRegenAtRef.current >= equippedBuffs.regenSeconds * 1000) {
+          lastPassiveRegenAtRef.current = nowRegen;
+          player.hp = Math.min(maxBuffHp, player.hp + 1);
+          setPlayerHp(player.hp);
+          criarParticulasHit(player.x + player.w * .5, player.y + player.h * .5, "#86efac", 10);
+        }
+      }
 
       if (!isTutorialMode && bossIntroSequenceRef.current.active) {
         atualizarCutsceneChocado(delta);
@@ -16134,7 +16456,10 @@ export default function JogoPage() {
       lastTime = time;
 
       atualizarEstadoGamepad();
-      atualizarDispositivosDisponiveis();
+      if (time - lastDeviceRefreshAtRef.current > 850) {
+        lastDeviceRefreshAtRef.current = time;
+        atualizarDispositivosDisponiveis();
+      }
       processarEntradaGamepadGlobal();
       enviarInputOnlineAtual();
 
@@ -16163,8 +16488,10 @@ export default function JogoPage() {
             adaptive.highSamples = Math.max(0, adaptive.highSamples - 1);
           }
 
-          if (adaptive.lowSamples >= 2) adaptive.reduced = true;
-          if (adaptive.highSamples >= 4) adaptive.reduced = false;
+          const lowThreshold = onlineGameplayActiveRef.current ? 1 : 2;
+          const highThreshold = onlineGameplayActiveRef.current ? 3 : 4;
+          if (adaptive.lowSamples >= lowThreshold) adaptive.reduced = true;
+          if (adaptive.highSamples >= highThreshold) adaptive.reduced = false;
         }
 
         if (CONFIG.settings.showFps) setFpsUi(fpsCounter.value);
@@ -16293,6 +16620,7 @@ export default function JogoPage() {
       }
 
       keysRef.current[key] = true;
+      if (onlineGameplayActiveRef.current) enviarInputOnlineAtual(true);
 
       if (
         [
@@ -16681,6 +17009,7 @@ export default function JogoPage() {
     function keyUp(e: KeyboardEvent) {
       const key = e.key.toLowerCase();
       keysRef.current[key] = false;
+      if (onlineGameplayActiveRef.current) enviarInputOnlineAtual(true);
 
       if (
         key ===
@@ -16714,7 +17043,8 @@ export default function JogoPage() {
     "--game-ui-font": CONFIG.fonts.ui,
   };
 
-  const normalLifeSlots = Array.from({ length: CONFIG.gameplay.player.maxHp });
+  const profileBuffsForHud = buffsCosmeticosEquipados(localProfile);
+  const normalLifeSlots = Array.from({ length: Math.max(CONFIG.gameplay.player.maxHp, CONFIG.gameplay.player.maxHp + Math.max(0, profileBuffsForHud.maxHp)) });
   const goldenLifeSlots = Array.from({ length: goldenHp });
 
   const nowForVisualEffects = visualEffectNow;
@@ -17091,6 +17421,14 @@ export default function JogoPage() {
         <div className={`sn-token-counter-v20 ${tokenUiPulseUntilRef.current > performance.now() ? "is-pulsing" : ""}`} aria-label="Tokens do perfil">
           <span className="sn-token-icon-v20" aria-hidden="true" />
           <strong><span>X</span>{localProfile.tokens}</strong>
+        </div>
+      )}
+
+      {achievementPopup && (
+        <div className="sn-achievement-popup-v214" aria-live="polite">
+          <span>CONQUISTA DESBLOQUEADA</span>
+          <strong>{achievementPopup.title}</strong>
+          <small>{achievementPopup.description}</small>
         </div>
       )}
 
@@ -18467,6 +18805,63 @@ export default function JogoPage() {
                 <div className="sn-profile-token-line-v20">
                   <span className="sn-token-icon-v20" />
                   <strong><span>X</span>{localProfile.tokens}</strong>
+                </div>
+              </article>
+
+              <article className="sn-profile-card-v20 sn-shop-card-v220">
+                <div className="sn-shop-head-v220">
+                  <div>
+                    <h3>SHOP & CUSTOMIZAÇÃO</h3>
+                    <p className="sn-profile-muted-v20">Compre com tokens, equipe por slot e veja os buffs balanceados. Sprites acompanham squish/squash da nave.</p>
+                  </div>
+                  <strong><span className="sn-token-icon-v20" /> X{localProfile.tokens}</strong>
+                </div>
+                <div className="sn-shop-tabs-v220">
+                  {SHOP_SLOTS.map((slot) => (
+                    <button type="button" key={slot} className={shopTab === slot ? "is-active" : ""} onClick={() => setShopTab(slot)}>
+                      {SHOP_SLOT_LABEL[slot]}
+                    </button>
+                  ))}
+                </div>
+                <div className="sn-shop-equipped-v220">
+                  {SHOP_SLOTS.map((slot) => {
+                    const equipped = itemShopPorId(localProfile.equipped?.[slot]);
+                    return (
+                      <span key={slot}>
+                        <b>{SHOP_SLOT_LABEL[slot]}</b>
+                        <em>{equipped?.name || "VAZIO"}</em>
+                        {slot !== "recolor" && equipped && (
+                          <button type="button" onClick={() => desequiparSlotShop(slot)}>tirar</button>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="sn-shop-grid-v220">
+                  {SHOP_ITEMS.filter((item) => item.slot === shopTab).map((item) => {
+                    const owned = localProfile.inventory.includes(item.id);
+                    const equipped = localProfile.equipped?.[item.slot] === item.id;
+                    return (
+                      <article key={item.id} className={`is-${item.rarity} ${equipped ? "is-equipped" : ""}`}>
+                        <div className="sn-shop-preview-v220">
+                          <img src={assetUrl(item.asset)} alt="" onError={(event) => { event.currentTarget.style.opacity = "0"; }} />
+                        </div>
+                        <div className="sn-shop-info-v220">
+                          <small>{item.tag || item.rarity.toUpperCase()}</small>
+                          <strong>{item.name}</strong>
+                          <p>{item.description}</p>
+                          <em>{descricaoBuffs(item)}</em>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={item.disabled}
+                          onClick={() => owned ? equiparItemShop(item) : comprarItemShop(item)}
+                        >
+                          {equipped ? "EQUIPADO" : owned ? "EQUIPAR" : `COMPRAR X${item.price}`}
+                        </button>
+                      </article>
+                    );
+                  })}
                 </div>
               </article>
 

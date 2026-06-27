@@ -19629,3 +19629,194 @@ body.reduce-motion .game-pause-card button {
   transform: translateY(-1px);
   background: rgba(255, 214, 102, 0.12);
 }
+
+/* v2.1.4 tweaks */
+.sn-token-counter-v20 {
+  top: 18px !important;
+  left: 176px !important;
+  right: auto !important;
+  min-width: 96px;
+  padding: 8px 12px 8px 10px !important;
+  border-radius: 14px !important;
+  background: linear-gradient(180deg, rgba(9,14,32,.94), rgba(7,10,26,.88)) !important;
+  border: 2px solid rgba(244, 200, 93, .65) !important;
+  box-shadow: 0 8px 18px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.05) inset !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  z-index: 25 !important;
+}
+.sn-token-counter-v20 strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: .92rem !important;
+}
+.sn-token-counter-v20 strong span { opacity: .72; }
+.sn-token-icon-v20 {
+  width: 20px !important;
+  height: 20px !important;
+}
+@media (max-width: 900px) {
+  .sn-token-counter-v20 {
+    left: 150px !important;
+    top: 16px !important;
+    min-width: 86px;
+    padding: 7px 10px !important;
+  }
+}
+.sn-achievement-popup-v214 {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 120;
+  min-width: min(86vw, 360px);
+  max-width: min(90vw, 420px);
+  padding: 12px 18px;
+  border-radius: 16px;
+  border: 2px solid rgba(239, 199, 86, .85);
+  background: linear-gradient(180deg, rgba(14,18,40,.96), rgba(8,12,27,.92));
+  box-shadow: 0 18px 48px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.05) inset;
+  color: #fff8ea;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: sn-achievement-popup-in-v214 .24s ease-out both;
+  text-align: center;
+  pointer-events: none;
+}
+.sn-achievement-popup-v214 span {
+  font-size: .66rem;
+  letter-spacing: .16em;
+  color: #f7cf65;
+}
+.sn-achievement-popup-v214 strong {
+  font-size: 1rem;
+  letter-spacing: .04em;
+}
+.sn-achievement-popup-v214 small {
+  font-size: .77rem;
+  color: rgba(255,248,234,.82);
+}
+@keyframes sn-achievement-popup-in-v214 {
+  from { opacity: 0; transform: translate(-50%, 18px) scale(.96); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+/* v2.2.0 Shop / Customização */
+.sn-shop-card-v220 {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+.sn-shop-head-v220 {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.sn-shop-head-v220 h3 { margin: 0 0 4px; }
+.sn-shop-head-v220 > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid rgba(244, 200, 93, .52);
+  border-radius: 12px;
+  background: rgba(9, 14, 32, .7);
+  white-space: nowrap;
+}
+.sn-shop-tabs-v220 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+.sn-shop-tabs-v220 button,
+.sn-shop-grid-v220 article > button,
+.sn-shop-equipped-v220 button {
+  border: 1px solid rgba(244, 200, 93, .42);
+  background: rgba(8, 12, 28, .82);
+  color: #fff4cf;
+  border-radius: 12px;
+  padding: 9px 10px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.sn-shop-tabs-v220 button.is-active {
+  background: linear-gradient(180deg, rgba(250, 204, 21, .22), rgba(96, 165, 250, .12));
+  box-shadow: 0 0 18px rgba(250, 204, 21, .14);
+  border-color: rgba(250, 204, 21, .85);
+}
+.sn-shop-equipped-v220 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.sn-shop-equipped-v220 span {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, .22);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(15, 23, 42, .55);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sn-shop-equipped-v220 b { font-size: .62rem; color: #facc15; letter-spacing: .08em; }
+.sn-shop-equipped-v220 em { font-style: normal; font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sn-shop-equipped-v220 button { padding: 3px 6px; font-size: .62rem; align-self: flex-start; }
+.sn-shop-grid-v220 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+  max-height: 430px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.sn-shop-grid-v220 article {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  grid-template-rows: auto auto;
+  gap: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, .24);
+  border-radius: 16px;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(12, 18, 38, .92), rgba(8, 10, 26, .78));
+}
+.sn-shop-grid-v220 article.is-equipped { border-color: rgba(34, 197, 94, .75); box-shadow: 0 0 18px rgba(34, 197, 94, .12); }
+.sn-shop-grid-v220 article.is-legendary { border-color: rgba(250, 204, 21, .58); }
+.sn-shop-grid-v220 article.is-event { border-color: rgba(232, 121, 249, .52); }
+.sn-shop-preview-v220 {
+  width: 72px;
+  height: 56px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 50%, rgba(96, 165, 250, .16), rgba(2, 6, 23, .72));
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.sn-shop-preview-v220 img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.sn-shop-info-v220 { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sn-shop-info-v220 small { color: #facc15; font-size: .58rem; letter-spacing: .1em; }
+.sn-shop-info-v220 strong { color: #fff8dc; font-size: .88rem; }
+.sn-shop-info-v220 p { margin: 0; color: rgba(255,255,255,.72); font-size: .68rem; line-height: 1.35; }
+.sn-shop-info-v220 em { color: #a7f3d0; font-size: .64rem; font-style: normal; }
+.sn-shop-grid-v220 article > button {
+  grid-column: 1 / -1;
+  font-size: .72rem;
+  font-weight: 800;
+}
+.sn-shop-grid-v220 article > button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 760px) {
+  .sn-shop-head-v220, .sn-shop-equipped-v220 { grid-template-columns: 1fr 1fr; }
+  .sn-shop-tabs-v220 { grid-template-columns: 1fr 1fr; }
+  .sn-shop-grid-v220 { grid-template-columns: 1fr; max-height: 360px; }
+}
