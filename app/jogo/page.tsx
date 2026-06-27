@@ -854,6 +854,16 @@ const ASSETS: Record<SpriteKey, SpriteConfig> = {
   asteroidFragment: { src: "/game/obstacles/asteroid-fragment.png" },
 };
 
+const TOKEN_FRAME_SRCS = [
+  "/game/tokens/token-0.png",
+  "/game/tokens/token-1.png",
+  "/game/tokens/token-2.png",
+  "/game/tokens/token-3.png",
+];
+const TOKEN_SPRITE_SHEET_SRC = "";
+const TOKEN_COLLECT_SOUND_SRC = "/sounds/tokens/token-collect.wav";
+const TOKEN_BURST_SOUND_SRC = "/sounds/tokens/token-burst.wav";
+
 const CONFIG = {
   canvasWidth: 1280,
   canvasHeight: 720,
@@ -1568,17 +1578,8 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.0.0";
+const SPACE_NEWS_VERSION = "2.0.1";
 
-const TOKEN_SPRITE_SHEET_SRC = "/assets/space-news/tokens/token-sprite.png";
-const TOKEN_FRAME_SRCS = [
-  "/assets/space-news/tokens/token_0.png",
-  "/assets/space-news/tokens/token_1.png",
-  "/assets/space-news/tokens/token_2.png",
-  "/assets/space-news/tokens/token_3.png",
-];
-const TOKEN_COLLECT_SOUND_SRC = "/sounds/space-news/tokens/token-collect.wav";
-const TOKEN_BURST_SOUND_SRC = "/sounds/space-news/tokens/token-burst.wav";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -3291,6 +3292,7 @@ export default function JogoPage() {
   const tokensVisibleUntilRef = useRef(0);
   const tokenSpriteRef = useRef<HTMLImageElement | null>(null);
   const tokenSpriteReadyRef = useRef(false);
+  const tokenFrameImagesRef = useRef<HTMLImageElement[]>([]);
   const tokenUiPulseUntilRef = useRef(0);
   const profilePlayTickRef = useRef(performance.now());
   const onlineEventOverlayIdRef = useRef(0);
@@ -10048,18 +10050,26 @@ export default function JogoPage() {
 
 
   useEffect(() => {
-    const image = new Image();
-    image.onload = () => {
-      tokenSpriteReadyRef.current = true;
-    };
-    image.onerror = () => {
-      tokenSpriteReadyRef.current = false;
-    };
-    image.src = assetUrl(TOKEN_SPRITE_SHEET_SRC);
-    tokenSpriteRef.current = image;
-    for (const frameSrc of TOKEN_FRAME_SRCS) {
+    const frameImages = TOKEN_FRAME_SRCS.map((frameSrc) => {
       const frame = new Image();
       frame.src = assetUrl(frameSrc);
+      return frame;
+    });
+    tokenFrameImagesRef.current = frameImages;
+
+    if (TOKEN_SPRITE_SHEET_SRC) {
+      const image = new Image();
+      image.onload = () => {
+        tokenSpriteReadyRef.current = true;
+      };
+      image.onerror = () => {
+        tokenSpriteReadyRef.current = false;
+      };
+      image.src = assetUrl(TOKEN_SPRITE_SHEET_SRC);
+      tokenSpriteRef.current = image;
+    } else {
+      tokenSpriteReadyRef.current = false;
+      tokenSpriteRef.current = null;
     }
   }, []);
 
@@ -13765,6 +13775,14 @@ export default function JogoPage() {
       ctx.translate(cx, cy);
       ctx.scale(squash, stretchY);
       ctx.globalAlpha = alpha;
+      const frameImage = tokenFrameImagesRef.current[frame];
+      if (frameImage && frameImage.complete && frameImage.naturalWidth > 0) {
+        ctx.shadowColor = "#ffe28a";
+        ctx.shadowBlur = 8 * glow;
+        ctx.drawImage(frameImage, -token.w / 2, -token.h / 2, token.w, token.h);
+        ctx.restore();
+        return;
+      }
       const sprite = tokenSpriteRef.current;
       if (sprite && tokenSpriteReadyRef.current && sprite.naturalWidth > 0) {
         const frameW = sprite.naturalWidth / 4;
