@@ -789,10 +789,10 @@ const CONFIG = {
   },
 
   transitions: {
-    titleExitMs: 900,
-    menuOpenDelayMs: 120,
-    modeSelectMs: 650,
-    fadeOutMs: 260,
+    titleExitMs: 360,
+    menuOpenDelayMs: 70,
+    modeSelectMs: 260,
+    fadeOutMs: 140,
   },
 
   gameplay: {
@@ -1485,7 +1485,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "1.6.0";
+const SPACE_NEWS_VERSION = "1.7.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -2871,7 +2871,7 @@ export default function JogoPage() {
   ]);
   const [onlineRoomCode, setOnlineRoomCode] = useState("");
   const [onlineJoinCode, setOnlineJoinCode] = useState("");
-  const [onlinePlayerName, setOnlinePlayerName] = useState("NIC");
+  const [onlinePlayerName, setOnlinePlayerName] = useState("Player");
   const [onlineStatus, setOnlineStatus] = useState("Crie uma sala ou entre com código.");
   const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayer[]>([]);
   const [onlineConnected, setOnlineConnected] = useState(false);
@@ -3047,8 +3047,8 @@ export default function JogoPage() {
   const onlineSnapshotBufferRef = useRef<OnlineGameplaySnapshot[]>([]);
   const onlineLastAppliedSnapshotTickRef = useRef(0);
   const onlineLastAppliedSnapshotSeqRef = useRef(0);
-  const onlineRenderDelayMsRef = useRef(75);
-  const onlineHardCatchUpDelayMsRef = useRef(280);
+  const onlineRenderDelayMsRef = useRef(96);
+  const onlineHardCatchUpDelayMsRef = useRef(430);
   const onlinePauseRequestedByRef = useRef<number | null>(null);
   const onlinePauseReadySlotsRef = useRef<number[]>([]);
   const onlinePausePanelOpenRef = useRef(false);
@@ -3289,9 +3289,9 @@ export default function JogoPage() {
   function danoPvpPorTipo(tipo: "normal" | "strong" | "boost" | "bump" | "power") {
     // VERSUS v1.6: normal vira pressão, forte/boost/power-ups viram condição real de ponto.
     // Isso reduz o “segura tiro e espera alinhar” sem transformar em turno.
-    if (tipo === "strong") return 11;
-    if (tipo === "boost") return 8;
-    if (tipo === "power") return 4;
+    if (tipo === "strong") return 16;
+    if (tipo === "boost") return 12;
+    if (tipo === "power") return 7;
     if (tipo === "bump") return 0;
     return 1;
   }
@@ -3351,10 +3351,10 @@ export default function JogoPage() {
     );
 
     // Evita o “muro de power-ups” que travava a arena.
-    const maxAlive = mobileRuntimeRef.current ? (origin ? 3 : 2) : (origin ? 4 : 3);
+    const maxAlive = mobileRuntimeRef.current ? (origin ? 4 : 3) : (origin ? 5 : 4);
     if (pvpPowerUps.length >= maxAlive) return;
 
-    const minDelay = origin ? 2400 : 6800;
+    const minDelay = origin ? 1700 : 4800;
     if (!force && now - lastPvpPowerDropAtRef.current < minDelay) return;
     lastPvpPowerDropAtRef.current = now;
 
@@ -4029,19 +4029,25 @@ export default function JogoPage() {
     const maxSpeedX = CONFIG.gameplay.player.maxSpeedX;
     const maxSpeedY = CONFIG.gameplay.player.maxSpeedY;
     const acceleration = CONFIG.gameplay.player.acceleration;
-    target.vx = clamp((target.vx || 0) + ax * acceleration * speedFactor * 1.05, -maxSpeedX, maxSpeedX);
-    target.vy = clamp((target.vy || 0) + ay * acceleration * speedFactor * 1.05, -maxSpeedY, maxSpeedY);
+    // Predição precisa ser próxima da física do host. Acima de 1.0 o guest parecia mais rápido e dessincronizava.
+    target.vx = clamp((target.vx || 0) + ax * acceleration * speedFactor, -maxSpeedX, maxSpeedX);
+    target.vy = clamp((target.vy || 0) + ay * acceleration * speedFactor, -maxSpeedY, maxSpeedY);
     target.x = clamp(target.x + target.vx * speedFactor, 0, CONFIG.canvasWidth - target.w);
     target.y = clamp(target.y + target.vy * speedFactor, 0, CONFIG.canvasHeight - target.h);
     target.tilt = clamp((target.tilt || 0) + ax * 0.9, -12, 12);
     target.lastInputX = ax;
     target.lastInputY = ay;
     if (input.boost && performance.now() > target.boostUntil + 90) {
-      // Predição visual leve: o host decide o boost real, mas o cliente sente resposta imediata.
+      // Predição visual leve e limitada: antes isso somava impulso a cada frame segurando boost,
+      // deixando o guest muito mais rápido que o host e fazendo tiros nascerem em lugares diferentes.
+      const nowBoost = performance.now();
       const dir = normalizarDirecao(ax || 1, ay || 0);
-      target.vx += dir.x * 3.2;
-      target.vy += dir.y * 3.2;
-      target.stretchUntil = performance.now() + CONFIG.gameplay.dynamicStretch.playerPulseMs;
+      target.boostUntil = nowBoost + 155;
+      target.boostVx = dir.x * Math.min(CONFIG.gameplay.player.maxSpeedX + 1.2, 8.8);
+      target.boostVy = dir.y * Math.min(CONFIG.gameplay.player.maxSpeedY + 1.2, 7.6);
+      target.vx = target.boostVx;
+      target.vy = target.boostVy;
+      target.stretchUntil = nowBoost + CONFIG.gameplay.dynamicStretch.playerPulseMs;
       target.stretchVx = target.vx;
       target.stretchVy = target.vy;
     }
@@ -4323,8 +4329,11 @@ export default function JogoPage() {
       player.x = clamp(player.x, 0, CONFIG.canvasWidth - player.w);
       player.y = clamp(player.y, 0, CONFIG.canvasHeight - player.h);
     };
-    movePlayer(playerRef.current);
-    movePlayer(player2Ref.current);
+    const player1EhLocalVisual = deveProjetarOnlinePvpLocal() || onlineSlotRef.current === 1;
+    // Extrapola apenas o rival/objetos. O player local já tem prediction própria; mover os dois
+    // aqui era a principal causa do guest parecer mais rápido e depois receber microcorreções.
+    if (!player1EhLocalVisual) movePlayer(playerRef.current);
+    if (player1EhLocalVisual) movePlayer(player2Ref.current);
     shotsRef.current = shotsRef.current
       .map((shot) => ({ ...shot, x: shot.x + (shot.vx ?? shot.speed) * speedFactor, y: shot.y + (shot.vy ?? 0) * speedFactor }))
       .filter((shot) => shot.x + shot.w > -80 && shot.x < CONFIG.canvasWidth + 80 && shot.y + shot.h > -80 && shot.y < CONFIG.canvasHeight + 80);
@@ -4378,7 +4387,7 @@ export default function JogoPage() {
 
     buffer.push(snapshot);
     buffer.sort((a, b) => Number(a.tick ?? a.seq ?? 0) - Number(b.tick ?? b.seq ?? 0));
-    onlineSnapshotBufferRef.current = buffer.slice(-10);
+    onlineSnapshotBufferRef.current = buffer.slice(-14);
     onlineLatestSnapshotRef.current = onlineSnapshotBufferRef.current[onlineSnapshotBufferRef.current.length - 1] ?? snapshot;
   }
 
@@ -4420,14 +4429,14 @@ export default function JogoPage() {
 
     if (souHostOnline()) {
       // Menos snapshots gigantes = menos fila no WebSocket e menos efeito "voltar no tempo" no não-host.
-      if (now - onlineLastSyncSentAtRef.current < 45) return;
+      if (now - onlineLastSyncSentAtRef.current < 33) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
     }
 
-    const snapshotToRender = escolherSnapshotOnlineParaRender();
-    if (snapshotToRender) aplicarSnapshotOnline(snapshotToRender);
+    // O snapshot do guest é aplicado dentro de atualizar(), antes da extrapolação/prediction.
+    // Aplicar de novo aqui causava dois pequenos encaixes por frame.
 
     if (onlineLastSyncReceivedAtRef.current && now - onlineLastSyncReceivedAtRef.current > 2600) {
       setOnlineSyncWarning("Conexão instável: aguardando estado do host...");
@@ -6758,7 +6767,7 @@ export default function JogoPage() {
           ? "Coop local: Player 2 entra por controle ou teclado."
           : mode === "localScore"
             ? "Disputa local: cada abate conta para quem acertou."
-            : "PvP local: acerte o rival para pontuar.",
+            : "VERSUS: mire em diagonal, dispute power-ups no centro e use Forte/Boost para finalizar.",
       );
       window.setTimeout(() => setLocalModeNotice(""), 4200);
     } else {
@@ -10326,6 +10335,9 @@ export default function JogoPage() {
         ? CONFIG.gameplay.powerups.powerShotHeight
         : CONFIG.gameplay.shots.normal.height;
 
+      const pvpAimVy = isLocalPvpMode()
+        ? clamp((player.lastInputY || 0) * 3.2 + (player.vy || 0) * 0.08, -4.4, 4.4)
+        : 0;
       shotsRef.current.push({
         id: shotIdRef.current++,
         ownerId: 1,
@@ -10334,8 +10346,8 @@ export default function JogoPage() {
           performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: player.x + player.w - 2,
         y: player.y + player.h / 2 - shotH / 2,
-        w: shotW,
-        h: shotH,
+        w: isLocalPvpMode() && !powerActive ? Math.max(shotW, 34) : shotW,
+        h: isLocalPvpMode() && !powerActive ? Math.max(shotH, 18) : shotH,
         speed: shotSpeed,
         damage:
           (CONFIG.gameplay.shots.normal.damage *
@@ -10353,7 +10365,7 @@ export default function JogoPage() {
                 ? "homing"
                 : "normal",
         vx: shotSpeed,
-        vy: 0,
+        vy: pvpAimVy,
       });
 
       tocarSom(CONFIG.sounds.normalShot, 0.45, "sfx");
@@ -10811,6 +10823,9 @@ export default function JogoPage() {
       const homingActive = player2HomingShotUntilRef.current > now;
       const shotW = powerActive ? CONFIG.gameplay.powerups.powerShotWidth : CONFIG.gameplay.shots.normal.width;
       const shotH = powerActive ? CONFIG.gameplay.powerups.powerShotHeight : CONFIG.gameplay.shots.normal.height;
+      const pvpAimVy = isLocalPvpMode()
+        ? clamp((player2InputRef.current.y || player.lastInputY || 0) * 3.2 + (player.vy || 0) * 0.08, -4.4, 4.4)
+        : 0;
       shotsRef.current.push({
         id: shotIdRef.current++,
         ownerId: 2,
@@ -10818,14 +10833,14 @@ export default function JogoPage() {
         stretchUntil: performance.now() + CONFIG.gameplay.dynamicStretch.shotPulseMs,
         x: isLocalPvpMode() ? player.x - shotW + 2 : player.x + player.w - 2,
         y: player.y + player.h / 2 - shotH / 2,
-        w: shotW,
-        h: shotH,
+        w: isLocalPvpMode() && !powerActive ? Math.max(shotW, 34) : shotW,
+        h: isLocalPvpMode() && !powerActive ? Math.max(shotH, 18) : shotH,
         speed: shotSpeed,
         damage: (CONFIG.gameplay.shots.normal.damage * (powerActive ? CONFIG.gameplay.powerups.powerShotDamageMultiplier : 1) + bonusDanoInfinito()) * danoLocalPorJogador(),
         type: "normal",
         variant: powerActive && homingActive ? "powerHoming" : powerActive ? "power" : homingActive ? "homing" : "normal",
         vx: isLocalPvpMode() ? -shotSpeed : shotSpeed,
-        vy: 0,
+        vy: pvpAimVy,
       });
       player.normalCooldown = isLocalPvpMode()
         ? (player2FireRateUntilRef.current > now ? 10 : 18)
@@ -10850,7 +10865,9 @@ export default function JogoPage() {
         damage: (CONFIG.gameplay.shots.strong.damage + bonusDanoInfinito()) * danoLocalPorJogador(),
         type: "strong",
         vx: isLocalPvpMode() ? -CONFIG.gameplay.shots.strong.speed : CONFIG.gameplay.shots.strong.speed,
-        vy: 0,
+        vy: isLocalPvpMode()
+          ? clamp((player2InputRef.current.y || player.lastInputY || 0) * 6.2, -7.2, 7.2)
+          : 0,
       });
       player.strongReadyAt = now + CONFIG.gameplay.shots.strong.cooldownMs;
       setPlayer2StrongReadyRatio(0);
@@ -10925,7 +10942,7 @@ export default function JogoPage() {
       setPlayer2Hp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#60a5fa", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode() && Math.random() < 0.028) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
+      if (isLocalPvpMode() && Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -10956,7 +10973,7 @@ export default function JogoPage() {
       setPlayerHp(player.hp);
       criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, "#ff6b6b", 12);
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
-      if (isLocalPvpMode() && Math.random() < 0.028) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
+      if (isLocalPvpMode() && Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
 
       if (player.hp <= 0) {
         if (isLocalPvpMode()) {
@@ -14879,7 +14896,7 @@ export default function JogoPage() {
         atualizarInimigos(delta, canvas);
         atualizarBoss(delta);
         atualizarBossProjectiles(delta);
-      } else if (performance.now() - lastPvpPowerDropAtRef.current > 13500) {
+      } else if (performance.now() - lastPvpPowerDropAtRef.current > 8200) {
         spawnPowerUpPvp(false);
       }
       atualizarPowerUps(delta, canvas);
@@ -16644,7 +16661,7 @@ export default function JogoPage() {
                         value={onlinePlayerName}
                         maxLength={16}
                         onChange={(event) => setOnlinePlayerName(event.target.value.toUpperCase().slice(0, 16))}
-                        placeholder="NIC"
+                        placeholder="PLAYER"
                       />
                     </label>
 

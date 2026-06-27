@@ -18380,3 +18380,212 @@ body.reduce-motion .game-pause-card button {
     height: 44px !important;
   }
 }
+
+/* ===== SPACE NEWS v1.7.0 — transição rápida, texto seguro e Versus mais vivo ===== */
+:root { --sn-v17-fast: cubic-bezier(.18, .92, .22, 1); }
+
+.game-title-bg-transition,
+.game-screen-fade {
+  transition-duration: .13s !important;
+}
+
+.game-screen-fade {
+  background:
+    radial-gradient(circle at 50% 46%, rgba(96,165,250,.18), transparent 28%),
+    rgba(2, 6, 23, .48) !important;
+  backdrop-filter: blur(3px) brightness(.78) saturate(1.05) !important;
+  transition: opacity .13s var(--sn-v17-fast) !important;
+}
+
+.game-screen-fade.show::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  transform: none !important;
+  border-radius: 0 !important;
+  background:
+    linear-gradient(115deg, transparent 0 42%, rgba(255,247,214,.82) 49%, rgba(96,165,250,.28) 53%, transparent 61% 100%) !important;
+  opacity: .9 !important;
+  clip-path: polygon(-18% 0, 0 0, 18% 100%, 0 100%) !important;
+  animation: snTransitionSlashV17 .24s var(--sn-v17-fast) 1 both !important;
+  box-shadow: none !important;
+}
+
+.game-screen-fade.show::after { content: none !important; display: none !important; }
+
+@keyframes snTransitionSlashV17 {
+  from { clip-path: polygon(-26% 0, -6% 0, 12% 100%, -8% 100%); filter: brightness(1); }
+  55% { clip-path: polygon(16% 0, 84% 0, 100% 100%, 0 100%); filter: brightness(1.24); }
+  to { clip-path: polygon(100% 0, 122% 0, 142% 100%, 120% 100%); filter: brightness(1); }
+}
+
+/* Evita textos enormes escapando das caixas local/online. */
+.sn-local-panel,
+.sn-local-panel *,
+.sn-online-party-shell-v15,
+.sn-online-party-shell-v15 * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.sn-local-panel {
+  overflow-x: hidden !important;
+}
+
+.sn-local-panel h2 {
+  max-width: 100% !important;
+  font-size: clamp(24px, 4.4vw, 48px) !important;
+  line-height: 1 !important;
+  letter-spacing: .02em !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  text-wrap: balance;
+}
+
+.sn-local-panel .game-panel-label,
+.sn-local-panel .game-menu-help,
+.sn-local-subtitle,
+.sn-local-help,
+.sn-multiplayer-option strong,
+.sn-multiplayer-option span,
+.sn-mode-vote-card-v3 strong,
+.sn-mode-vote-card-v3 small,
+.sn-mode-vote-card-v3 span {
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+}
+
+.sn-multiplayer-option {
+  overflow: hidden !important;
+  min-height: clamp(92px, 14vh, 138px) !important;
+}
+
+.sn-multiplayer-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.sn-mode-vote-grid-v3 {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)) !important;
+}
+
+.sn-mode-vote-card-v3 {
+  overflow: hidden !important;
+}
+
+/* Online party layout: menos espremido e mais seguro em mobile/landscape. */
+.sn-online-lobby-screen-v15 {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  align-items: center !important;
+  scrollbar-width: thin;
+}
+
+.sn-online-party-shell-v15,
+.sn-online-party-shell-v16 {
+  max-width: calc(100vw - 24px) !important;
+  overflow-x: hidden !important;
+}
+
+.sn-online-title-stack-v15 h2,
+.sn-online-link-title-v16,
+.sn-online-room-code-v16 > strong {
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  line-height: .92 !important;
+}
+
+.sn-online-title-stack-v15 p,
+.sn-online-toast-v15 p,
+.sn-online-stage-copy-v16 p,
+.sn-online-crew-member-v16 small,
+.sn-online-crew-member-v16 span,
+.sn-online-mode-card-v16 small,
+.sn-online-mode-card-v16 em {
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.25 !important;
+}
+
+.sn-online-progress-v15 em {
+  white-space: normal !important;
+  line-height: 1.05 !important;
+}
+
+/* Versus: aparência mais caótica/party, sem depender só do tiro reto. */
+.game-mode-localPvp .game-fullscreen-canvas {
+  filter: saturate(1.14) contrast(1.06);
+}
+
+.sn-pvp-scoreboard-v7 {
+  border: 1px solid rgba(255, 247, 214, .22) !important;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(250,204,21,.14), transparent 38%),
+    linear-gradient(90deg, rgba(37,99,235,.26), rgba(2,6,23,.62) 48%, rgba(249,115,22,.26)) !important;
+  box-shadow: 0 14px 42px rgba(0,0,0,.34), inset 0 0 0 1px rgba(255,255,255,.08) !important;
+  backdrop-filter: blur(6px) saturate(1.16) !important;
+}
+
+.sn-pvp-fighter {
+  border-radius: 18px !important;
+  overflow: hidden !important;
+}
+
+.sn-pvp-fighter.is-p1 { box-shadow: inset 4px 0 0 rgba(96,165,250,.78); }
+.sn-pvp-fighter.is-p2 { box-shadow: inset -4px 0 0 rgba(249,115,22,.78); }
+
+.sn-pvp-life-track {
+  height: 11px !important;
+  border-radius: 999px !important;
+  overflow: hidden !important;
+  background: rgba(2,6,23,.64) !important;
+}
+
+.sn-pvp-life-track > i {
+  background: linear-gradient(90deg, #22c55e, #facc15, #fb7185) !important;
+  box-shadow: 0 0 16px rgba(250,204,21,.24) !important;
+}
+
+.sn-pvp-round-core {
+  border-radius: 20px !important;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255,247,214,.18), transparent 54%),
+    rgba(0,0,0,.34) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.10), 0 0 26px rgba(96,165,250,.12) !important;
+}
+
+.sn-pvp-round-core b {
+  text-shadow: 0 0 18px rgba(250,204,21,.35), 0 4px 0 rgba(0,0,0,.32) !important;
+}
+
+.sn-pvp-power-row em {
+  border: 1px solid rgba(255,255,255,.14) !important;
+  background: rgba(255,255,255,.08) !important;
+  border-radius: 999px !important;
+}
+
+.sn-local-notice {
+  border-color: rgba(250,204,21,.48) !important;
+  background:
+    radial-gradient(circle at 0% 50%, rgba(96,165,250,.20), transparent 45%),
+    rgba(2,6,23,.72) !important;
+}
+
+@media (max-width: 760px) {
+  .sn-multiplayer-options { grid-template-columns: 1fr !important; }
+  .sn-local-panel h2 { font-size: clamp(23px, 9vw, 38px) !important; }
+  .sn-multiplayer-option strong { font-size: clamp(20px, 8vw, 30px) !important; }
+  .sn-multiplayer-option span { font-size: 11px !important; }
+  .sn-online-party-shell-v15,
+  .sn-online-party-shell-v16 { max-width: calc(100vw - 12px) !important; }
+}
+
+@media (max-height: 620px) and (orientation: landscape) {
+  .sn-local-panel h2 { font-size: clamp(20px, 5.5vw, 34px) !important; }
+  .sn-multiplayer-option { min-height: 78px !important; padding: 12px 14px !important; }
+  .sn-multiplayer-option span { font-size: 10px !important; line-height: 1.2 !important; }
+  .sn-online-progress-v15 span { padding: 6px 7px !important; }
+}

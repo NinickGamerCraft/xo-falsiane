@@ -147,7 +147,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "1.6.0-netcode", netModel: "host-authoritative-v2" });
+      return json({ ok: true, service: "Space News Online", version: "1.7.0-netcode", netModel: "host-authoritative-v2" });
     }
 
     if (url.pathname === "/create") {
@@ -572,7 +572,7 @@ export class GameRoom extends DurableObject<Env> {
       hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
       netModel: "host-authoritative-v2",
-      version: "1.6.0-netcode",
+      version: "1.7.0-netcode",
       tick: this.lastSnapshotTick,
       t: Date.now(),
     });
