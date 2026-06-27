@@ -147,7 +147,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "1.5.0-netcode", netModel: "host-authoritative-v2" });
+      return json({ ok: true, service: "Space News Online", version: "1.6.0-netcode", netModel: "host-authoritative-v2" });
     }
 
     if (url.pathname === "/create") {
@@ -314,6 +314,12 @@ export class GameRoom extends DurableObject<Env> {
 
     if (msg.type === "vote_mode") {
       if (session.slot === 0) return;
+      const players = this.players();
+      const canVote = players.length >= 2 && players.every((p) => p.ready);
+      if (!canVote) {
+        ws.send(JSON.stringify({ type: "error", error: "A votação só libera quando todos estiverem READY." }));
+        return;
+      }
       session.modeVote = cleanMode(msg.mode);
       ws.serializeAttachment(session);
       await this.ctx.storage.put("selectedMode", this.selectedMode());
@@ -566,7 +572,7 @@ export class GameRoom extends DurableObject<Env> {
       hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
       netModel: "host-authoritative-v2",
-      version: "1.5.0-netcode",
+      version: "1.6.0-netcode",
       tick: this.lastSnapshotTick,
       t: Date.now(),
     });

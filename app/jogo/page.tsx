@@ -1480,12 +1480,12 @@ const MULTIPLAYER_BRANCH_OPTIONS = [
 ];
 
 const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: string }> = [
-  { label: "TOGETHER", mode: "localCoop", description: "Vocês contra as waves." },
-  { label: "VERSUS", mode: "localPvp", description: "Duelo rápido e caótico." },
+  { label: "TOGETHER", mode: "localCoop", description: "Coop de sobrevivência contra as waves." },
+  { label: "VERSUS", mode: "localPvp", description: "Arena de rounds, power-ups e pressão." },
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "1.5.0";
+const SPACE_NEWS_VERSION = "1.6.0";
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
   { id: "touch", label: "TOUCH", description: "Tela sensível ao toque detectada", icon: "☝" },
@@ -3287,7 +3287,7 @@ export default function JogoPage() {
   }
 
   function danoPvpPorTipo(tipo: "normal" | "strong" | "boost" | "bump" | "power") {
-    // VERSUS v1.5: normal vira pressão, forte/boost viram condição real de ponto.
+    // VERSUS v1.6: normal vira pressão, forte/boost/power-ups viram condição real de ponto.
     // Isso reduz o “segura tiro e espera alinhar” sem transformar em turno.
     if (tipo === "strong") return 11;
     if (tipo === "boost") return 8;
@@ -4568,12 +4568,16 @@ export default function JogoPage() {
     const mySlot = onlineSlotRef.current;
     const me = players.find((player: OnlinePlayer) => player.slot === mySlot);
     setOnlineIsReady(Boolean(me?.ready));
+    const readyCount = players.filter((player: OnlinePlayer) => player.ready).length;
+    const readyForMode = players.length >= 2 && readyCount === players.length;
     if (players.length < 2) {
       setOnlineStatus("Sala aberta. Mande o código e espere outro player entrar.");
+    } else if (!readyForMode) {
+      setOnlineStatus(`Etapa de tripulação: ${readyCount}/${players.length} READY. A votação libera quando todos confirmarem.`);
     } else if (!msg.canStart) {
-      setOnlineStatus("Escolham o modo e deixem todo mundo em READY.");
+      setOnlineStatus("Tripulação pronta. Agora votem no modo para liberar a partida.");
     } else {
-      setOnlineStatus("Tudo pronto. Confirme INICIAR para disparar a partida.");
+      setOnlineStatus("Votação liberada. Escolha o modo e confirme INICIAR.");
       setOnlineFeedback("success");
     }
   }
@@ -4856,6 +4860,13 @@ export default function JogoPage() {
   }
 
   function votarModoOnline(mode: GameMode) {
+    const readyCount = onlinePlayers.filter((player) => player.ready).length;
+    const readyForMode = onlineConnected && onlinePlayers.length >= 2 && readyCount === onlinePlayers.length;
+    if (!readyForMode) {
+      feedbackOnline("error", "A votação só libera quando todos os players da sala estiverem READY.");
+      tocarSom(CONFIG.sounds.menuBack, 0.22, "menu");
+      return;
+    }
     onlineSelectedModeRef.current = mode;
     setOnlineSelectedMode(mode);
     tocarSom(CONFIG.sounds.menuMove, 0.26, "menu");
@@ -4868,7 +4879,7 @@ export default function JogoPage() {
       return;
     }
     if (!onlineCanStart) {
-      feedbackOnline("error", "Precisa de 2+ players e todo mundo em READY.");
+      feedbackOnline("error", "Precisa de 2+ players, todos em READY e votação liberada.");
       return;
     }
     tocarSom(CONFIG.sounds.menuConfirm, 0.42, "menu");
@@ -15797,6 +15808,11 @@ export default function JogoPage() {
     };
   }, []);
 
+  const onlineReadyCount = onlinePlayers.filter((player) => player.ready).length;
+  const onlineReadyForMode = onlineConnected && onlinePlayers.length >= 2 && onlineReadyCount === onlinePlayers.length;
+  const onlineLobbyStage = !onlineConnected ? "connect" : onlineReadyForMode ? "vote" : "crew";
+  const onlineMissingReadySlots = onlinePlayers.filter((player) => !player.ready).map((player) => player.slot);
+
   return (
     <main
       className={[
@@ -16547,7 +16563,7 @@ export default function JogoPage() {
 
       {gameState === "onlineLobby" && (
         <section className="game-screen sn-online-lobby-screen sn-online-lobby-screen-v15">
-          <aside className={`sn-online-party-shell-v15 is-${onlineConnected ? "room" : "connect"} is-${onlineFlow} is-${onlineFeedback}`}>
+          <aside className={`sn-online-party-shell-v15 sn-online-party-shell-v16 is-${onlineConnected ? "room" : "connect"} is-stage-${onlineLobbyStage} is-${onlineFlow} is-${onlineFeedback}`}>
             <button
               type="button"
               className="sn-online-close-v15 sn-squish-ui"
@@ -16561,9 +16577,9 @@ export default function JogoPage() {
             <header className="sn-online-party-header-v15">
               <div className="sn-online-title-stack-v15">
                 <span>PARTY ONLINE</span>
-                <h2 className="sn-wobble-title">SPACE LINK</h2>
+                <h2 className="sn-online-link-title-v16">SPACE LINK</h2>
                 <p>
-                  Um fluxo por etapa: conectar, formar tripulação, votar e jogar. Cada pessoa mexe só no próprio perfil.
+                  Conecte, confirme READY e só então vote no modo. Sem bagunçar a tela do mobile.
                 </p>
               </div>
               <div className={`sn-online-signal-v15 ${onlineConnected ? "is-on" : "is-off"}`}>
@@ -16575,10 +16591,10 @@ export default function JogoPage() {
 
             <div className="sn-online-progress-v15" aria-hidden="true">
               {[
-                ["1", "LINK", !onlineConnected],
-                ["2", "SALA", onlineConnected],
-                ["3", "READY", onlineConnected && onlinePlayers.some((player) => player.ready)],
-                ["4", "VERSUS/TOGETHER", onlineConnected && onlineCanStart],
+                ["1", "LINK", onlineLobbyStage === "connect"],
+                ["2", "SALA", onlineLobbyStage === "crew" && onlinePlayers.length < 2],
+                ["3", "READY", onlineLobbyStage === "crew" && onlinePlayers.length >= 2],
+                ["4", "VOTAÇÃO", onlineLobbyStage === "vote"],
               ].map(([step, label, lit]) => (
                 <span key={String(step)} className={lit ? "is-lit" : ""}>
                   <b>{step}</b>
@@ -16708,10 +16724,11 @@ export default function JogoPage() {
                 </section>
               </div>
             ) : (
-              <div className="sn-online-room-layout-v15">
-                <section className="sn-online-room-code-v15">
+              <div className={`sn-online-room-layout-v15 sn-online-room-layout-v16 is-${onlineLobbyStage}`}>
+                <section className="sn-online-room-code-v15 sn-online-room-code-v16">
                   <span>CÓDIGO DA SALA</span>
                   <strong>{onlineRoomCode}</strong>
+                  <small>{onlineReadyForMode ? "Tripulação pronta: votação liberada." : "Compartilhe o código e confirme READY."}</small>
                   <div>
                     <button
                       type="button"
@@ -16720,7 +16737,7 @@ export default function JogoPage() {
                       onFocus={() => setIndiceOnlineMenu(4)}
                       onClick={copiarCodigoSalaOnline}
                     >
-                      COPIAR CÓDIGO
+                      COPIAR
                     </button>
                     <button
                       type="button"
@@ -16734,18 +16751,18 @@ export default function JogoPage() {
                   </div>
                 </section>
 
-                <section className="sn-online-crew-v15">
+                <section className="sn-online-crew-v15 sn-online-crew-v16">
                   <header>
                     <strong>TRIPULAÇÃO</strong>
-                    <span>{onlinePlayers.length}/4 online</span>
+                    <span>{onlineReadyCount}/{onlinePlayers.length || 1} READY · {onlinePlayers.length}/4 online</span>
                   </header>
-                  <div className="sn-online-crew-grid-v15">
+                  <div className="sn-online-crew-grid-v15 sn-online-crew-grid-v16">
                     {[1, 2, 3, 4].map((slot) => {
                       const player = onlinePlayers.find((item) => item.slot === slot);
                       return (
                         <article
                           key={slot}
-                          className={`sn-online-crew-member-v15 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""} ${onlineHostSlot === slot ? "is-host" : ""}`}
+                          className={`sn-online-crew-member-v15 sn-online-crew-member-v16 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""} ${onlineHostSlot === slot ? "is-host" : ""}`}
                           style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
                         >
                           <b>P{slot}</b>
@@ -16754,62 +16771,93 @@ export default function JogoPage() {
                             <span>{player ? (player.ready ? "READY" : "AGUARDANDO") : "LIVRE"}</span>
                           </div>
                           <small>{player ? `${player.device || "dispositivo"}${onlineHostSlot === slot ? " · HOST" : ""}${onlineSlot === slot ? " · VOCÊ" : ""}` : "aguardando conexão"}</small>
+                          <i className="sn-online-ready-ring-v16" aria-hidden="true" />
                         </article>
                       );
                     })}
                   </div>
                 </section>
 
-                <section className="sn-online-vote-v15">
-                  <header>
-                    <strong>VOTAÇÃO DE MODO</strong>
-                    <span>selecionado: {labelModoMultiplayer(onlineSelectedMode)}</span>
-                  </header>
-                  <div className="sn-online-vote-grid-v15">
-                    {LOCAL_MODE_OPTIONS.map((option, index) => {
-                      const votes = Object.entries(onlineModeVotes).filter(([, mode]) => mode === option.mode);
-                      const selected = onlineSelectedMode === option.mode;
-                      return (
-                        <button
-                          key={option.mode}
-                          type="button"
-                          className={`sn-online-mode-card-v15 sn-squish-ui ${selected ? "is-selected" : ""} ${onlineMenuIndex === index + 2 ? "is-gamepad-selected" : ""}`}
-                          style={{ "--vote-color": LOCAL_PLAYER_COLORS[index] } as CSSProperties}
-                          onMouseEnter={() => setIndiceOnlineMenu(index + 2)}
-                          onFocus={() => setIndiceOnlineMenu(index + 2)}
-                          onClick={() => votarModoOnline(option.mode)}
-                        >
-                          <span>{option.mode === "localCoop" ? "🤝" : "⚔"}</span>
-                          <strong>{option.label}</strong>
-                          <small>{option.description}</small>
-                          <em>{votes.length ? votes.map(([slot]) => `P${slot}`).join(" · ") : "sem votos"}</em>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
+                {!onlineReadyForMode ? (
+                  <section className="sn-online-command-v15 sn-online-command-v16 is-crew-step">
+                    <div className="sn-online-stage-copy-v16">
+                      <strong>ETAPA 2 · CONFIRMAR PLAYERS</strong>
+                      <p>
+                        A votação só aparece quando todos da sala estiverem READY.
+                        {onlinePlayers.length < 2
+                          ? " Espere pelo menos mais um jogador."
+                          : onlineMissingReadySlots.length
+                            ? ` Falta: ${onlineMissingReadySlots.map((slot) => `P${slot}`).join(" · ")}.`
+                            : " Tudo quase pronto."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className={`sn-online-ready-v15 sn-online-ready-v16 sn-squish-ui ${onlineIsReady ? "is-ready" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
+                      onMouseEnter={() => setIndiceOnlineMenu(0)}
+                      onFocus={() => setIndiceOnlineMenu(0)}
+                      onClick={alternarReadyOnline}
+                    >
+                      {onlineIsReady ? "TIRAR READY" : "FICAR READY"}
+                    </button>
+                  </section>
+                ) : (
+                  <>
+                    <section className="sn-online-vote-v15 sn-online-vote-v16">
+                      <header>
+                        <strong>ETAPA 3 · VOTAÇÃO DE MODO</strong>
+                        <span>selecionado: {labelModoMultiplayer(onlineSelectedMode)}</span>
+                      </header>
+                      <div className="sn-online-vote-grid-v15 sn-online-vote-grid-v16">
+                        {LOCAL_MODE_OPTIONS.map((option, index) => {
+                          const votes = Object.entries(onlineModeVotes).filter(([, mode]) => mode === option.mode);
+                          const selected = onlineSelectedMode === option.mode;
+                          const isTogether = option.mode === "localCoop";
+                          return (
+                            <button
+                              key={option.mode}
+                              type="button"
+                              className={`sn-online-mode-card-v15 sn-online-mode-card-v16 sn-squish-ui ${isTogether ? "is-together" : "is-versus"} ${selected ? "is-selected" : ""} ${onlineMenuIndex === index + 2 ? "is-gamepad-selected" : ""}`}
+                              style={{ "--vote-color": isTogether ? "#22c55e" : "#f97316" } as CSSProperties}
+                              onMouseEnter={() => setIndiceOnlineMenu(index + 2)}
+                              onFocus={() => setIndiceOnlineMenu(index + 2)}
+                              onClick={() => votarModoOnline(option.mode)}
+                            >
+                              <span className="sn-online-mode-art-v16" aria-hidden="true">
+                                <b>{isTogether ? "🤝" : "⚔"}</b>
+                              </span>
+                              <strong>{option.label}</strong>
+                              <small>{isTogether ? "Sobrevivência cooperativa, revive e waves." : "Arena curta, power-ups no centro e rounds."}</small>
+                              <em>{votes.length ? votes.map(([slot]) => `P${slot}`).join(" · ") : "aguardando votos"}</em>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
 
-                <section className="sn-online-command-v15">
-                  <button
-                    type="button"
-                    className={`sn-online-ready-v15 sn-squish-ui ${onlineIsReady ? "is-ready" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
-                    onMouseEnter={() => setIndiceOnlineMenu(0)}
-                    onFocus={() => setIndiceOnlineMenu(0)}
-                    onClick={alternarReadyOnline}
-                  >
-                    {onlineIsReady ? "TIRAR READY" : "FICAR READY"}
-                  </button>
-                  <button
-                    type="button"
-                    className={`sn-online-start-v15 sn-squish-ui ${onlineCanStart ? "is-ready" : "is-disabled"} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
-                    onMouseEnter={() => setIndiceOnlineMenu(1)}
-                    onFocus={() => setIndiceOnlineMenu(1)}
-                    onClick={iniciarPartidaOnline}
-                    disabled={!onlineCanStart}
-                  >
-                    INICIAR {labelModoMultiplayer(onlineSelectedMode)}
-                  </button>
-                </section>
+                    <section className="sn-online-command-v15 sn-online-command-v16 is-vote-step">
+                      <button
+                        type="button"
+                        className={`sn-online-ready-v15 sn-online-ready-v16 sn-squish-ui ${onlineIsReady ? "is-ready" : ""} ${onlineMenuIndex === 0 ? "is-gamepad-selected" : ""}`}
+                        onMouseEnter={() => setIndiceOnlineMenu(0)}
+                        onFocus={() => setIndiceOnlineMenu(0)}
+                        onClick={alternarReadyOnline}
+                      >
+                        {onlineIsReady ? "TIRAR READY" : "READY OK"}
+                      </button>
+                      <button
+                        type="button"
+                        className={`sn-online-start-v15 sn-online-start-v16 sn-squish-ui ${onlineCanStart ? "is-ready" : "is-disabled"} ${onlineMenuIndex === 1 ? "is-gamepad-selected" : ""}`}
+                        onMouseEnter={() => setIndiceOnlineMenu(1)}
+                        onFocus={() => setIndiceOnlineMenu(1)}
+                        onClick={iniciarPartidaOnline}
+                        disabled={!onlineCanStart}
+                      >
+                        INICIAR {labelModoMultiplayer(onlineSelectedMode)}
+                      </button>
+                    </section>
+                  </>
+                )}
               </div>
             )}
 
