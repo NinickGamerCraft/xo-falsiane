@@ -673,7 +673,7 @@ type GameCssVars = CSSProperties & {
 type MenuOption = {
   label: string;
   mode?: GameMode;
-  action?: "settings" | "extras" | "multiplayer";
+  action?: "settings" | "extras" | "multiplayer" | "profile";
   disabled?: boolean;
   hint?: string;
 };
@@ -1563,6 +1563,7 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
   { label: "HISTÓRIA", mode: "story", hint: "Campanha principal" },
   { label: "INFINITO", mode: "infinite", hint: "Sobreviva o máximo possível" },
   { label: "MULTIPLAYER", action: "multiplayer", hint: "Local e online" },
+  { label: "PERFIL", action: "profile", hint: "Conta local, amigos e conquistas" },
   { label: "CONFIGURAÇÕES", action: "settings" },
   { label: "EXTRA", action: "extras" },
 ];
@@ -1578,7 +1579,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.1.0";
+const SPACE_NEWS_VERSION = "2.1.1";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -3118,6 +3119,7 @@ export default function JogoPage() {
   const [profileManagerOpen, setProfileManagerOpen] = useState(false);
   const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
   const [profileToast, setProfileToast] = useState("");
+  const [inviteFriendsOpen, setInviteFriendsOpen] = useState(false);
   const [tokensVisibleUntil, setTokensVisibleUntil] = useState(0);
   const [randomVisualEffect, setRandomVisualEffect] = useState({
     flashWhite: false,
@@ -4381,13 +4383,12 @@ export default function JogoPage() {
     Object.assign(target, incoming);
 
     if (controlledLocally) {
-      // v2.0: o jogador local não recebe microcorreção visual a cada snapshot.
-      // Isso tira o efeito feio de “nave puxada”. Só corrigimos quando o drift é absurdo.
-      if (dist > 360) {
-        target.x = nextX;
-        target.y = nextY;
-        target.vx = typeof incoming.vx === "number" ? incoming.vx : oldVx;
-        target.vy = typeof incoming.vy === "number" ? incoming.vy : oldVy;
+      // v2.1.1: sem rubber-band visual no player local. Reconciliation só quando perdeu totalmente a sincronia.
+      if (dist > 760) {
+        target.x = oldX + dx * 0.38;
+        target.y = oldY + dy * 0.38;
+        target.vx = typeof incoming.vx === "number" ? oldVx * 0.82 + incoming.vx * 0.18 : oldVx;
+        target.vy = typeof incoming.vy === "number" ? oldVy * 0.82 + incoming.vy * 0.18 : oldVy;
       } else {
         target.x = oldX;
         target.y = oldY;
@@ -4395,17 +4396,18 @@ export default function JogoPage() {
         target.vy = oldVy;
       }
     } else {
-      const hardSnap = 260;
-      const blend = dist < 18 ? 0.16 : 0.34;
+      // Remote players não devem teletransportar a cada snapshot: interpolação curta + snap só em drift absurdo.
+      const hardSnap = 620;
+      const blend = dist < 24 ? 0.08 : dist < 120 ? 0.14 : 0.22;
       if (dist > hardSnap) {
-        target.x = nextX;
-        target.y = nextY;
+        target.x = oldX + dx * 0.45;
+        target.y = oldY + dy * 0.45;
       } else {
         target.x = oldX + dx * blend;
         target.y = oldY + dy * blend;
       }
-      target.vx = typeof incoming.vx === "number" ? oldVx * 0.35 + incoming.vx * 0.65 : oldVx;
-      target.vy = typeof incoming.vy === "number" ? oldVy * 0.35 + incoming.vy * 0.65 : oldVy;
+      target.vx = typeof incoming.vx === "number" ? oldVx * 0.72 + incoming.vx * 0.28 : oldVx;
+      target.vy = typeof incoming.vy === "number" ? oldVy * 0.72 + incoming.vy * 0.28 : oldVy;
     }
 
     // Não deixa snapshot atrasado congelar sprites de dodge/boost no cliente.
@@ -4439,6 +4441,34 @@ export default function JogoPage() {
       } as PowerUp;
     });
   }
+
+  function mesclarObjetosSnapshotOnline<T extends { id: number; x: number; y: number; w: number; h: number; vx?: number; vy?: number; stretchVx?: number }>(
+    current: T[],
+    incoming: T[],
+    projectedPvp: boolean,
+    blend = 0.28,
+    hardSnap = 520,
+  ): T[] {
+    const byId = new Map(current.map((item) => [item.id, item] as [number, T]));
+    return incoming.map((raw) => {
+      const next = projectedPvp ? espelharObjetoOnline(raw) : { ...raw };
+      const old = byId.get(next.id);
+      if (!old) return next as T;
+      const dx = next.x - old.x;
+      const dy = next.y - old.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > hardSnap) return { ...old, ...next, x: old.x + dx * 0.55, y: old.y + dy * 0.55 } as T;
+      return {
+        ...old,
+        ...next,
+        x: old.x + dx * blend,
+        y: old.y + dy * blend,
+        vx: typeof next.vx === "number" ? (old.vx ?? next.vx) * 0.55 + next.vx * 0.45 : old.vx,
+        vy: typeof next.vy === "number" ? (old.vy ?? next.vy) * 0.55 + next.vy * 0.45 : old.vy,
+      } as T;
+    });
+  }
+
 
   function aplicarPlayersExtrasDoSnapshot(snapshot: OnlineGameplaySnapshot, projectedPvp: boolean) {
     if (!Array.isArray(snapshot.players)) return;
@@ -4549,13 +4579,13 @@ export default function JogoPage() {
     if (typeof snapshot.localP2Score === "number") { localP2ScoreRef.current = snapshot.localP2Score; setLocalP2Score(snapshot.localP2Score); }
     if (typeof snapshot.localPvpRound === "number") { localPvpRoundRef.current = snapshot.localPvpRound; setLocalPvpRound(snapshot.localPvpRound); }
 
-    if (Array.isArray(snapshot.shots)) shotsRef.current = projectedPvp ? snapshot.shots.map((shot) => espelharObjetoOnline(shot)) : snapshot.shots;
-    if (Array.isArray(snapshot.enemies)) enemiesRef.current = projectedPvp ? snapshot.enemies.map((enemy) => espelharObjetoOnline(enemy)) : snapshot.enemies;
-    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = projectedPvp ? snapshot.enemyProjectiles.map((bullet) => espelharObjetoOnline(bullet)) : snapshot.enemyProjectiles;
-    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = projectedPvp ? snapshot.bossProjectiles.map((projectile) => espelharObjetoOnline(projectile)) : snapshot.bossProjectiles;
+    if (Array.isArray(snapshot.shots)) shotsRef.current = mesclarObjetosSnapshotOnline(shotsRef.current, snapshot.shots, projectedPvp, 0.42, 700);
+    if (Array.isArray(snapshot.enemies)) enemiesRef.current = mesclarObjetosSnapshotOnline(enemiesRef.current, snapshot.enemies, projectedPvp, 0.18, 760);
+    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = mesclarObjetosSnapshotOnline(enemyProjectilesRef.current, snapshot.enemyProjectiles, projectedPvp, 0.38, 700);
+    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = mesclarObjetosSnapshotOnline(bossProjectilesRef.current, snapshot.bossProjectiles, projectedPvp, 0.36, 700);
     aplicarPlayersExtrasDoSnapshot(snapshot, projectedPvp);
     if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(snapshot.powerUps, projectedPvp, localNow);
-    if (Array.isArray(snapshot.tokens)) tokensRef.current = projectedPvp ? snapshot.tokens.map((token) => espelharObjetoOnline(token) as TokenPickup) : snapshot.tokens;
+    if (Array.isArray(snapshot.tokens)) tokensRef.current = mesclarObjetosSnapshotOnline(tokensRef.current, snapshot.tokens, projectedPvp, 0.24, 560) as TokenPickup[];
     if (snapshot.boss) {
       const bossSnapshot = projectedPvp ? espelharObjetoOnline({ ...(snapshot.boss as Partial<BossState>), x: Number(snapshot.boss.x ?? bossRef.current.x), w: Number(snapshot.boss.w ?? bossRef.current.w), vx: 0 }) : snapshot.boss;
       bossRef.current = { ...bossRef.current, ...bossSnapshot };
@@ -4673,7 +4703,7 @@ export default function JogoPage() {
 
     if (souHostOnline()) {
       // Menos snapshots gigantes = menos fila no WebSocket e menos efeito "voltar no tempo" no não-host.
-      if (now - onlineLastSyncSentAtRef.current < 33) return;
+      if (now - onlineLastSyncSentAtRef.current < 20) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -4908,26 +4938,52 @@ export default function JogoPage() {
     }
   }
 
+  async function compartilharConviteOnline(invite: string, friendName?: string) {
+    const room = limparCodigoSalaOnline(onlineRoomCode || onlineJoinCode);
+    const alvo = friendName ? ` para ${friendName}` : "";
+    const text = `${nomeOnlineSeguro()} está te convidando${alvo} para Space News!`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Convite Space News", text, url: invite });
+        feedbackOnline("success", `Convite${alvo} aberto no compartilhamento.`);
+        return;
+      }
+      await navigator.clipboard?.writeText(invite);
+      feedbackOnline("success", `Convite${alvo} copiado. Ao abrir, entra direto na sala.`);
+    } catch {
+      feedbackOnline("success", `Convite: ${invite}`);
+    }
+    if (room) void mostrarNotificacaoConviteLocal(nomeOnlineSeguro(), room);
+  }
+
   async function copiarConviteOnline() {
     const invite = conviteOnlineAtual();
     if (!invite) {
       feedbackOnline("error", "Entre ou crie uma sala antes de copiar convite.");
       return;
     }
-    const room = limparCodigoSalaOnline(onlineRoomCode || onlineJoinCode);
-    const text = `${nomeOnlineSeguro()} está te convidando para Space News!`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "Convite Space News", text, url: invite });
-        feedbackOnline("success", "Convite aberto no compartilhamento do celular.");
-        return;
-      }
-      await navigator.clipboard?.writeText(invite);
-      feedbackOnline("success", "Convite copiado. Ao abrir, seu amigo entra direto na sala.");
-    } catch {
-      feedbackOnline("success", `Convite: ${invite}`);
+    await compartilharConviteOnline(invite);
+  }
+
+  function abrirConvitesAmigosOnline() {
+    if (!onlineConnected || !onlineRoomCode) {
+      feedbackOnline("error", "Entre/crie uma sala antes de convidar amigos.");
+      return;
     }
-    if (room) void mostrarNotificacaoConviteLocal(nomeOnlineSeguro(), room);
+    setInviteFriendsOpen(true);
+    feedbackOnline("idle", "Escolha qual amigo convidar para esta sala.");
+  }
+
+  async function convidarAmigoOnline(friend: LocalFriend) {
+    const base = conviteOnlineAtual();
+    if (!base) {
+      feedbackOnline("error", "Sala ainda não está pronta para convite.");
+      return;
+    }
+    const url = new URL(base);
+    url.searchParams.set("friend", friend.code || friend.id);
+    url.searchParams.set("friendName", friend.name || "Amigo");
+    await compartilharConviteOnline(url.toString(), friend.name || "amigo");
   }
 
   function limparNomeOnline(value: string) {
@@ -11539,7 +11595,7 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
       if (isLocalPvpMode()) {
         atualizarStatsPerfilLocal((stats) => ({ ...stats, pvpDamage: stats.pvpDamage + danoAplicado }));
-        spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 1, 5);
+        spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 1, 4, 0.72);
         if (Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
       }
 
@@ -11574,7 +11630,7 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.playerDamage, 0.42, "hit");
       if (isLocalPvpMode()) {
         atualizarStatsPerfilLocal((stats) => ({ ...stats, pvpDamage: stats.pvpDamage + danoAplicado }));
-        spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 2, 5);
+        spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 2, 4, 0.72);
         if (Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
       }
 
@@ -13719,25 +13775,25 @@ export default function JogoPage() {
       return { x: player.x + player.w / 2, y: player.y + player.h / 2 };
     }
 
-    function spawnTokenBurst(x: number, y: number, targetSlot: PlayerSlot = 1, maxAmount = 6) {
+    function spawnTokenBurst(x: number, y: number, targetSlot: PlayerSlot = 1, maxAmount = 6, dropChance = isLocalPvpMode() ? 0.74 : 0.66) {
       if (gameStateRef.current === "tutorial") return;
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
-      if (Math.random() < (isLocalPvpMode() ? 0.18 : 0.34)) return;
+      if (Math.random() > dropChance) return;
       const amount = Math.max(1, Math.min(maxAmount, Math.floor(rand(isLocalPvpMode() ? 1 : 2, maxAmount + 1))));
       const now = performance.now();
       for (let i = 0; i < amount; i++) {
-        const angle = rand(-Math.PI * 0.85, Math.PI * 0.85);
-        const speed = rand(2.4, 5.8);
+        const angle = rand(-Math.PI * 0.72, Math.PI * 0.72);
+        const speed = rand(isLocalPvpMode() ? 3.1 : 2.4, isLocalPvpMode() ? 6.6 : 5.8);
         tokensRef.current.push({
           id: tokenIdRef.current++,
           x: x - 14 + rand(-10, 10),
           y: y - 14 + rand(-10, 10),
-          w: 28,
-          h: 28,
+          w: isLocalPvpMode() ? 24 : 28,
+          h: isLocalPvpMode() ? 24 : 28,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed - rand(0.5, 1.4),
           age: 0,
-          life: rand(2200, 3600),
+          life: rand(isLocalPvpMode() ? 1600 : 2200, isLocalPvpMode() ? 2600 : 3600),
           wavePhase: rand(0, Math.PI * 2),
           bornAt: now,
           value: 1,
@@ -13749,12 +13805,12 @@ export default function JogoPage() {
         });
       }
       tokensRef.current = tokensRef.current.slice(-64);
-      criarExplosao(x, y, "#ffd45a", 10);
+      criarExplosao(x, y, "#ffd45a", isLocalPvpMode() ? 7 : 10);
       tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.18, "sfx");
     }
 
     function agendarProximoToken(now = performance.now()) {
-      nextTokenSpawnAtRef.current = now + rand(850, isLocalPvpMode() ? 1900 : 2700);
+      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 5200 : 4300, isLocalPvpMode() ? 7600 : 6800);
     }
 
     function spawnTokenPattern(force = false) {
@@ -13762,27 +13818,28 @@ export default function JogoPage() {
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
+      if (tokensRef.current.length > (mobileRuntimeRef.current ? 10 : 16)) { agendarProximoToken(now); return; }
       const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
       const patternRoll = Math.random();
-      const laneCount = patternRoll < 0.28 ? 6 : patternRoll < 0.62 ? 4 : 3;
+      const laneCount = patternRoll < 0.22 ? 5 : patternRoll < 0.62 ? 4 : 3;
       const startX = CONFIG.canvasWidth + 34;
-      const baseY = clamp(playerCenter.y + rand(-105, 105), 86, CONFIG.canvasHeight - 104);
-      const spacing = laneCount >= 5 ? 28 : 38;
-      const arc = patternRoll < 0.58;
+      const baseY = clamp(playerCenter.y + rand(-72, 72), 92, CONFIG.canvasHeight - 112);
+      const spacing = laneCount >= 5 ? 30 : 36;
+      const arc = patternRoll < 0.54;
       for (let i = 0; i < laneCount; i++) {
         const offset = i - (laneCount - 1) / 2;
-        const arcY = arc ? Math.sin(i / Math.max(1, laneCount - 1) * Math.PI) * -30 : 0;
-        const y = clamp(baseY + offset * spacing + arcY, 72, CONFIG.canvasHeight - 82);
+        const arcY = arc ? Math.sin(i / Math.max(1, laneCount - 1) * Math.PI) * -24 : offset * 3;
+        const y = clamp(baseY + offset * spacing + arcY, 76, CONFIG.canvasHeight - 88);
         tokensRef.current.push({
           id: tokenIdRef.current++,
-          x: startX + i * rand(18, 34),
+          x: startX + i * 30,
           y,
-          w: 26,
-          h: 26,
-          vx: -rand(1.25, 2.15),
+          w: 24,
+          h: 24,
+          vx: -rand(1.05, 1.55),
           vy: rand(-0.05, 0.05),
           age: 0,
-          life: rand(5200, 7600),
+          life: rand(6400, 8600),
           wavePhase: rand(0, Math.PI * 2),
           bornAt: now,
           value: 1,
@@ -16824,7 +16881,7 @@ export default function JogoPage() {
       {(gameState === "playing" || gameState === "paused") && (tokensVisibleUntil > performance.now()) && (
         <div className={`sn-token-counter-v20 ${tokenUiPulseUntilRef.current > performance.now() ? "is-pulsing" : ""}`} aria-label="Tokens do perfil">
           <span className="sn-token-icon-v20" aria-hidden="true" />
-          <strong>X{localProfile.tokens}</strong>
+          <strong><span>X</span>{localProfile.tokens}</strong>
         </div>
       )}
 
@@ -17232,6 +17289,19 @@ export default function JogoPage() {
             className={`game-retro-panel ${menuOpen ? "is-open" : "is-closed"}`}
           >
             <p className="game-panel-label">MENU PRINCIPAL</p>
+            <button
+              type="button"
+              className="sn-main-profile-card-v211"
+              style={{ "--profile-color": localProfile.color } as CSSProperties}
+              onClick={() => setProfileManagerOpen(true)}
+              aria-label="Abrir perfil local"
+            >
+              <span>{localProfile.name.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{localProfile.name}</strong>
+                <small><i className="sn-token-icon-v20" aria-hidden="true" /> X{localProfile.tokens} · {localProfile.friends.length} amigos</small>
+              </div>
+            </button>
             <div className="game-retro-menu-list">
               {MAIN_MENU_OPTIONS.map((option, index) => {
                 const selected = menuIndex === index;
@@ -17265,6 +17335,12 @@ export default function JogoPage() {
 
                       if (option.action === "extras") {
                         abrirExtras();
+                        return;
+                      }
+
+                      if (option.action === "profile") {
+                        tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
+                        setProfileManagerOpen(true);
                         return;
                       }
 
@@ -17621,9 +17697,9 @@ export default function JogoPage() {
                     <button
                       type="button"
                       className="sn-squish-ui"
-                      onClick={copiarConviteOnline}
+                      onClick={abrirConvitesAmigosOnline}
                     >
-                      CONVITE
+                      CONVIDAR
                     </button>
                     <button
                       type="button"
@@ -18105,6 +18181,43 @@ export default function JogoPage() {
         </section>
       )}
 
+
+      {inviteFriendsOpen && (
+        <div className="sn-profile-backdrop-v20 sn-invite-backdrop-v211" role="dialog" aria-modal="true">
+          <section className="sn-invite-panel-v211">
+            <header>
+              <div>
+                <span>CONVIDAR AMIGOS</span>
+                <h2>SALA {onlineRoomCode || "------"}</h2>
+                <p>Escolha um amigo salvo. O link abre direto no lobby online e tenta entrar na sala automaticamente.</p>
+              </div>
+              <button type="button" onClick={() => setInviteFriendsOpen(false)} aria-label="Fechar convites">×</button>
+            </header>
+            <div className="sn-invite-list-v211">
+              {localProfile.friends.length > 0 ? localProfile.friends.map((friend) => (
+                <button type="button" key={friend.id} onClick={() => void convidarAmigoOnline(friend)}>
+                  <span style={{ "--profile-color": localProfile.color } as CSSProperties}>{friend.name.slice(0, 1).toUpperCase()}</span>
+                  <div>
+                    <strong>{friend.name}</strong>
+                    <small>{friend.code || friend.id}</small>
+                  </div>
+                  <em>CONVIDAR</em>
+                </button>
+              )) : (
+                <article className="sn-invite-empty-v211">
+                  <strong>Nenhum amigo salvo ainda</strong>
+                  <p>Adicione amigos pelo código no Perfil. Por enquanto você ainda pode copiar um convite geral.</p>
+                </article>
+              )}
+            </div>
+            <footer>
+              <button type="button" onClick={() => void copiarConviteOnline()}>COPIAR CONVITE GERAL</button>
+              <button type="button" onClick={() => { setInviteFriendsOpen(false); setProfileManagerOpen(true); }}>GERENCIAR AMIGOS</button>
+            </footer>
+          </section>
+        </div>
+      )}
+
       {profileManagerOpen && (
         <div className="sn-profile-backdrop-v20" role="dialog" aria-modal="true">
           <section className="sn-profile-manager-v20">
@@ -18144,13 +18257,13 @@ export default function JogoPage() {
                 </div>
                 <div className="sn-profile-token-line-v20">
                   <span className="sn-token-icon-v20" />
-                  <strong>X{localProfile.tokens}</strong>
+                  <strong><span>X</span>{localProfile.tokens}</strong>
                 </div>
               </article>
 
               <article className="sn-profile-card-v20">
                 <h3>AMIZADES</h3>
-                <p className="sn-profile-muted-v20">Adicione por código. Convite por link abre a sala direto; notificação push real precisa do backend/PWA na próxima fase.</p>
+                <p className="sn-profile-muted-v20">Adicione por código. Envie pedidos por código ou convide amigos salvos para a sala atual. Push real com o site fechado fica para a fase PWA/backend.</p>
                 <div className="sn-profile-friend-add-v20">
                   <input
                     value={profileFriendCodeInput}

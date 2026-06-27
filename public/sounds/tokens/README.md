@@ -1,6 +1,6 @@
-# Space News Token Sounds
+# Sons dos tokens
 
 - /sounds/tokens/token-collect.wav
 - /sounds/tokens/token-burst.wav
 
-São placeholders leves. Pode trocar depois por efeitos melhores mantendo os nomes.
+Use arquivos curtos para não atrasar o input no mobile.

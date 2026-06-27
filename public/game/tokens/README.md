@@ -1,4 +1,4 @@
-# Space News Tokens
+# Tokens Space News
 
 Sprites separados usados pelo jogo:
 
@@ -7,4 +7,4 @@ Sprites separados usados pelo jogo:
 - /game/tokens/token-2.png
 - /game/tokens/token-3.png
 
-O jogo carrega os 4 frames separadamente. Se algum sprite falhar, usa fallback desenhado no Canvas.
+`token-preview-sheet.png` é só uma prévia visual. O jogo carrega os frames separados e cai no fallback Canvas se algum sprite falhar.
