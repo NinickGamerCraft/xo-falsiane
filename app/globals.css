@@ -20159,3 +20159,61 @@ body.reduce-motion .game-pause-card button {
   .sn-profile-main-v20 { grid-template-columns: 1fr !important; }
   .sn-profile-hero-v223 { grid-template-columns: 1fr; }
 }
+
+/* v2.3.1 - shop/online polish */
+.sn-shop-grid-v223 article {
+  cursor: pointer;
+  transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.sn-shop-grid-v223 article:hover,
+.sn-shop-grid-v223 article.is-previewing {
+  transform: translateY(-2px);
+  border-color: rgba(103, 232, 249, .85) !important;
+  box-shadow: 0 14px 38px rgba(0,0,0,.34), 0 0 0 1px rgba(103,232,249,.22) inset, 0 0 24px rgba(103,232,249,.16) !important;
+}
+.sn-shop-grid-v223 article.is-previewing::after {
+  content: "PREVIEW";
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: .58rem;
+  letter-spacing: .13em;
+  color: #67e8f9;
+  text-shadow: 0 0 8px rgba(103,232,249,.65);
+}
+.sn-shop-grid-v223 article button:not(:disabled) {
+  border-color: rgba(250,204,21,.78) !important;
+}
+.sn-shop-info-v220 em {
+  color: #86efac !important;
+  line-height: 1.25;
+}
+.sn-shop-info-v220 p {
+  line-height: 1.32;
+}
+.sn-shop-mode-tabs-v223 button.is-active,
+.sn-shop-tabs-v220 button.is-active {
+  box-shadow: 0 0 18px rgba(103,232,249,.22) inset, 0 0 18px rgba(103,232,249,.18) !important;
+}
+.sn-shop-preview-panel-v223 {
+  overflow: hidden;
+}
+.sn-shop-ship-stage-v221 {
+  min-height: 360px !important;
+}
+.sn-shop-ship-preview-v221 {
+  transform: scale(1.12);
+}
+.sn-mobile-button.pet {
+  z-index: 25 !important;
+  width: 48px !important;
+  height: 48px !important;
+  border-color: rgba(103,232,249,.72) !important;
+  background: rgba(8, 12, 28, .62) !important;
+}
+@media (max-width: 900px) {
+  .sn-token-counter-v20 {
+    left: 232px !important;
+    top: 18px !important;
+  }
+}

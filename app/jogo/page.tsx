@@ -1676,7 +1676,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.3.0";
+const SPACE_NEWS_VERSION = "2.3.1";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -1948,7 +1948,7 @@ type GameSettingOption = {
 const DEFAULT_MOBILE_CONTROL_LAYOUT: MobileControlLayoutMap = {
   joystick: { x: 14, y: 76, scale: 0.88 },
   dodge: { x: 78, y: 68, scale: 0.78 },
-  pet: { x: 68, y: 76, scale: 0.58 },
+  pet: { x: 89, y: 55, scale: 0.58 },
   boost: { x: 89, y: 68, scale: 0.78 },
   shot: { x: 78, y: 84, scale: 0.82 },
   strong: { x: 89, y: 84, scale: 0.82 },
@@ -2932,15 +2932,15 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "recolor-aurora", name: "Recolor Aurora", slot: "recolor", price: 80, rarity: "rare", description: "Pintura fria e brilhante. +tempo de power-ups, -defesa leve.", asset: "/game/shop/recolors/recolor-aurora-idle.png", dodgeAsset: "/game/shop/recolors/recolor-aurora-dodge.png", moveFrames: ["/game/shop/recolors/recolor-aurora-move-1.png", "/game/shop/recolors/recolor-aurora-move-2.png", "/game/shop/recolors/recolor-aurora-move-3.png", "/game/shop/recolors/recolor-aurora-move-4.png"], buffs: { defense: -0.04 } },
   { id: "recolor-circus", name: "Nave do Circo", slot: "recolor", price: 95, rarity: "event", description: "Paleta circense para combinar com acessórios de palhaço.", asset: "/game/shop/recolors/recolor-circus-idle.png", dodgeAsset: "/game/shop/recolors/recolor-circus-dodge.png", moveFrames: ["/game/shop/recolors/recolor-circus-move-1.png", "/game/shop/recolors/recolor-circus-move-2.png", "/game/shop/recolors/recolor-circus-move-3.png", "/game/shop/recolors/recolor-circus-move-4.png"] },
   { id: "front-lunar-hat", name: "Chapéu Lunar", slot: "front", price: 60, rarity: "basic", description: "Chapéu pequeno encaixado na ponta da nave.", asset: "/game/shop/accessories/front/front-lunar-hat.png", dodgeAsset: "/game/shop/accessories/front/front-lunar-hat-dodge.png" },
-  { id: "front-space-horn", name: "Chifre Espacial", slot: "front", price: 90, rarity: "rare", description: "Bico agressivo. +dano leve, -velocidade mínima.", asset: "/game/shop/accessories/front/front-space-horn.png", dodgeAsset: "/game/shop/accessories/front/front-space-horn-dodge.png", buffs: { damage: 0.06, speed: -0.02 } },
-  { id: "front-rinaldo-horn", name: "Chifre do Rinaldo", slot: "front", price: 120, rarity: "epic", description: "Chifre exagerado, mas balanceado. +dano, -tamanho visual leve.", asset: "/game/shop/accessories/front/front-rinaldo-horn.png", dodgeAsset: "/game/shop/accessories/front/front-rinaldo-horn-dodge.png", buffs: { damage: 0.09, size: 0.03 } },
-  { id: "front-sonic-fin", name: "Barbatana Velocista", slot: "front", price: 110, rarity: "epic", description: "Muda a ponta da nave. +velocidade, -defesa leve.", asset: "/game/shop/accessories/front/front-sonic-fin.png", dodgeAsset: "/game/shop/accessories/front/front-sonic-fin-dodge.png", buffs: { speed: 0.07, defense: -0.05 } },
+  { id: "front-space-horn", name: "Chifre Espacial", slot: "front", price: 90, rarity: "rare", description: "Bico agressivo de visual espacial. Cosmético puro.", asset: "/game/shop/accessories/front/front-space-horn.png", dodgeAsset: "/game/shop/accessories/front/front-space-horn-dodge.png", buffs: { damage: 0.06, speed: -0.02 } },
+  { id: "front-rinaldo-horn", name: "Chifre Colorido", slot: "front", price: 120, rarity: "epic", description: "Chifre RGB com interior escuro e contorno colorido. Cosmético puro.", asset: "/game/shop/accessories/front/front-rinaldo-horn.png", dodgeAsset: "/game/shop/accessories/front/front-rinaldo-horn-dodge.png", buffs: { damage: 0.09, size: 0.03 } },
+  { id: "front-sonic-fin", name: "Barbatana Velocista", slot: "front", price: 110, rarity: "epic", description: "Muda a ponta da nave com visual velocista. Cosmético puro.", asset: "/game/shop/accessories/front/front-sonic-fin.png", dodgeAsset: "/game/shop/accessories/front/front-sonic-fin-dodge.png", buffs: { speed: 0.07, defense: -0.05 } },
   { id: "front-parabolic", name: "Antena Parabólica", slot: "front", price: 85, rarity: "rare", description: "Melhora rastreio dos sinais e combina com tiros teleguiados.", asset: "/game/shop/accessories/front/front-parabolic.png", dodgeAsset: "/game/shop/accessories/front/front-parabolic-dodge.png", buffs: { shotSpeed: 0.03 } },
-  { id: "middle-mahoraga-ring", name: "Anel Branco Orbital", slot: "middle", price: 150, rarity: "legendary", description: "Um aro branco giratório, inspirado em energia cósmica. +dano, -velocidade.", asset: "/game/shop/accessories/middle/middle-mahoraga-ring.png", dodgeAsset: "/game/shop/accessories/middle/middle-mahoraga-ring-dodge.png", buffs: { damage: 0.1, speed: -0.04 } },
-  { id: "middle-giant-cap", name: "Touca Gigante", slot: "middle", price: 100, rarity: "rare", description: "Grande, engraçada e sem cobrir a nave toda.", asset: "/game/shop/accessories/middle/middle-giant-cap.png", dodgeAsset: "/game/shop/accessories/middle/middle-giant-cap-dodge.png", buffs: { maxHp: 1, speed: -0.04 } },
-  { id: "middle-bat-wings", name: "Asas de Morcego", slot: "middle", price: 130, rarity: "event", description: "Halloween 2026. +velocidade, -dodge um pouco mais lento.", asset: "/game/shop/accessories/middle/middle-bat-wings.png", dodgeAsset: "/game/shop/accessories/middle/middle-bat-wings-dodge.png", buffs: { speed: 0.06, dodgeCooldown: 0.08 }, tag: "HALLOWEEN 2026" },
+  { id: "middle-mahoraga-ring", name: "Anel Branco Orbital", slot: "middle", price: 150, rarity: "legendary", description: "Um aro branco giratório de energia cósmica. Cosmético puro.", asset: "/game/shop/accessories/middle/middle-mahoraga-ring.png", dodgeAsset: "/game/shop/accessories/middle/middle-mahoraga-ring-dodge.png", buffs: { damage: 0.1, speed: -0.04 } },
+  { id: "middle-giant-cap", name: "Touca Gigante", slot: "middle", price: 100, rarity: "rare", description: "Grande, chamativa e sem cobrir a nave toda. Cosmético puro.", asset: "/game/shop/accessories/middle/middle-giant-cap.png", dodgeAsset: "/game/shop/accessories/middle/middle-giant-cap-dodge.png", buffs: { maxHp: 1, speed: -0.04 } },
+  { id: "middle-bat-wings", name: "Asas de Morcego", slot: "middle", price: 130, rarity: "event", description: "Halloween 2026. Asas decorativas para a nave. Cosmético puro.", asset: "/game/shop/accessories/middle/middle-bat-wings.png", dodgeAsset: "/game/shop/accessories/middle/middle-bat-wings-dodge.png", buffs: { speed: 0.06, dodgeCooldown: 0.08 }, tag: "HALLOWEEN 2026" },
   { id: "middle-clown-kit", name: "Kit Palhaço", slot: "middle", price: 75, rarity: "event", description: "Cabelo e nariz de palhaço para a Nave do Circo.", asset: "/game/shop/accessories/middle/middle-clown-kit.png", dodgeAsset: "/game/shop/accessories/middle/middle-clown-kit-dodge.png" },
-  { id: "middle-extra-arms", name: "Armamento Extra", slot: "middle", price: 170, rarity: "legendary", description: "Duas mini-naves decorativas. +velocidade de tiro, -velocidade, +vida.", asset: "/game/shop/accessories/middle/middle-extra-arms.png", dodgeAsset: "/game/shop/accessories/middle/middle-extra-arms-dodge.png", buffs: { shotSpeed: 0.12, speed: -0.05, maxHp: 1 } },
+  { id: "middle-extra-arms", name: "Armamento Extra", slot: "middle", price: 170, rarity: "legendary", description: "Duas mini-naves extras. Único acessório com buff: +tiro, +vida, -velocidade.", asset: "/game/shop/accessories/middle/middle-extra-arms.png", dodgeAsset: "/game/shop/accessories/middle/middle-extra-arms-dodge.png", buffs: { shotSpeed: 0.12, speed: -0.05, maxHp: 1 } },
   { id: "pet-star", name: "Pet Estrela", slot: "pet", price: 90, rarity: "rare", description: "+3% velocidade. Especial: brilho que dá micro impulso.", asset: "/game/shop/pets/pet-star-0.png", frames: ["/game/shop/pets/pet-star-0.png", "/game/shop/pets/pet-star-1.png", "/game/shop/pets/pet-star-2.png", "/game/shop/pets/pet-star-3.png"], buffs: { speed: 0.03 } },
   { id: "pet-blue-comet", name: "Pet Faísca Azul", slot: "pet", price: 165, rarity: "epic", description: "+4% velocidade e tiro. Especial ativo: Super Faísca por 10s.", asset: "/game/shop/pets/pet-blue-comet-0.png", frames: ["/game/shop/pets/pet-blue-comet-0.png", "/game/shop/pets/pet-blue-comet-1.png", "/game/shop/pets/pet-blue-comet-2.png", "/game/shop/pets/pet-blue-comet-3.png"], buffs: { speed: 0.025, shotSpeed: 0.025 } },
   { id: "pet-red-jumper", name: "Pet Saltador Rubro", slot: "pet", price: 165, rarity: "epic", description: "+5% dano e +10% tokens. Especial: pulso de impacto em área pequena.", asset: "/game/shop/pets/pet-red-jumper-0.png", frames: ["/game/shop/pets/pet-red-jumper-0.png", "/game/shop/pets/pet-red-jumper-1.png", "/game/shop/pets/pet-red-jumper-2.png", "/game/shop/pets/pet-red-jumper-3.png"], buffs: { damage: 0.025, tokenBonus: 0.025 } },
@@ -2958,8 +2958,8 @@ const SHOP_ITEMS: ShopItem[] = [
 ];
 
 const SHOP_DEFAULT_OWNED = ["recolor-classic"];
-const SHOP_SLOTS: ShopSlot[] = ["recolor", "front", "middle", "pet"];
-const SHOP_SLOT_LABEL: Record<ShopSlot, string> = { recolor: "RECOLOR", front: "FRENTE", middle: "MEIO", pet: "PET" };
+const SHOP_SLOTS: ShopSlot[] = ["recolor", "front", "pet"];
+const SHOP_SLOT_LABEL: Record<ShopSlot, string> = { recolor: "RECOLOR", front: "ACESSÓRIOS", middle: "ACESSÓRIOS", pet: "PET" };
 
 const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
   { id: "first-token", title: "Primeiro Token", description: "Coletou sua primeira moeda de transmissão." },
@@ -3269,6 +3269,7 @@ export default function JogoPage() {
   const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
   const [shopTab, setShopTab] = useState<ShopSlot>("front");
   const [shopMode, setShopMode] = useState<"buy" | "inventory">("buy");
+  const [shopPreviewItemId, setShopPreviewItemId] = useState<string>("");
   const [petAbilityCooldownUi, setPetAbilityCooldownUi] = useState(0);
   const [pingBoardOpen, setPingBoardOpen] = useState(false);
   const [profileToast, setProfileToast] = useState("");
@@ -4517,7 +4518,8 @@ export default function JogoPage() {
       const x = Number(event.x ?? CONFIG.canvasWidth / 2);
       const y = Number(event.y ?? CONFIG.canvasHeight / 2);
       if (event.kind === "sound" && event.sound) {
-        tocarSom(event.sound, clamp(Number(event.volume ?? 0.22), 0.04, 0.75), event.category || "sfx");
+        const soundKey = String(event.sound) as keyof typeof CONFIG.sounds;
+        tocarSom(CONFIG.sounds[soundKey] || event.sound, clamp(Number(event.volume ?? 0.22), 0.04, 0.75), event.category || "sfx");
       } else if (event.kind === "explosion") {
         criarExplosao(x, y, event.color || "#ffe18c", Math.max(4, Math.min(48, Number(event.amount ?? 12))));
       } else if (event.kind === "hit") {
@@ -5237,6 +5239,9 @@ export default function JogoPage() {
       const id = typeof rawId === "string" ? rawId : "";
       const item = itemShopPorId(id);
       if (!item?.buffs) continue;
+      // v2.3.1: acessórios são cosméticos puros. Buff permanente fica nos pets;
+      // exceção proposital: Armamento Extra, que é o único acessório caro com buff.
+      if (item.slot !== "pet" && item.id !== "middle-extra-arms") continue;
       for (const [key, value] of Object.entries(item.buffs) as Array<[keyof ShopBuffs, number]>) {
         total[key] = (total[key] || 0) + Number(value || 0);
       }
@@ -5256,6 +5261,7 @@ export default function JogoPage() {
   }
 
   function descricaoBuffs(item: ShopItem) {
+    if (item.slot !== "pet" && item.id !== "middle-extra-arms") return "Cosmético puro";
     const buffs = item.buffs || {};
     const labels: string[] = [];
     if (buffs.speed) labels.push(`${buffs.speed > 0 ? "+" : ""}${Math.round(buffs.speed * 100)}% velocidade`);
@@ -5269,6 +5275,16 @@ export default function JogoPage() {
     if (buffs.tokenBonus) labels.push(`+${Math.round(buffs.tokenBonus * 100)}% tokens`);
     return labels.length ? labels.join(" · ") : "Cosmético puro";
   }
+
+  function itemPertenceAbaShop(item: ShopItem, tab: ShopSlot) {
+    if (tab === "front") return item.slot === "front" || item.slot === "middle";
+    return item.slot === tab;
+  }
+
+  function shopIconSrc(item: ShopItem, selected = false) {
+    return `/game/shop/icons/${selected ? "selected" : "normal"}/${item.id}.png`;
+  }
+
 
   function comprarItemShop(item: ShopItem) {
     if (item.disabled) {
@@ -8886,6 +8902,7 @@ export default function JogoPage() {
       tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
       setShopTab("front");
       setShopMode("buy");
+      setShopPreviewItemId("");
       setShopManagerOpen(true);
       return;
     }
@@ -14649,7 +14666,7 @@ export default function JogoPage() {
     }
 
     function agendarProximoToken(now = performance.now()) {
-      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 5200 : 4300, isLocalPvpMode() ? 7600 : 6800);
+      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 3600 : 2600, isLocalPvpMode() ? 5600 : 4400);
     }
 
     function spawnTokenPattern(force = false) {
@@ -14657,7 +14674,7 @@ export default function JogoPage() {
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
-      const maxTokens = mobileRuntimeRef.current ? 12 : 18;
+      const maxTokens = mobileRuntimeRef.current ? 28 : 48;
       if (tokensRef.current.length > maxTokens) { agendarProximoToken(now); return; }
 
       const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
@@ -14668,19 +14685,19 @@ export default function JogoPage() {
       const planned: Array<{ x: number; y: number; delay: number }> = [];
 
       if (pattern === "line") {
-        const count = 6;
-        for (let i = 0; i < count; i++) planned.push({ x: startX + i * 36, y: baseY, delay: i });
+        const count = 18;
+        for (let i = 0; i < count; i++) planned.push({ x: startX + i * 34, y: baseY, delay: i });
       } else if (pattern === "zigzag") {
-        const count = 7;
+        const count = 20;
         for (let i = 0; i < count; i++) {
-          const y = clamp(baseY + (i % 2 === 0 ? -34 : 34), 78, CONFIG.canvasHeight - 90);
-          planned.push({ x: startX + i * 34, y, delay: i });
+          const y = clamp(baseY + (i % 2 === 0 ? -44 : 44), 78, CONFIG.canvasHeight - 90);
+          planned.push({ x: startX + i * 32, y, delay: i });
         }
       } else if (pattern === "arc") {
-        const count = 7;
+        const count = 18;
         for (let i = 0; i < count; i++) {
           const t = i / Math.max(1, count - 1);
-          const y = clamp(baseY + Math.sin(t * Math.PI) * -58 + 22, 76, CONFIG.canvasHeight - 90);
+          const y = clamp(baseY + Math.sin(t * Math.PI) * -82 + 28, 76, CONFIG.canvasHeight - 90);
           planned.push({ x: startX + i * 32, y, delay: i });
         }
       } else {
@@ -19185,12 +19202,14 @@ export default function JogoPage() {
             <div className="sn-shop-layout-v223">
               {(() => {
                 const equipped = localProfile.equipped || {};
+                const hovered = itemShopPorId(shopPreviewItemId);
+                const previewEquipped = hovered ? { ...equipped, [hovered.slot]: hovered.id } : equipped;
                 const previewItems = [
-                  itemShopPorId(equipped.recolor),
-                  itemShopPorId(equipped.middle),
-                  itemShopPorId(equipped.front),
+                  itemShopPorId(previewEquipped.recolor),
+                  itemShopPorId(previewEquipped.middle),
+                  itemShopPorId(previewEquipped.front),
                 ].filter(Boolean) as ShopItem[];
-                const pet = itemShopPorId(equipped.pet);
+                const pet = itemShopPorId(previewEquipped.pet);
                 return (
                   <aside className="sn-shop-preview-panel-v223">
                     <div className="sn-shop-ship-stage-v221">
@@ -19240,13 +19259,13 @@ export default function JogoPage() {
                   ))}
                 </div>
                 <div className="sn-shop-grid-v220 sn-shop-grid-v223">
-                  {SHOP_ITEMS.filter((item) => item.slot === shopTab).filter((item) => shopMode === "buy" || localProfile.inventory.includes(item.id)).map((item) => {
+                  {SHOP_ITEMS.filter((item) => itemPertenceAbaShop(item, shopTab)).filter((item) => shopMode === "buy" || localProfile.inventory.includes(item.id)).map((item) => {
                     const owned = localProfile.inventory.includes(item.id);
                     const equipped = localProfile.equipped?.[item.slot] === item.id;
                     return (
-                      <article key={item.id} className={`is-${item.rarity} ${equipped ? "is-equipped" : ""}`}>
+                      <article key={item.id} className={`is-${item.rarity} ${equipped ? "is-equipped" : ""} ${shopPreviewItemId === item.id ? "is-previewing" : ""}`} onClick={() => setShopPreviewItemId(item.id)}>
                         <div className="sn-shop-preview-v220">
-                          <img src={assetUrl(item.asset)} alt="" onError={(event) => { event.currentTarget.style.opacity = "0"; }} />
+                          <img src={assetUrl(shopIconSrc(item, shopPreviewItemId === item.id))} alt="" onError={(event) => { event.currentTarget.src = assetUrl(item.asset); }} />
                         </div>
                         <div className="sn-shop-info-v220">
                           <small>{item.tag || item.rarity.toUpperCase()}</small>
@@ -19257,14 +19276,14 @@ export default function JogoPage() {
                         <button
                           type="button"
                           disabled={item.disabled || (!owned && shopMode === "inventory")}
-                          onClick={() => owned ? equiparItemShop(item) : comprarItemShop(item)}
+                          onClick={(event) => { event.stopPropagation(); owned ? equiparItemShop(item) : comprarItemShop(item); }}
                         >
                           {equipped ? "EQUIPADO" : owned ? "EQUIPAR" : `COMPRAR X${item.price}`}
                         </button>
                       </article>
                     );
                   })}
-                  {shopMode === "inventory" && SHOP_ITEMS.filter((item) => item.slot === shopTab && localProfile.inventory.includes(item.id)).length === 0 && (
+                  {shopMode === "inventory" && SHOP_ITEMS.filter((item) => itemPertenceAbaShop(item, shopTab) && localProfile.inventory.includes(item.id)).length === 0 && (
                     <article className="sn-shop-empty-v223"><strong>Nada comprado nesse slot ainda.</strong><p>Vá em COMPRAR para adquirir novos itens.</p></article>
                   )}
                 </div>

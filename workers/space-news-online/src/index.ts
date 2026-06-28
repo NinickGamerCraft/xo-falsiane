@@ -69,6 +69,8 @@ type ServerPlayer = {
   lastMoveAngle: number;
   lastStretchAt: number;
   respawnAt: number;
+  petCooldownUntil: number;
+  petActiveUntil: number;
   input: Required<PlayerInput>;
 };
 
@@ -88,6 +90,25 @@ type ServerShot = {
   vx: number;
   vy: number;
   life: number;
+};
+
+type ServerToken = {
+  id: number;
+  x: number; y: number; w: number; h: number;
+  vx: number; vy: number;
+  age: number; life: number;
+  wavePhase: number; bornAt: number;
+  value: number; frameOffset: number;
+  pattern?: "line" | "zigzag" | "cross" | "triple" | "arc" | "burst";
+  patternIndex?: number;
+};
+
+type ServerPowerUp = {
+  id: number;
+  kind: "regen" | "fireRate" | "shield" | "powerShot" | "homingShot" | "flames" | "goldenHeart" | "randomBox";
+  x: number; y: number; w: number; h: number;
+  vx: number; vy: number;
+  age: number; life: number; wavePhase: number; bornAt: number;
 };
 
 type OnlineVisualEvent = {
@@ -146,7 +167,9 @@ const MAX_SPEED_Y = 6.8;
 const NORMAL_COOLDOWN = 165;
 const STRONG_COOLDOWN = 1250;
 const DODGE_COOLDOWN = 720;
-const SERVER_TICK_MS = 1000 / 30;
+const TOKEN_SPAWN_MS = 2600;
+const POWERUP_SPAWN_MS = 9000;
+const SERVER_TICK_MS = 1000 / 60;
 const SNAPSHOT_EVERY_TICKS = 1;
 
 function json(data: unknown, init: ResponseInit = {}) {
@@ -228,7 +251,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.3.0-authoritative", netModel: "server-authoritative-v230" });
+      return json({ ok: true, service: "Space News Online", version: "2.3.1-authoritative", netModel: "server-authoritative-v231" });
     }
 
     if (url.pathname === "/create") {
@@ -274,6 +297,12 @@ export class GameRoom extends DurableObject<Env> {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private playersState = new Map<number, ServerPlayer>();
   private shots: ServerShot[] = [];
+  private tokens: ServerToken[] = [];
+  private powerUps: ServerPowerUp[] = [];
+  private tokenId = 1;
+  private powerUpId = 1;
+  private nextTokenSpawnAt = 0;
+  private nextPowerUpSpawnAt = 0;
   private scores = new Map<number, number>();
   private visualEvents: OnlineVisualEvent[] = [];
   private visualEventId = 0;
@@ -339,7 +368,7 @@ export class GameRoom extends DurableObject<Env> {
     server.serializeAttachment(placeholder);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, placeholder);
-    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v230" }));
+    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v231" }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -367,7 +396,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sessions.set(ws, session);
       this.ensureHost();
       this.syncSessionToState(session);
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v230" }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v231" }));
       this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
@@ -410,7 +439,7 @@ export class GameRoom extends DurableObject<Env> {
       if (!canStart) { ws.send(JSON.stringify({ type: "error", error: "Aguarde todos ficarem READY." })); return; }
       this.selectedGameMode = cleanMode(msg.mode || this.selectedMode());
       this.startMatch(this.selectedGameMode);
-      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v230" });
+      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v231" });
       this.broadcastState();
       return;
     }
@@ -430,7 +459,7 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     if (msg.type === "sync" || msg.type === "token_collect") {
-      // v2.3.0: host snapshots/token relays foram aposentados. O servidor é a autoridade.
+      // v2.3.1: host snapshots/token relays continuam aposentados. Tokens e power-ups são simulados no Worker.
       return;
     }
 
@@ -475,6 +504,12 @@ export class GameRoom extends DurableObject<Env> {
     this.serverTick = 0;
     this.lastTickAt = Date.now();
     this.shots = [];
+    this.tokens = [];
+    this.powerUps = [];
+    this.tokenId = 1;
+    this.powerUpId = 1;
+    this.nextTokenSpawnAt = Date.now() + 1200;
+    this.nextPowerUpSpawnAt = Date.now() + 4500;
     this.scores.clear();
     this.playersState.clear();
     this.visualEvents = [];
@@ -521,6 +556,8 @@ export class GameRoom extends DurableObject<Env> {
         lastMoveAngle: 0,
         lastStretchAt: 0,
         respawnAt: 0,
+        petCooldownUntil: 0,
+        petActiveUntil: 0,
         input: session?.input || { ...EMPTY_INPUT },
       };
       this.playersState.set(player.slot, player);
@@ -534,6 +571,8 @@ export class GameRoom extends DurableObject<Env> {
     this.stopTickTimer();
     this.playersState.clear();
     this.shots = [];
+    this.tokens = [];
+    this.powerUps = [];
     this.visualEvents = [];
   }
 
@@ -564,12 +603,131 @@ export class GameRoom extends DurableObject<Env> {
     this.lastTickAt = now;
     const step = dtMs / 16.67;
     this.serverTick += 1;
+    this.spawnAmbientPickups(now);
     this.updatePlayers(now, step);
     this.updateShots(now, step);
+    this.updatePickups(now, step);
     this.resolvePlayerBumps(now);
     this.resolveShotHits(now);
+    this.resolvePickupCollect(now);
     this.visualEvents = this.visualEvents.filter((event) => now - (event.t || now) < 1200).slice(-36);
     if (this.serverTick % SNAPSHOT_EVERY_TICKS === 0) this.broadcastSnapshot();
+  }
+
+  private petId(p: ServerPlayer) {
+    return String(p.cosmetics?.pet || "");
+  }
+
+  private petBuffs(p: ServerPlayer) {
+    const pet = this.petId(p);
+    const buffs = { speed: 0, shotSpeed: 0, damage: 0, tokenBonus: 0, maxHp: 0 };
+    if (pet === "pet-blue-comet") { buffs.speed += 0.025; buffs.shotSpeed += 0.025; }
+    if (pet === "pet-red-jumper") { buffs.damage += 0.025; buffs.tokenBonus += 0.025; }
+    if (pet === "pet-star") buffs.speed += 0.02;
+    if (pet === "pet-comet") { buffs.maxHp += 1; buffs.speed -= 0.02; }
+    if (pet === "pet-black-hole") { buffs.damage += 0.04; buffs.speed -= 0.03; }
+    if (pet === "pet-earth") buffs.maxHp += 1;
+    if (pet === "pet-white-hole") { buffs.speed += 0.03; buffs.damage -= 0.02; }
+    if (pet === "pet-wormhole") { buffs.speed += 0.03; buffs.shotSpeed += 0.03; buffs.maxHp -= 1; }
+    if (pet === "pet-milky-way") { buffs.speed += 0.015; buffs.damage += 0.02; buffs.tokenBonus += 0.03; }
+    if (p.cosmetics?.middle === "middle-extra-arms") { buffs.shotSpeed += 0.1; buffs.speed -= 0.04; buffs.maxHp += 1; }
+    return buffs;
+  }
+
+  private spawnAmbientPickups(now: number) {
+    if (now >= this.nextTokenSpawnAt && this.tokens.length < 72) {
+      this.spawnTokenWave(now);
+      this.nextTokenSpawnAt = now + TOKEN_SPAWN_MS + Math.floor(Math.random() * 1900);
+    }
+    if (now >= this.nextPowerUpSpawnAt && this.powerUps.length < 5) {
+      this.spawnPowerUp(now);
+      this.nextPowerUpSpawnAt = now + POWERUP_SPAWN_MS + Math.floor(Math.random() * 5500);
+    }
+  }
+
+  private spawnTokenWave(now: number) {
+    const patterns = ["line", "zigzag", "triple", "cross", "arc"] as const;
+    const pattern = patterns[Math.floor(Math.random() * patterns.length)] || "line";
+    const startX = CANVAS_W + 48;
+    const baseY = 130 + Math.random() * (CANVAS_H - 260);
+    const points: Array<{ x: number; y: number }> = [];
+    if (pattern === "line") {
+      for (let i = 0; i < 18; i++) points.push({ x: startX + i * 34, y: baseY });
+    } else if (pattern === "zigzag") {
+      for (let i = 0; i < 20; i++) points.push({ x: startX + i * 32, y: clamp(baseY + (i % 2 ? 42 : -42), 70, CANVAS_H - 80) });
+    } else if (pattern === "triple") {
+      for (let i = 0; i < 12; i++) for (const off of [-58, 0, 58]) points.push({ x: startX + i * 38, y: clamp(baseY + off, 70, CANVAS_H - 80) });
+    } else if (pattern === "cross") {
+      for (let i = 0; i < 7; i++) { points.push({ x: startX + i * 44, y: baseY }); points.push({ x: startX + 132, y: clamp(baseY + (i - 3) * 36, 70, CANVAS_H - 80) }); }
+    } else {
+      for (let i = 0; i < 18; i++) { const t = i / 17; points.push({ x: startX + i * 34, y: clamp(baseY - Math.sin(t * Math.PI) * 92 + 34, 70, CANVAS_H - 80) }); }
+    }
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      this.tokens.push({ id: this.tokenId++, x: p.x, y: p.y, w: 23, h: 23, vx: -2.35, vy: 0, age: -i * 12, life: 10500, wavePhase: Math.random() * Math.PI * 2, bornAt: now, value: 1, frameOffset: i % 4, pattern, patternIndex: i });
+    }
+    this.tokens = this.tokens.slice(-96);
+  }
+
+  private spawnPowerUp(now: number) {
+    const kinds: ServerPowerUp["kind"][] = ["regen", "shield", "fireRate", "powerShot", "homingShot", "goldenHeart", "randomBox"];
+    const kind = kinds[Math.floor(Math.random() * kinds.length)] || "regen";
+    this.powerUps.push({ id: this.powerUpId++, kind, x: CANVAS_W + 64, y: 120 + Math.random() * (CANVAS_H - 240), w: 42, h: 42, vx: -1.55, vy: 0, age: 0, life: 11500, wavePhase: Math.random() * Math.PI * 2, bornAt: now });
+  }
+
+  private updatePickups(now: number, step: number) {
+    this.tokens = this.tokens.map((t) => ({ ...t, age: t.age + 16.67 * step, life: t.life - 16.67 * step, x: t.x + t.vx * step, y: t.y + Math.sin((t.age + t.wavePhase * 100) * 0.01) * 0.12 })).filter((t) => t.life > 0 && t.x > -80).slice(-96);
+    this.powerUps = this.powerUps.map((p) => ({ ...p, age: p.age + 16.67 * step, life: p.life - 16.67 * step, x: p.x + p.vx * step })).filter((p) => p.life > 0 && p.x > -80).slice(-8);
+  }
+
+  private resolvePickupCollect(now: number) {
+    const players = [...this.playersState.values()].filter((p) => p.alive);
+    const nextTokens: ServerToken[] = [];
+    for (const token of this.tokens) {
+      const collector = players.find((p) => this.overlap(token, p));
+      if (!collector) { nextTokens.push(token); continue; }
+      const bonus = this.petBuffs(collector).tokenBonus;
+      const amount = Math.max(1, Math.round(token.value * (1 + bonus)));
+      this.broadcast({ type: "token_collect", room: this.roomCode, slot: collector.slot, amount, t: now });
+      this.addEvent("sound", collector.x + collector.w / 2, collector.y + collector.h / 2, "#ffd166", 0, "tokenCollect", 0.16, "sfx", collector.slot);
+    }
+    this.tokens = nextTokens;
+
+    const nextPowerUps: ServerPowerUp[] = [];
+    for (const power of this.powerUps) {
+      const collector = players.find((p) => this.overlap(power, p));
+      if (!collector) { nextPowerUps.push(power); continue; }
+      if (power.kind === "regen") collector.hp = Math.min(collector.maxHp, collector.hp + 1);
+      if (power.kind === "goldenHeart") collector.goldenHp = Math.min(2, collector.goldenHp + 1);
+      if (power.kind === "shield") collector.invincibleUntil = Math.max(collector.invincibleUntil, now + 4200);
+      if (power.kind === "fireRate") collector.normalCooldown = Math.max(now, collector.normalCooldown - 360);
+      if (power.kind === "powerShot") collector.strongReadyAt = Math.min(collector.strongReadyAt, now + 180);
+      if (power.kind === "homingShot") collector.strongReadyAt = Math.min(collector.strongReadyAt, now + 120);
+      if (power.kind === "randomBox") { collector.hp = Math.min(collector.maxHp, collector.hp + 1); collector.strongReadyAt = Math.min(collector.strongReadyAt, now + 160); }
+      this.addEvent("tokenBurst", power.x + power.w / 2, power.y + power.h / 2, "#8be9ff", 4, "powerUpPickup", 0.2, "sfx", collector.slot, 54);
+    }
+    this.powerUps = nextPowerUps;
+  }
+
+  private activatePetAbility(p: ServerPlayer, now: number) {
+    const pet = this.petId(p);
+    if (!pet || now < p.petCooldownUntil) return;
+    p.petCooldownUntil = now + 52000;
+    p.petActiveUntil = now + 10000;
+    if (pet === "pet-blue-comet") {
+      p.invincibleUntil = Math.max(p.invincibleUntil, now + 10000);
+      this.addEvent("shockwave", p.x + p.w / 2, p.y + p.h / 2, "#fde047", 10, "petSuperSpark", 0.35, "ability", p.slot, 130);
+    } else if (pet === "pet-red-jumper") {
+      for (const target of this.playersState.values()) if (target.slot !== p.slot && target.alive && Math.hypot((target.x + target.w / 2) - (p.x + p.w / 2), (target.y + target.h / 2) - (p.y + p.h / 2)) < 220) { target.hp -= 1; target.invincibleUntil = now + 300; }
+      this.addEvent("explosion", p.x + p.w / 2, p.y + p.h / 2, "#ff8066", 10, "petActivate", 0.25, "ability", p.slot);
+    } else if (pet === "pet-black-hole") {
+      for (const target of this.playersState.values()) if (target.slot !== p.slot && target.alive) { target.vx += ((p.x - target.x) / 220) * 1.2; target.vy += ((p.y - target.y) / 220) * 1.2; }
+      this.addEvent("shockwave", p.x + p.w / 2, p.y + p.h / 2, "#7c3aed", 8, "petActivate", 0.25, "ability", p.slot, 115);
+    } else {
+      p.invincibleUntil = Math.max(p.invincibleUntil, now + 850);
+      p.strongReadyAt = Math.min(p.strongReadyAt, now + 120);
+      this.addEvent("shockwave", p.x + p.w / 2, p.y + p.h / 2, "#dbeafe", 6, "petActivate", 0.22, "ability", p.slot, 80);
+    }
   }
 
   private updatePlayers(now: number, step: number) {
@@ -578,7 +736,7 @@ export class GameRoom extends DurableObject<Env> {
       if (!p.alive) {
         if (p.respawnAt && now >= p.respawnAt) {
           p.alive = true;
-          p.hp = MAX_HP;
+          p.hp = p.maxHp;
           p.invincibleUntil = now + 1200;
           p.x = p.slot % 2 === 1 ? 130 : CANVAS_W - PLAYER_W - 130;
           p.y = p.slot <= 2 ? CANVAS_H / 2 - PLAYER_H / 2 : 380;
@@ -588,6 +746,13 @@ export class GameRoom extends DurableObject<Env> {
         continue;
       }
       const input = p.input;
+      const buffs = this.petBuffs(p);
+      p.maxHp = clamp(MAX_HP + buffs.maxHp, 3, 7);
+      if (p.hp > p.maxHp) p.hp = p.maxHp;
+      if (input.pet) this.activatePetAbility(p, now);
+      const speedMul = 1 + buffs.speed + (now < p.petActiveUntil && this.petId(p) === "pet-blue-comet" ? 0.16 : 0);
+      const shotMul = 1 + buffs.shotSpeed + (now < p.petActiveUntil && this.petId(p) === "pet-blue-comet" ? 0.14 : 0);
+      const damageMul = 1 + buffs.damage;
       const ix = (input.right ? 1 : 0) - (input.left ? 1 : 0);
       const iy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
       const moving = ix !== 0 || iy !== 0;
@@ -610,11 +775,11 @@ export class GameRoom extends DurableObject<Env> {
       if (now < p.boostUntil) {
         p.vx = p.boostVx; p.vy = p.boostVy;
       } else {
-        if (ix) p.vx += ix * ACCEL * step; else p.vx *= Math.pow(FRICTION, step);
-        if (iy) p.vy += iy * ACCEL * step; else p.vy *= Math.pow(FRICTION, step);
+        if (ix) p.vx += ix * ACCEL * speedMul * step; else p.vx *= Math.pow(FRICTION, step);
+        if (iy) p.vy += iy * ACCEL * speedMul * step; else p.vy *= Math.pow(FRICTION, step);
       }
-      p.vx = clamp(p.vx, -MAX_SPEED_X, MAX_SPEED_X);
-      p.vy = clamp(p.vy, -MAX_SPEED_Y, MAX_SPEED_Y);
+      p.vx = clamp(p.vx, -MAX_SPEED_X * speedMul, MAX_SPEED_X * speedMul);
+      p.vy = clamp(p.vy, -MAX_SPEED_Y * speedMul, MAX_SPEED_Y * speedMul);
       p.x = clamp(p.x + p.vx * step, 0, CANVAS_W - p.w);
       p.y = clamp(p.y + p.vy * step, 0, CANVAS_H - p.h);
       p.tilt = clamp((p.vy / MAX_SPEED_Y) * 18 + (p.vx / MAX_SPEED_X) * 2, -20, 20);
@@ -622,21 +787,21 @@ export class GameRoom extends DurableObject<Env> {
       p.lastInputY = moving ? iy : 0;
       if (moving && !p.wasMoving) p.stretchUntil = now + 120;
       p.wasMoving = moving;
-      if (input.shot && now >= p.normalCooldown) this.spawnShot(p, "normal", now);
-      if (input.strong && now >= p.strongReadyAt) this.spawnShot(p, "strong", now);
+      if (input.shot && now >= p.normalCooldown) this.spawnShot(p, "normal", now, shotMul, damageMul);
+      if (input.strong && now >= p.strongReadyAt) this.spawnShot(p, "strong", now, shotMul, damageMul);
     }
   }
 
-  private spawnShot(p: ServerPlayer, type: "normal" | "strong", now: number) {
+  private spawnShot(p: ServerPlayer, type: "normal" | "strong", now: number, shotMul = 1, damageMul = 1) {
     const dir = p.slot % 2 === 1 ? 1 : -1;
     const strong = type === "strong";
-    const speed = strong ? 18.5 : 13.2;
+    const speed = (strong ? 18.5 : 13.2) * shotMul;
     const shot: ServerShot = {
       id: this.shotId++, ownerId: p.slot, bornAt: now, stretchUntil: now + (strong ? 190 : 120),
       x: dir > 0 ? p.x + p.w - 28 : p.x - (strong ? 44 : 26),
       y: p.y + p.h * 0.48 - (strong ? 12 : 7),
       w: strong ? 44 : 24, h: strong ? 24 : 14,
-      speed, damage: strong ? 2 : 1, type, variant: "normal",
+      speed, damage: Math.max(1, Math.round((strong ? 2 : 1) * damageMul)), type, variant: "normal",
       vx: speed * dir, vy: strong ? (p.vy * 0.12) : (p.vy * 0.08), life: strong ? 820 : 620,
     };
     this.shots.push(shot);
@@ -645,7 +810,7 @@ export class GameRoom extends DurableObject<Env> {
       p.vx -= dir * 2.5;
       this.addEvent("shockwave", shot.x, shot.y, "#fff1a8", 8, "strongShot", 0.22, "sfx", p.slot, 90);
     } else {
-      p.normalCooldown = now + NORMAL_COOLDOWN;
+      p.normalCooldown = now + Math.max(92, NORMAL_COOLDOWN / shotMul);
       this.addEvent("sound", shot.x, shot.y, "#ffffff", 0, "normalShot", 0.14, "sfx", p.slot);
     }
   }
@@ -736,7 +901,7 @@ export class GameRoom extends DurableObject<Env> {
       ghost: !p.alive,
       reviveProgress: p.alive ? 0 : clamp(1 - Math.max(0, p.respawnAt - now) / 1600, 0, 1),
       input: p.input,
-      effects: {},
+      effects: { petActive: now < p.petActiveUntil, petCooldownUntil: p.petCooldownUntil },
       cosmetics: p.cosmetics,
       profileColor: p.profileColor,
     }));
@@ -751,7 +916,7 @@ export class GameRoom extends DurableObject<Env> {
       serverTime: now,
       sentAt: now,
       authoritativeSlot: 0,
-      netModel: "server-authoritative-v230",
+      netModel: "server-authoritative-v231",
       mode: this.selectedGameMode,
       state: this.gameActive ? "playing" : "mainMenu",
       players: runtimePlayers,
@@ -770,8 +935,8 @@ export class GameRoom extends DurableObject<Env> {
       enemies: [],
       enemyProjectiles: [],
       bossProjectiles: [],
-      powerUps: [],
-      tokens: [],
+      powerUps: this.powerUps.map((p) => ({ ...p })),
+      tokens: this.tokens.map((t) => ({ ...t })),
       events: this.visualEvents,
       p1DodgeActive: p1 ? now < p1.dodgeUntil : false,
       p2DodgeActive: p2 ? now < p2.dodgeUntil : false,
@@ -799,7 +964,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcastSnapshot() {
-    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v230" });
+    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v231" });
   }
 
   private clearPendingDisconnect(slot: number) {
@@ -873,7 +1038,7 @@ export class GameRoom extends DurableObject<Env> {
   private broadcastState() {
     const players = this.players();
     const selectedMode = this.selectedMode();
-    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v230", version: "2.3.0-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
+    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v231", version: "2.3.1-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
   }
 
   private broadcastPauseState() {
