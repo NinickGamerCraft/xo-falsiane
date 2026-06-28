@@ -2383,12 +2383,41 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v240-together-lockstep";
+const ASSET_VERSION = "space-news-20260628-v241-asset-flex";
+const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
+
+function assetRevisionAtual() {
+  if (typeof window === "undefined") return ASSET_VERSION;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlRevision = (params.get("sprites") || params.get("assetRev") || "").trim();
+    if (urlRevision) {
+      window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, urlRevision.slice(0, 48));
+      return urlRevision.slice(0, 48);
+    }
+    return window.localStorage.getItem(ASSET_REVISION_STORAGE_KEY) || ASSET_VERSION;
+  } catch {
+    return ASSET_VERSION;
+  }
+}
+
+function atualizarSpritesSemMexerNoCodigo() {
+  if (typeof window === "undefined") return;
+  const revision = String(Date.now());
+  try {
+    window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, revision);
+  } catch {}
+  window.location.reload();
+}
+
+if (typeof window !== "undefined") {
+  (window as typeof window & { spaceNewsRefreshSprites?: () => void }).spaceNewsRefreshSprites = atualizarSpritesSemMexerNoCodigo;
+}
 
 function assetUrl(src: string) {
-  if (src.startsWith("data:")) return src;
+  if (src.startsWith("data:") || src.startsWith("blob:")) return src;
   const separator = src.includes("?") ? "&" : "?";
-  return `${src}${separator}v=${ASSET_VERSION}`;
+  return `${src}${separator}v=${encodeURIComponent(assetRevisionAtual())}`;
 }
 
 function listarAssetsParaCacheOffline() {
@@ -3648,13 +3677,26 @@ export default function JogoPage() {
 
 
 
+  function slotLocalOnline(): PlayerSlot {
+    const slot = Number(onlineSlotRef.current || 1);
+    return (slot >= 1 && slot <= 4 ? slot : 1) as PlayerSlot;
+  }
+
+  function slotsRemotosOnline(): PlayerSlot[] {
+    const local = slotLocalOnline();
+    return onlinePlayers
+      .map((p) => Number(p.slot))
+      .filter((slot): slot is PlayerSlot => slot >= 1 && slot <= 4 && slot !== local)
+      .sort((a, b) => a - b);
+  }
+
   function slotVisualPlayer1Online(): PlayerSlot {
-    return 1;
+    return onlineGameplayActiveRef.current ? slotLocalOnline() : 1;
   }
 
   function slotVisualPlayer2Online(): PlayerSlot {
-    const slots = onlinePlayers.map((p) => Number(p.slot)).filter((slot) => slot > 0 && slot <= 4 && slot !== onlineSlotRef.current).sort((a, b) => a - b);
-    return (slots[0] || (onlineSlotRef.current === 1 ? 2 : 1)) as PlayerSlot;
+    const remote = slotsRemotosOnline()[0];
+    return (remote || (slotLocalOnline() === 1 ? 2 : 1)) as PlayerSlot;
   }
 
   function espelharOnlinePvpVisual() {
@@ -4030,6 +4072,31 @@ export default function JogoPage() {
     return [1];
   }
 
+  function runtimePlayerParaSlotVisualOnline(
+    slot: PlayerSlot,
+    existing: Map<PlayerSlot, PlayerRuntime>,
+  ): Player | null {
+    if (onlineTogetherCoordenado()) {
+      const localSlot = slotLocalOnline();
+      const remoteSlots = slotsRemotosOnline();
+      if (slot === localSlot) return playerRef.current;
+      if (slot === remoteSlots[0]) {
+        if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
+        return player2Ref.current;
+      }
+      return existing.get(slot)?.runtime ?? createInitialPlayer();
+    }
+
+    if (slot === 1) return playerRef.current;
+    if (slot === 2) {
+      if (!player2Ref.current && (isLocalMode() || onlineGameplayActiveRef.current || onlineConnected)) {
+        player2Ref.current = criarPlayer2Inicial();
+      }
+      return player2Ref.current;
+    }
+    return existing.get(slot)?.runtime ?? createInitialPlayer();
+  }
+
   function sincronizarPlayersRuntime() {
     const existing = new Map<PlayerSlot, PlayerRuntime>(
       playersRef.current.map((player) => [player.slot, player] as [PlayerSlot, PlayerRuntime]),
@@ -4038,21 +4105,12 @@ export default function JogoPage() {
     const next: PlayerRuntime[] = [];
 
     for (const slot of slots) {
-      let runtimePlayer: Player | null = null;
-      if (slot === 1) runtimePlayer = playerRef.current;
-      else if (slot === 2) {
-        if (!player2Ref.current && (isLocalMode() || onlineGameplayActiveRef.current || onlineConnected)) {
-          player2Ref.current = criarPlayer2Inicial();
-        }
-        runtimePlayer = player2Ref.current;
-      } else {
-        runtimePlayer = existing.get(slot)?.runtime ?? createInitialPlayer();
-      }
-
+      const runtimePlayer = runtimePlayerParaSlotVisualOnline(slot, existing);
       if (!runtimePlayer) continue;
       const runtime = existing.get(slot) ?? criarPlayerRuntime(slot, runtimePlayer);
       const meta = onlinePlayers.find((player) => player.slot === slot);
       atualizarPlayerRuntime(runtime, runtimePlayer, meta);
+      runtime.isLocal = onlineTogetherCoordenado() ? slot === slotLocalOnline() : runtime.isLocal;
       next.push(runtime);
     }
 
@@ -8588,6 +8646,9 @@ export default function JogoPage() {
           resetarPosicoesLocais();
           setLocalModeNotice("");
         }, 900);
+      } else if (onlineTogetherCoordenado()) {
+        player.invincibleUntil = performance.now() + 999999;
+        setLocalModeNotice("AGUARDE REVIVE / PRÓXIMA WAVE");
       } else if (isLocalWaveMode() && player2Ref.current && player2Ref.current.hp > 0) {
         player.invincibleUntil = performance.now() + 999999;
       } else {
@@ -12448,8 +12509,8 @@ export default function JogoPage() {
 
       if (onlineGameplayActiveRef.current) {
         const previousButtons = player2ButtonsRef.current;
-        const mySlot = onlineSlotRef.current;
-        const sourceInput = mySlot === 2 ? inputOnlineLocalAtual() : (onlineRemoteInputsRef.current[2] || EMPTY_ONLINE_INPUT_STATE);
+        const remoteSlot = onlineTogetherCoordenado() ? slotVisualPlayer2Online() : 2;
+        const sourceInput = onlineRemoteInputsRef.current[remoteSlot] || EMPTY_ONLINE_INPUT_STATE;
         const axes = eixosDeInputOnline(sourceInput);
         const buttons: Record<string, boolean> = {
           "1": sourceInput.shot,
@@ -12647,7 +12708,10 @@ export default function JogoPage() {
         }
 
         const p1Alive = playerRef.current.hp > 0;
-        if (!p1Alive) iniciarGameOverCutscene();
+        if (onlineTogetherCoordenado()) {
+          player.invincibleUntil = performance.now() + 999999;
+          setLocalModeNotice("P2 AGUARDA REVIVE / PRÓXIMA WAVE");
+        } else if (!p1Alive) iniciarGameOverCutscene();
       }
     }
 
@@ -12682,7 +12746,10 @@ export default function JogoPage() {
         }
 
         const p2Alive = Boolean(player2Ref.current && player2Ref.current.hp > 0);
-        if (!p2Alive) iniciarGameOverCutscene();
+        if (onlineTogetherCoordenado()) {
+          player.invincibleUntil = performance.now() + 999999;
+          setLocalModeNotice("AGUARDE REVIVE / PRÓXIMA WAVE");
+        } else if (!p2Alive) iniciarGameOverCutscene();
       }
     }
 
@@ -12981,7 +13048,11 @@ export default function JogoPage() {
       if (!isLocalMode() || gameStateRef.current !== "playing") return;
       const speedFactor = delta / 16.67;
       const now = performance.now();
-      const runtimes = sincronizarPlayersRuntime().filter((runtime) => runtime.slot >= 3);
+      const mainRemoteSlot = onlineTogetherCoordenado() ? slotVisualPlayer2Online() : 2;
+      const runtimes = sincronizarPlayersRuntime().filter((runtime) => {
+        if (onlineTogetherCoordenado()) return runtime.slot !== slotLocalOnline() && runtime.slot !== mainRemoteSlot;
+        return runtime.slot >= 3;
+      });
       for (const runtime of runtimes) {
         const player = runtime.runtime;
         const predictedLocal = onlineGameplayActiveRef.current && runtime.slot === onlineSlotRef.current;
@@ -14857,15 +14928,15 @@ export default function JogoPage() {
     }
 
     function agendarProximoToken(now = performance.now()) {
-      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 7200 : 5200, isLocalPvpMode() ? 9800 : 7600);
+      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 7200 : 5600, isLocalPvpMode() ? 9800 : 8600);
     }
 
     function spawnTokenPattern(force = false) {
       if (gameStateRef.current === "tutorial") return;
-      if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+      if (onlineGameplayActiveRef.current && !souHostOnline() && !onlineTogetherCoordenado()) return;
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
-      const maxTokens = mobileRuntimeRef.current ? 16 : 30;
+      const maxTokens = mobileRuntimeRef.current ? 14 : 26;
       if (tokensRef.current.length > maxTokens) { agendarProximoToken(now); return; }
 
       const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
@@ -14876,20 +14947,20 @@ export default function JogoPage() {
       const planned: Array<{ x: number; y: number; delay: number }> = [];
 
       if (pattern === "line") {
-        const count = mobileRuntimeRef.current ? 7 : 10;
-        for (let i = 0; i < count; i++) planned.push({ x: startX + i * 34, y: baseY, delay: i });
+        const count = mobileRuntimeRef.current ? 8 : 12;
+        for (let i = 0; i < count; i++) planned.push({ x: startX + i * 52, y: baseY, delay: i });
       } else if (pattern === "zigzag") {
-        const count = mobileRuntimeRef.current ? 8 : 11;
+        const count = mobileRuntimeRef.current ? 7 : 10;
         for (let i = 0; i < count; i++) {
-          const y = clamp(baseY + (i % 2 === 0 ? -44 : 44), 78, CONFIG.canvasHeight - 90);
-          planned.push({ x: startX + i * 32, y, delay: i });
+          const y = clamp(baseY + (i % 2 === 0 ? -54 : 54), 78, CONFIG.canvasHeight - 90);
+          planned.push({ x: startX + i * 48, y, delay: i });
         }
       } else if (pattern === "arc") {
         const count = mobileRuntimeRef.current ? 7 : 10;
         for (let i = 0; i < count; i++) {
           const t = i / Math.max(1, count - 1);
-          const y = clamp(baseY + Math.sin(t * Math.PI) * -82 + 28, 76, CONFIG.canvasHeight - 90);
-          planned.push({ x: startX + i * 32, y, delay: i });
+          const y = clamp(baseY + Math.sin(t * Math.PI) * -78 + 28, 76, CONFIG.canvasHeight - 90);
+          planned.push({ x: startX + i * 46, y, delay: i });
         }
       } else {
         const offsets = [
@@ -14919,7 +14990,7 @@ export default function JogoPage() {
           patternIndex: i,
         });
       }
-      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 22 : 38));
+      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 18 : 34));
       agendarProximoToken(now);
     }
 
@@ -16502,8 +16573,8 @@ export default function JogoPage() {
       );
 
       const onlineRemoteP1Input =
-        onlineTogetherCoordenado() && onlineSlotRef.current !== 1
-          ? onlineRemoteInputsRef.current[1] || EMPTY_ONLINE_INPUT_STATE
+        onlineTogetherCoordenado()
+          ? null
           : (onlineGameplayActiveRef.current && !souHostOnline()
               ? onlineRemoteInputsRef.current[onlineHostSlotRef.current] || EMPTY_ONLINE_INPUT_STATE
               : null);
