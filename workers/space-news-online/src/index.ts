@@ -175,6 +175,9 @@ type ClientMessage =
   | { type: "coop_powerup_collect"; slot?: number; kind?: string; powerId?: number; seq?: number }
   | { type: "coop_pet_ability"; slot?: number; pet?: string; seq?: number }
   | { type: "coop_revive"; slot?: number; seq?: number }
+  | { type: "coop_wave_start"; slot?: number; wave?: number; seed?: number; seq?: number }
+  | { type: "coop_enemy_spawn"; slot?: number; enemies?: Record<string, unknown>[]; seq?: number }
+  | { type: "coop_world_resync"; slot?: number; world?: Record<string, unknown>; seq?: number }
   | { type: "pause_request" }
   | { type: "pause_ready"; ready?: boolean }
   | { type: "ping"; t?: number }
@@ -194,7 +197,7 @@ const EMPTY_INPUT: Required<PlayerInput> = {
   pet: false,
 };
 
-const VALID_MODES: GameMode[] = ["localPvp", "localCoop"];
+const VALID_MODES: GameMode[] = ["localCoop"];
 const CANVAS_W = 1280;
 const CANVAS_H = 720;
 const PLAYER_W = 170;
@@ -248,7 +251,7 @@ function cleanName(value: unknown, fallback: string) {
 }
 
 function cleanMode(value: unknown): GameMode {
-  return VALID_MODES.includes(value as GameMode) ? (value as GameMode) : "localPvp";
+  return VALID_MODES.includes(value as GameMode) ? (value as GameMode) : "localCoop";
 }
 
 function normalizeInput(input: PlayerInput | undefined): Required<PlayerInput> {
@@ -291,7 +294,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.4.8-dual-sim-event-sync", netModel: "dual-sim-event-sync-v248" });
+      return json({ ok: true, service: "Space News Online", version: "2.4.9-final-sync", netModel: "dual-sim-world-event-sync-v249" });
     }
 
     if (url.pathname === "/create") {
@@ -330,7 +333,7 @@ export class GameRoom extends DurableObject<Env> {
   private pauseReadySlots = new Set<number>();
   private pauseCommitted = false;
   private gameActive = false;
-  private selectedGameMode: GameMode = "localPvp";
+  private selectedGameMode: GameMode = "localCoop";
   private hostSlot = 1;
   private serverTick = 0;
   private matchSeed = 0;
@@ -380,7 +383,7 @@ export class GameRoom extends DurableObject<Env> {
       if (alreadyCreated) return json({ ok: false, exists: true }, { status: 409 });
       await this.ctx.storage.put("created", true);
       await this.ctx.storage.put("createdAt", Date.now());
-      await this.ctx.storage.put("selectedMode", "localPvp");
+      await this.ctx.storage.put("selectedMode", "localCoop");
       return json({ ok: true, room: this.roomCode });
     }
 
@@ -408,13 +411,13 @@ export class GameRoom extends DurableObject<Env> {
       connectedAt: Date.now(),
       lastSeen: Date.now(),
       input: { ...EMPTY_INPUT },
-      modeVote: "localPvp",
+      modeVote: "localCoop",
     };
 
     server.serializeAttachment(placeholder);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, placeholder);
-    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v248" }));
+    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "dual-sim-world-event-sync-v249" }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -442,7 +445,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sessions.set(ws, session);
       this.ensureHost();
       this.syncSessionToState(session);
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v248" }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "dual-sim-world-event-sync-v249" }));
       this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
@@ -472,7 +475,7 @@ export class GameRoom extends DurableObject<Env> {
       const players = this.players();
       const readyForMode = players.length >= 2 && players.every((p) => p.ready);
       if (!readyForMode) { ws.send(JSON.stringify({ type: "error", error: "A votação libera quando todos estiverem READY." })); return; }
-      session.modeVote = cleanMode(msg.mode);
+      session.modeVote = "localCoop";
       ws.serializeAttachment(session);
       this.selectedGameMode = this.selectedMode();
       this.broadcastState();
@@ -483,9 +486,9 @@ export class GameRoom extends DurableObject<Env> {
       const players = this.players();
       const canStart = players.length >= 2 && players.every((p) => p.ready);
       if (!canStart) { ws.send(JSON.stringify({ type: "error", error: "Aguarde todos ficarem READY." })); return; }
-      this.selectedGameMode = cleanMode(msg.mode || this.selectedMode());
+      this.selectedGameMode = "localCoop";
       this.startMatch(this.selectedGameMode);
-      const netModel = this.selectedGameMode === "localCoop" ? "dual-sim-event-sync-v248" : "server-authoritative-v248";
+      const netModel = "dual-sim-world-event-sync-v249";
       // Together não usa mais host-authoritative pesado: cada cliente roda sua simulação local,
       // enquanto o Worker ordena inputs/eventos determinísticos para manter power-ups, moedas e waves iguais.
       const startHostSlot = this.selectedGameMode === "localCoop" ? 0 : 0;
@@ -516,7 +519,7 @@ export class GameRoom extends DurableObject<Env> {
           profileColor: session.profileColor,
           t: Date.now(),
           serverTick: this.serverTick,
-          netModel: "dual-sim-event-sync-v248",
+          netModel: "dual-sim-world-event-sync-v249",
         }, ws);
       }
       return;
@@ -541,7 +544,7 @@ export class GameRoom extends DurableObject<Env> {
       const tokenIds = Array.isArray(msg.tokenIds)
         ? msg.tokenIds.map((id) => Math.floor(Number(id))).filter((id) => Number.isFinite(id) && id > 0).slice(0, 16)
         : [];
-      this.broadcast({ type: "coop_token_collect", room: this.roomCode, from: session.slot, slot, tokenIds, amount: Math.max(0, Math.floor(Number(msg.amount || 0))), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-event-sync-v248" }, ws);
+      this.broadcast({ type: "coop_token_collect", room: this.roomCode, from: session.slot, slot, tokenIds, amount: Math.max(0, Math.floor(Number(msg.amount || 0))), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
       return;
     }
 
@@ -550,7 +553,7 @@ export class GameRoom extends DurableObject<Env> {
       const slot = Number(msg.slot || session.slot || 0);
       if (slot !== session.slot || slot < 1 || slot > 4) return;
       const tokens = Array.isArray(msg.tokens) ? msg.tokens.slice(0, 20) : [];
-      this.broadcast({ type: "coop_token_spawn", room: this.roomCode, from: session.slot, slot, tokens, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-event-sync-v248" }, ws);
+      this.broadcast({ type: "coop_token_spawn", room: this.roomCode, from: session.slot, slot, tokens, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
       return;
     }
 
@@ -558,7 +561,7 @@ export class GameRoom extends DurableObject<Env> {
       if (this.selectedGameMode !== "localCoop") return;
       const slot = Number(msg.slot || session.slot || 0);
       if (slot !== session.slot || slot < 1 || slot > 4 || !msg.power || typeof msg.power !== "object") return;
-      this.broadcast({ type: "coop_powerup_spawn", room: this.roomCode, from: session.slot, slot, power: msg.power, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-event-sync-v248" }, ws);
+      this.broadcast({ type: "coop_powerup_spawn", room: this.roomCode, from: session.slot, slot, power: msg.power, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
       return;
     }
 
@@ -567,7 +570,7 @@ export class GameRoom extends DurableObject<Env> {
       const slot = Number(msg.slot || session.slot || 0);
       const kind = String(msg.kind || "");
       if (slot !== session.slot || slot < 1 || slot > 4 || !kind) return;
-      this.broadcast({ type: "coop_powerup_collect", room: this.roomCode, from: session.slot, slot, kind, powerId: Number(msg.powerId || 0), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-event-sync-v248" }, ws);
+      this.broadcast({ type: "coop_powerup_collect", room: this.roomCode, from: session.slot, slot, kind, powerId: Number(msg.powerId || 0), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
       return;
     }
 
@@ -576,7 +579,7 @@ export class GameRoom extends DurableObject<Env> {
       const slot = Number(msg.slot || session.slot || 0);
       const pet = String(msg.pet || "").slice(0, 48);
       if (slot !== session.slot || slot < 1 || slot > 4 || !pet) return;
-      this.broadcast({ type: "coop_pet_ability", room: this.roomCode, from: session.slot, slot, pet, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-event-sync-v248" }, ws);
+      this.broadcast({ type: "coop_pet_ability", room: this.roomCode, from: session.slot, slot, pet, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
       return;
     }
 
@@ -584,7 +587,32 @@ export class GameRoom extends DurableObject<Env> {
       if (this.selectedGameMode !== "localCoop") return;
       const slot = Number(msg.slot || 0);
       if (slot < 1 || slot > 4) return;
-      this.broadcast({ type: "coop_revive", room: this.roomCode, from: session.slot, slot, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-event-sync-v248" }, ws);
+      this.broadcast({ type: "coop_revive", room: this.roomCode, from: session.slot, slot, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
+      return;
+    }
+
+    if (msg.type === "coop_wave_start") {
+      if (this.selectedGameMode !== "localCoop") return;
+      const slot = Number(msg.slot || session.slot || 0);
+      if (slot !== session.slot || slot < 1 || slot > 4) return;
+      this.broadcast({ type: "coop_wave_start", room: this.roomCode, from: session.slot, slot, wave: Math.max(1, Math.floor(Number(msg.wave || 1))), seed: Number(msg.seed || this.matchSeed || 0), seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-world-event-sync-v249" }, ws);
+      return;
+    }
+
+    if (msg.type === "coop_enemy_spawn") {
+      if (this.selectedGameMode !== "localCoop") return;
+      const slot = Number(msg.slot || session.slot || 0);
+      if (slot !== session.slot || slot < 1 || slot > 4) return;
+      const enemies = Array.isArray(msg.enemies) ? msg.enemies.slice(0, 16) : [];
+      this.broadcast({ type: "coop_enemy_spawn", room: this.roomCode, from: session.slot, slot, enemies, seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-world-event-sync-v249" }, ws);
+      return;
+    }
+
+    if (msg.type === "coop_world_resync") {
+      if (this.selectedGameMode !== "localCoop") return;
+      const slot = Number(msg.slot || session.slot || 0);
+      if (slot !== session.slot || slot < 1 || slot > 4 || !msg.world || typeof msg.world !== "object") return;
+      this.broadcast({ type: "coop_world_resync", room: this.roomCode, from: session.slot, slot, world: msg.world, seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-world-event-sync-v249" }, ws);
       return;
     }
 
@@ -740,7 +768,7 @@ export class GameRoom extends DurableObject<Env> {
       // v2.4.8: Together online é dual-sim/event-sync.
       // O Worker não corrige posição de player; só ordena inputs e eventos do mundo.
       if (this.serverTick % 18 === 0) {
-        this.broadcast({ type: "heartbeat", room: this.roomCode, serverTick: this.serverTick, t: now, netModel: "dual-sim-event-sync-v248" });
+        this.broadcast({ type: "heartbeat", room: this.roomCode, serverTick: this.serverTick, t: now, netModel: "dual-sim-world-event-sync-v249" });
       }
       return;
     }
@@ -1242,7 +1270,7 @@ export class GameRoom extends DurableObject<Env> {
       serverTime: now,
       sentAt: now,
       authoritativeSlot: 0,
-      netModel: "server-authoritative-v248",
+      netModel: "dual-sim-world-event-sync-v249",
       mode: this.selectedGameMode,
       state: this.gameActive ? "playing" : "mainMenu",
       players: runtimePlayers,
@@ -1293,7 +1321,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcastSnapshot() {
-    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v248" });
+    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "dual-sim-world-event-sync-v249" });
   }
 
   private clearPendingDisconnect(slot: number) {
@@ -1349,26 +1377,26 @@ export class GameRoom extends DurableObject<Env> {
 
   private modeVotes() {
     const votes: Record<number, GameMode> = {};
-    for (const session of this.sessions.values()) if (session.slot > 0) votes[session.slot] = session.modeVote || "localPvp";
+    for (const session of this.sessions.values()) if (session.slot > 0) votes[session.slot] = "localCoop";
     return votes;
   }
 
   private selectedMode(): GameMode {
     const counts = new Map<GameMode, number>();
     for (const mode of VALID_MODES) counts.set(mode, 0);
-    for (const session of this.sessions.values()) if (session.slot > 0) counts.set(session.modeVote || "localPvp", (counts.get(session.modeVote || "localPvp") || 0) + 1);
+    for (const session of this.sessions.values()) if (session.slot > 0) counts.set("localCoop", (counts.get("localCoop") || 0) + 1);
     const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
     const top = ranked[0]?.[1] ?? 0;
     const tied = ranked.filter(([, count]) => count === top && count > 0).map(([mode]) => mode);
     if (tied.length > 1) return tied.includes(this.selectedGameMode) ? this.selectedGameMode : tied[0];
-    return ranked[0]?.[0] || this.selectedGameMode || "localPvp";
+    return "localCoop";
   }
 
   private broadcastState() {
     const players = this.players();
     const selectedMode = this.selectedMode();
-    const roomHostSlot = selectedMode === "localCoop" ? 0 : 0;
-    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: roomHostSlot, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: selectedMode === "localCoop" ? "dual-sim-event-sync-v248" : "server-authoritative-v248", version: "2.4.8-dual-sim-event-sync", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
+    const roomHostSlot = 0;
+    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: roomHostSlot, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "dual-sim-world-event-sync-v249", version: "2.4.9-final-sync", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
   }
 
   private broadcastPauseState() {

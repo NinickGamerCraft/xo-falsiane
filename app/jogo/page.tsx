@@ -1678,13 +1678,14 @@ const MULTIPLAYER_BRANCH_OPTIONS = [
   { label: "ONLINE", description: "Criar sala ou entrar com código pelo Worker.", disabled: false },
 ];
 
-const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: string }> = [
+const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: string; disabled?: boolean }> = [
   { label: "TOGETHER", mode: "localCoop", description: "Coop de sobrevivência contra as waves." },
-  { label: "VERSUS", mode: "localPvp", description: "Arena de rounds, power-ups e pressão." },
+  // v2.4.9: Versus cortado temporariamente do local/online para publicar o Together estável.
+  // O código do modo continua guardado para voltar depois, mas a UI e o start não liberam.
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.4.8";
+const SPACE_NEWS_VERSION = "2.4.9";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -1704,7 +1705,7 @@ function labelModoMultiplayer(mode: GameMode) {
 function descricaoModoMultiplayer(mode: GameMode) {
   if (mode === "localCoop") return "Jogue junto e sobreviva.";
   if (mode === "localScore") return "Modo removido.";
-  if (mode === "localPvp") return "Duelo com rounds, power-ups e bump.";
+  if (mode === "localPvp") return "Versus bloqueado temporariamente; Together fica liberado para publicação.";
   return "Modo especial.";
 }
 
@@ -2383,7 +2384,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v248-dual-sim-sync";
+const ASSET_VERSION = "space-news-20260628-v249-final-sync";
 const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
@@ -3317,7 +3318,7 @@ export default function JogoPage() {
   const [onlineFlow, setOnlineFlow] = useState<OnlineFlow>("choose");
   const [onlineFeedback, setOnlineFeedback] = useState<OnlineFeedback>("idle");
   const [onlineCheckingRoom, setOnlineCheckingRoom] = useState(false);
-  const [onlineSelectedMode, setOnlineSelectedMode] = useState<GameMode>("localPvp");
+  const [onlineSelectedMode, setOnlineSelectedMode] = useState<GameMode>("localCoop");
   const [onlineModeVotes, setOnlineModeVotes] = useState<Record<number, GameMode>>({});
   const [onlineDeviceIndex, setOnlineDeviceIndex] = useState(0);
   const [onlineMenuIndex, setOnlineMenuIndex] = useState(0);
@@ -3481,7 +3482,7 @@ export default function JogoPage() {
   const onlineHostSlotRef = useRef(1);
   const onlineMenuIndexRef = useRef(0);
   const onlineFlowRef = useRef<OnlineFlow>("choose");
-  const onlineSelectedModeRef = useRef<GameMode>("localPvp");
+  const onlineSelectedModeRef = useRef<GameMode>("localCoop");
   const onlineDeviceIndexRef = useRef(0);
   const detectedInputDevicesRef = useRef<InputDeviceChoice[]>(INPUT_DEVICE_CHOICES);
   const onlineGameplayActiveRef = useRef(false);
@@ -3501,6 +3502,8 @@ export default function JogoPage() {
   const onlineLastAppliedSnapshotSeqRef = useRef(0);
   const onlineRenderDelayMsRef = useRef(12);
   const onlineHardCatchUpDelayMsRef = useRef(180);
+  const onlineLastWorldResyncSentAtRef = useRef(0);
+  const onlineApplyingRemoteWorldEventRef = useRef(false);
   const onlinePredictedBoostReadyAtRef = useRef(0);
   const onlinePauseRequestedByRef = useRef<number | null>(null);
   const onlinePauseReadySlotsRef = useRef<number[]>([]);
@@ -3767,6 +3770,24 @@ export default function JogoPage() {
 
   function onlineTogetherCoordenado() {
     return onlineGameplayActiveRef.current && currentModeRef.current === "localCoop" && onlineHostSlotRef.current === 0 && !onlineServerAuthoritativeRef.current;
+  }
+
+  function slotAutoridadeMundoOnlineTogether(): PlayerSlot {
+    const slots = slotsMultiplayerAtivos()
+      .filter((slot): slot is PlayerSlot => slot >= 1 && slot <= 4)
+      .sort((a, b) => a - b);
+    return (slots[0] || 1) as PlayerSlot;
+  }
+
+  function souAutoridadeMundoOnlineTogether() {
+    return onlineTogetherCoordenado() && slotLocalOnline() === slotAutoridadeMundoOnlineTogether();
+  }
+
+  function bloquearVersusTemporariamente(reason = "Versus está bloqueado neste patch para estabilizar o Together.") {
+    setLocalModeNotice(reason);
+    window.setTimeout(() => setLocalModeNotice(""), 2600);
+    feedbackOnline("idle", reason);
+    tocarSom(CONFIG.sounds.menuBack, 0.24, "menu");
   }
 
   function posicaoCoopPorSlot(slot: PlayerSlot) {
@@ -5330,7 +5351,12 @@ export default function JogoPage() {
     if (!["playing", "paused", "gameOver", "gameOverCutscene"].includes(state)) return;
     const now = performance.now();
 
-    if (onlineServerAuthoritativeRef.current) {
+    if (onlineTogetherCoordenado()) {
+      if (souAutoridadeMundoOnlineTogether() && now - onlineLastWorldResyncSentAtRef.current >= 620) {
+        onlineLastWorldResyncSentAtRef.current = now;
+        enviarOnline({ type: "coop_world_resync", slot: slotLocalOnline(), world: criarSnapshotMundoCoop(), seq: Date.now() });
+      }
+    } else if (onlineServerAuthoritativeRef.current) {
       // v2.3.0: o Worker é a autoridade. Nenhum cliente envia snapshot de gameplay.
     } else if (souHostOnline()) {
       // Fallback legado caso o Worker antigo ainda esteja rodando.
@@ -5987,6 +6013,96 @@ export default function JogoPage() {
       pattern: token.pattern,
       patternIndex: token.patternIndex,
     };
+  }
+
+  function enemySnapshotParaSync(enemy: Enemy) {
+    return { ...enemy };
+  }
+
+  function adicionarInimigosRemotosSincronizados(rawEnemies: Partial<Enemy>[] | null | undefined) {
+    if (!Array.isArray(rawEnemies) || rawEnemies.length === 0) return;
+    const currentById = new Map(enemiesRef.current.map((enemy) => [enemy.id, enemy] as [number, Enemy]));
+    let added = 0;
+    for (const raw of rawEnemies.slice(0, 16)) {
+      const id = Math.floor(Number(raw.id ?? 0));
+      if (!Number.isFinite(id) || id <= 0 || currentById.has(id)) continue;
+      const kind = String(raw.kind || "purple") as EnemyKind;
+      const enemy = {
+        ...raw,
+        id,
+        kind,
+        x: Number(raw.x ?? CONFIG.canvasWidth + 120),
+        y: clamp(Number(raw.y ?? CONFIG.canvasHeight / 2), -180, CONFIG.canvasHeight + 180),
+        w: Math.max(20, Number(raw.w ?? 90)),
+        h: Math.max(20, Number(raw.h ?? 70)),
+        vx: Number(raw.vx ?? -2.4),
+        vy: Number(raw.vy ?? 0),
+        hp: Math.max(1, Number(raw.hp ?? 1)),
+        maxHp: Math.max(1, Number(raw.maxHp ?? raw.hp ?? 1)),
+        age: Math.max(0, Number(raw.age ?? 0)),
+        stretchUntil: Number(raw.stretchUntil ?? 0),
+        shotCooldown: Number(raw.shotCooldown ?? 1200),
+        waveBaseY: Number(raw.waveBaseY ?? raw.y ?? CONFIG.canvasHeight / 2),
+        windUpMs: Number(raw.windUpMs ?? 0),
+        isDashing: Boolean(raw.isDashing),
+      } as Enemy;
+      enemiesRef.current.push(enemy);
+      enemyIdRef.current = Math.max(enemyIdRef.current, id + 1);
+      added += 1;
+    }
+    if (added > 0) enemiesRef.current = enemiesRef.current.slice(-(mobileRuntimeRef.current ? 34 : 52));
+  }
+
+  function criarSnapshotMundoCoop() {
+    return {
+      tick: ++onlineSnapshotSeqRef.current,
+      t: Date.now(),
+      netModel: "dual-sim-world-resync-v249",
+      state: gameStateRef.current,
+      mode: currentModeRef.current,
+      wave: { ...waveStateRef.current, queue: waveStateRef.current.queue.slice(0, 24) },
+      score: scoreRef.current,
+      enemies: enemiesRef.current.slice(-44).map(enemySnapshotParaSync),
+      enemyProjectiles: enemyProjectilesRef.current.slice(-28),
+      bossProjectiles: bossProjectilesRef.current.slice(-18),
+      powerUps: powerUpsRef.current.slice(-8).map(powerUpSnapshotParaSync),
+      tokens: tokensRef.current.slice(-34).map(tokenSnapshotParaSync),
+      boss: { ...bossRef.current },
+      events: onlineVisualEventLogRef.current.slice(-24),
+    };
+  }
+
+  function aplicarResyncMundoCoop(raw: Partial<OnlineGameplaySnapshot> | null | undefined) {
+    if (!onlineTogetherCoordenado() || !raw || souAutoridadeMundoOnlineTogether()) return;
+    const projectedPvp = false;
+    const localNow = performance.now();
+    if (raw.wave) {
+      waveStateRef.current = { ...waveStateRef.current, ...raw.wave } as WaveState;
+      setWaveUi((current) => ({
+        ...current,
+        mode: (raw.wave?.mode ?? waveStateRef.current.mode) as GameMode | null,
+        wave: Number(raw.wave?.wave ?? waveStateRef.current.wave ?? 0),
+        active: Boolean(raw.wave?.active ?? waveStateRef.current.active),
+        bossWave: Boolean(raw.wave?.bossWave ?? waveStateRef.current.bossWave),
+        message: String(raw.wave?.message ?? waveStateRef.current.message ?? current.message ?? ""),
+      }));
+    }
+    if (Array.isArray(raw.enemies)) {
+      const incoming = raw.enemies as Enemy[];
+      const currentIds = enemiesRef.current.map((enemy) => enemy.id).join(",");
+      const incomingIds = incoming.map((enemy) => enemy.id).join(",");
+      enemiesRef.current = currentIds === incomingIds
+        ? mesclarObjetosSnapshotOnline(enemiesRef.current, incoming, projectedPvp, 0.88, 220)
+        : incoming.map((enemy) => ({ ...enemy }));
+      for (const enemy of enemiesRef.current) enemyIdRef.current = Math.max(enemyIdRef.current, Number(enemy.id || 0) + 1);
+    }
+    if (Array.isArray(raw.enemyProjectiles)) enemyProjectilesRef.current = mesclarObjetosSnapshotOnline(enemyProjectilesRef.current, raw.enemyProjectiles as EnemyProjectile[], projectedPvp, 0.9, 180);
+    if (Array.isArray(raw.bossProjectiles)) bossProjectilesRef.current = mesclarObjetosSnapshotOnline(bossProjectilesRef.current, raw.bossProjectiles as BossProjectile[], projectedPvp, 0.9, 180);
+    if (Array.isArray(raw.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(raw.powerUps as PowerUp[], projectedPvp, localNow);
+    if (Array.isArray(raw.tokens)) tokensRef.current = mesclarObjetosSnapshotOnline(tokensRef.current, raw.tokens as TokenPickup[], projectedPvp, 0.9, 180) as TokenPickup[];
+    if (raw.boss) bossRef.current = { ...bossRef.current, ...raw.boss };
+    if (typeof raw.score === "number") { scoreRef.current = raw.score; setScore(raw.score); }
+    if (raw.state === "gameOver" || raw.state === "gameOverCutscene") setEstado(raw.state);
   }
 
   function adicionarPowerUpRemotoSincronizado(raw: Partial<PowerUp> | null | undefined) {
@@ -6662,7 +6778,7 @@ export default function JogoPage() {
       desbloquearConquistaPerfil("creator-match");
     }
     setOnlineCanStart(Boolean(msg.canStart));
-    const selected = (msg.selectedMode || "localPvp") as GameMode;
+    const selected = ((msg.selectedMode || "localCoop") === "localPvp" ? "localCoop" : (msg.selectedMode || "localCoop")) as GameMode;
     onlineSelectedModeRef.current = selected;
     setOnlineSelectedMode(selected);
     setOnlineModeVotes(msg.modeVotes || {});
@@ -6678,7 +6794,7 @@ export default function JogoPage() {
     } else if (!msg.canStart) {
       setOnlineStatus("Tripulação pronta. Agora votem no modo para liberar a partida.");
     } else {
-      setOnlineStatus("Votação liberada. Escolha o modo e confirme INICIAR.");
+      setOnlineStatus("Together liberado. Versus foi cortado temporariamente; confirme INICIAR.");
       setOnlineFeedback("success");
     }
   }
@@ -6770,7 +6886,7 @@ export default function JogoPage() {
       }
 
       if (msg.type === "game_start") {
-        const mode = (msg.mode || onlineSelectedModeRef.current || "localPvp") as GameMode;
+        const mode = ((msg.mode || onlineSelectedModeRef.current || "localCoop") === "localPvp" ? "localCoop" : (msg.mode || onlineSelectedModeRef.current || "localCoop")) as GameMode;
         const hostSlot = Number(msg.hostSlot ?? onlineHostSlotRef.current ?? 1);
         onlineHostSlotRef.current = hostSlot;
         onlineMatchSeedRef.current = Math.max(1, Math.floor(Number(msg.seed || Date.now())));
@@ -6780,7 +6896,7 @@ export default function JogoPage() {
         // v2.4.8: Together online volta ao dual-sim coordenado por eventos.
         // Player local não é corrigido por snapshot; inputs/power-ups/moedas/revive são relayados pelo Worker.
         setOnlineGameplayActive(true);
-        setOnlineMatchIntroUntil(mode === "localPvp" ? Date.now() + 1800 : 0);
+        setOnlineMatchIntroUntil(0);
         onlineRemoteInputsRef.current = {};
         onlineSnapshotBufferRef.current = [];
         onlineLatestSnapshotRef.current = null;
@@ -6965,6 +7081,29 @@ export default function JogoPage() {
         return;
       }
 
+      if (msg.type === "coop_wave_start") {
+        const from = Number(msg.from || msg.slot || 0);
+        const wave = Math.max(1, Math.floor(Number(msg.wave || 1)));
+        if (from !== onlineSlotRef.current && !souAutoridadeMundoOnlineTogether()) {
+          onlineApplyingRemoteWorldEventRef.current = true;
+          try { iniciarWaveInfinita(wave); }
+          finally { onlineApplyingRemoteWorldEventRef.current = false; }
+        }
+        return;
+      }
+
+      if (msg.type === "coop_enemy_spawn") {
+        const from = Number(msg.from || msg.slot || 0);
+        if (from !== onlineSlotRef.current) adicionarInimigosRemotosSincronizados(msg.enemies as Partial<Enemy>[]);
+        return;
+      }
+
+      if (msg.type === "coop_world_resync") {
+        const from = Number(msg.from || msg.slot || 0);
+        if (from !== onlineSlotRef.current) aplicarResyncMundoCoop(msg.world as Partial<OnlineGameplaySnapshot>);
+        return;
+      }
+
       if (msg.type === "pong") {
         const ping = Math.max(0, Math.round(performance.now() - onlinePingStartedAtRef.current));
         setOnlinePing(ping);
@@ -7064,6 +7203,10 @@ export default function JogoPage() {
   }
 
   function votarModoOnline(mode: GameMode) {
+    if (mode === "localPvp") {
+      bloquearVersusTemporariamente("Versus local/online está cortado temporariamente neste patch. Publica o Together estável primeiro.");
+      mode = "localCoop";
+    }
     const readyCount = onlinePlayers.filter((player) => player.ready).length;
     const readyForMode = onlineConnected && onlinePlayers.length >= 2 && readyCount === onlinePlayers.length;
     if (!readyForMode) {
@@ -7087,7 +7230,7 @@ export default function JogoPage() {
       return;
     }
     tocarSom(CONFIG.sounds.menuConfirm, 0.42, "menu");
-    enviarOnline({ type: "start", mode: onlineSelectedModeRef.current });
+    enviarOnline({ type: "start", mode: "localCoop" });
   }
 
   function sairSalaOnline() {
@@ -7735,8 +7878,8 @@ export default function JogoPage() {
         }
         if (index === 0) alternarReadyOnline();
         else if (index === 1) iniciarPartidaOnline();
-        else if (index === 2) votarModoOnline("localPvp");
-        else if (index === 3) votarModoOnline("localCoop");
+        else if (index === 2) votarModoOnline("localCoop");
+        else if (index === 3) copiarCodigoSalaOnline();
         else if (index === 4) copiarCodigoSalaOnline();
         else if (index === 5) sairSalaOnline();
         return;
@@ -8936,6 +9079,10 @@ export default function JogoPage() {
   }
 
   function iniciarJogo(mode: GameMode = currentModeRef.current ?? "infinite") {
+    if (mode === "localPvp") {
+      bloquearVersusTemporariamente();
+      mode = "localCoop";
+    }
     solicitarFullscreen();
     currentModeRef.current = mode;
 
@@ -9253,6 +9400,10 @@ export default function JogoPage() {
 
   function iniciarContagemRetomada() {
     if (resumeCountdownActiveRef.current) return;
+    if (!isLocalPvpMode()) {
+      finalizarRetomada();
+      return;
+    }
     const seconds = clamp(Number(CONFIG.settings.resumeCountdown) || 0, 0, 3);
     if (seconds <= 0) {
       finalizarRetomada();
@@ -11026,6 +11177,10 @@ export default function JogoPage() {
     try {
       spawnEnemy(kind, y);
       aplicarDificuldadeWave(before, difficulty);
+      if (onlineTogetherCoordenado() && souAutoridadeMundoOnlineTogether()) {
+        const spawned = enemiesRef.current.slice(before).map(enemySnapshotParaSync);
+        if (spawned.length > 0) enviarOnline({ type: "coop_enemy_spawn", slot: slotLocalOnline(), enemies: spawned, seq: Date.now() });
+      }
     } finally {
       __finishDeterministicRng();
     }
@@ -11067,6 +11222,10 @@ export default function JogoPage() {
       bossWave ? 0.6 : 0.48,
     );
 
+    if (onlineTogetherCoordenado() && souAutoridadeMundoOnlineTogether() && !onlineApplyingRemoteWorldEventRef.current) {
+      enviarOnline({ type: "coop_wave_start", slot: slotLocalOnline(), wave: waveNumber, seq: Date.now(), seed: onlineMatchSeedRef.current });
+    }
+
     if (bossWave) {
       spawnBossChocado();
     }
@@ -11094,6 +11253,7 @@ export default function JogoPage() {
 
     if (!wave.active) {
       if (wave.nextWaveAt > 0 && now >= wave.nextWaveAt) {
+        if (onlineTogetherCoordenado() && !souAutoridadeMundoOnlineTogether()) return;
         if (isStory) {
           iniciarWaveHistoria(wave.wave + 1);
         } else {
@@ -11110,7 +11270,7 @@ export default function JogoPage() {
 
     while (wave.queue.length > 0 && elapsed >= wave.queue[0].at) {
       const event = wave.queue.shift();
-      if (event) spawnWaveEnemy(event.kind, wave.difficulty, event.y);
+      if (event && (!onlineTogetherCoordenado() || souAutoridadeMundoOnlineTogether())) spawnWaveEnemy(event.kind, wave.difficulty, event.y);
     }
 
     if (wave.message && now > wave.messageUntil) {
@@ -11254,6 +11414,7 @@ export default function JogoPage() {
     y: number,
     fromBoss = false,
   ) {
+    if (onlineTogetherCoordenado() && !souAutoridadeMundoOnlineTogether()) return;
     const cfg = CONFIG.gameplay.powerups;
 
     // Nasce diretamente do ponto onde o inimigo morreu/foi acertado.
@@ -15511,6 +15672,7 @@ export default function JogoPage() {
 
     function spawnTokenBurst(x: number, y: number, targetSlot: PlayerSlot = 1, maxAmount = 6, dropChance = isLocalPvpMode() ? 0.74 : 0.66) {
       if (gameStateRef.current === "tutorial") return;
+      if (onlineTogetherCoordenado() && !souAutoridadeMundoOnlineTogether()) return;
       if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && !souHostOnline()) return;
       if (randomFloat() > dropChance) return;
       const safeMax = mobileRuntimeRef.current ? Math.min(maxAmount, isLocalPvpMode() ? 2 : 3) : Math.min(maxAmount, isLocalPvpMode() ? 3 : 5);
@@ -15558,6 +15720,7 @@ export default function JogoPage() {
 
     function spawnTokenPattern(force = false) {
       if (gameStateRef.current === "tutorial") return;
+      if (onlineTogetherCoordenado() && !souAutoridadeMundoOnlineTogether()) return;
       if (onlineGameplayActiveRef.current && !souHostOnline() && !onlineTogetherCoordenado()) return;
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
@@ -17749,7 +17912,8 @@ export default function JogoPage() {
         return;
       }
       lastRenderedAt = time;
-      const elapsedSinceRender = Math.min(250, Math.max(0, time - lastTime));
+      const elapsedCapMs = onlineTogetherCoordenado() ? 50 : 250;
+      const elapsedSinceRender = Math.min(elapsedCapMs, Math.max(0, time - lastTime));
       lastTime = time;
 
       atualizarEstadoGamepad();
@@ -17800,7 +17964,7 @@ export default function JogoPage() {
       if (!screenFadeRef.current) {
         let simulationRemaining = elapsedSinceRender;
         do {
-          const simulationStep = Math.min(32, simulationRemaining || 16.67);
+          const simulationStep = onlineTogetherCoordenado() ? Math.min(16.67, simulationRemaining || 16.67) : Math.min(32, simulationRemaining || 16.67);
           atualizar(simulationStep, renderCanvas);
           simulationRemaining -= simulationStep;
         } while (simulationRemaining > 0.5);
@@ -18034,8 +18198,8 @@ export default function JogoPage() {
           }
           if (index === 0) alternarReadyOnline();
           else if (index === 1) iniciarPartidaOnline();
-          else if (index === 2) votarModoOnline("localPvp");
-          else if (index === 3) votarModoOnline("localCoop");
+          else if (index === 2) votarModoOnline("localCoop");
+          else if (index === 3) copiarCodigoSalaOnline();
           else if (index === 4) copiarCodigoSalaOnline();
           else if (index === 5) sairSalaOnline();
           return;
@@ -19685,7 +19849,7 @@ export default function JogoPage() {
                   <>
                     <section className="sn-online-vote-v15 sn-online-vote-v16">
                       <header>
-                        <strong>ETAPA 3 · VOTAÇÃO DE MODO</strong>
+                        <strong>ETAPA 3 · MODO LIBERADO</strong>
                         <span>selecionado: {labelModoMultiplayer(onlineSelectedMode)}</span>
                       </header>
                       <div className="sn-online-vote-grid-v15 sn-online-vote-grid-v16">
@@ -19733,7 +19897,7 @@ export default function JogoPage() {
                         onClick={iniciarPartidaOnline}
                         disabled={!onlineCanStart}
                       >
-                        INICIAR {labelModoMultiplayer(onlineSelectedMode)}
+                        INICIAR TOGETHER
                       </button>
                     </section>
                   </>
