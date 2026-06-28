@@ -20382,3 +20382,35 @@ body.reduce-motion .game-pause-card button {
     transform: translate(-2px, -84px) !important;
   }
 }
+
+/* v2.3.5 online polish: HUD não sobrepõe vida/barras */
+.game-fullscreen-page .sn-token-counter-v20 {
+  left: 252px !important;
+  top: 18px !important;
+  min-width: 82px !important;
+  height: 38px !important;
+  z-index: 42 !important;
+}
+.sn-pet-cooldown-hud-v234 {
+  top: 220px !important;
+  left: 18px !important;
+  width: 54px !important;
+  height: 54px !important;
+  z-index: 43 !important;
+  border-radius: 14px !important;
+}
+.sn-pet-cooldown-hud-v234 img {
+  width: 34px !important;
+  height: 34px !important;
+}
+.sn-pet-cooldown-hud-v234 strong {
+  right: -5px !important;
+  bottom: -5px !important;
+  min-width: 22px !important;
+  height: 22px !important;
+  font-size: .62rem !important;
+}
+@media (max-width: 900px) {
+  .game-fullscreen-page .sn-token-counter-v20 { left: 204px !important; top: 14px !important; }
+  .sn-pet-cooldown-hud-v234 { top: 194px !important; left: 12px !important; transform: scale(.86); transform-origin: top left; }
+}

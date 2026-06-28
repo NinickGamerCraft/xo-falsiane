@@ -1684,7 +1684,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.3.4";
+const SPACE_NEWS_VERSION = "2.3.5";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2383,7 +2383,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v234-online-normalized";
+const ASSET_VERSION = "space-news-20260628-v235-online-polish";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -3643,7 +3643,6 @@ export default function JogoPage() {
   }
 
   function deveProjetarOnlinePvpLocal() {
-    if (onlineServerAuthoritativeRef.current) return false;
     return onlineGameplayActiveRef.current && onlineSlotRef.current > 1 && isLocalPvpMode(currentModeRef.current);
   }
 
@@ -4652,13 +4651,13 @@ export default function JogoPage() {
       const strictOnline = onlineGameplayActiveRef.current && (onlineServerAuthoritativeRef.current || !souHostOnline());
       const bumpLike = velocityDrift > 2.4 || dist > 10 || Math.abs(Number(incoming.throwVx ?? 0)) > 0.1 || Math.abs(Number(incoming.throwVy ?? 0)) > 0.1;
       if (strictOnline && onlineServerAuthoritativeRef.current) {
-        // Servidor manda a verdade, mas o player local ainda recebe prediction logo depois.
-        // Correção forte em bump/hit, correção curta em movimento normal.
-        const blend = bumpLike ? 0.82 : dist > 140 ? 0.5 : dist > 42 ? 0.24 : dist > 10 ? 0.1 : 0;
+        // v2.3.5: o player local fica responsivo como no modo normal.
+        // O servidor corrige só drift grande/bump; microcorreção todo pacote causava o efeito de "puxão".
+        const blend = bumpLike ? 0.62 : dist > 260 ? 0.42 : dist > 120 ? 0.2 : dist > 56 ? 0.08 : 0;
         target.x = oldX + dx * blend;
         target.y = oldY + dy * blend;
-        target.vx = oldVx * 0.35 + incomingVx * 0.65;
-        target.vy = oldVy * 0.35 + incomingVy * 0.65;
+        target.vx = oldVx * 0.72 + incomingVx * 0.28;
+        target.vy = oldVy * 0.72 + incomingVy * 0.28;
       } else if (strictOnline) {
         if (bumpLike) {
           const bumpBlend = dist > 180 ? 0.74 : dist > 72 ? 0.56 : 0.36;
@@ -4864,12 +4863,14 @@ export default function JogoPage() {
       }
     }
 
+    const projectedPvp = deveProjetarOnlinePvpLocal();
     const localEntry = players.find((p) => Number(p.slot) === localSlot) || players[0];
     const otherEntry = players.find((p) => Number(p.slot) !== localSlot && (activeSlots.length === 0 || activeSlots.includes(Number(p.slot)))) || players.find((p) => Number(p.slot) !== localSlot);
     const extraEntries = players.filter((p) => p !== localEntry && p !== otherEntry);
 
     if (localEntry?.player) {
-      aplicarPlayerSnapshotSuave(playerRef.current, localEntry.player, true);
+      const localPlayerSnapshot = projectedPvp ? espelharPlayerOnline(localEntry.player) : localEntry.player;
+      aplicarPlayerSnapshotSuave(playerRef.current, localPlayerSnapshot, true);
       playerRef.current.hp = Number(localEntry.hp ?? playerRef.current.hp);
       playerRef.current.goldenHp = Number(localEntry.goldenHp ?? playerRef.current.goldenHp);
       setPlayerHp(playerRef.current.hp);
@@ -4882,14 +4883,12 @@ export default function JogoPage() {
 
     if (otherEntry?.player) {
       if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
-      // Remote player tem que parecer vivo e fluido. Snapshot do Worker a 60Hz pode aplicar direto.
-      const old = player2Ref.current;
-      const incoming = otherEntry.player;
-      Object.assign(old, incoming);
-      old.hp = Number(otherEntry.hp ?? old.hp);
-      old.goldenHp = Number(otherEntry.goldenHp ?? old.goldenHp);
-      setPlayer2Hp(old.hp);
-      setPlayer2GoldenHp(old.goldenHp);
+      const incoming = projectedPvp ? espelharPlayerOnline(otherEntry.player) : otherEntry.player;
+      aplicarPlayerSnapshotSuave(player2Ref.current, incoming, false);
+      player2Ref.current.hp = Number(otherEntry.hp ?? player2Ref.current.hp);
+      player2Ref.current.goldenHp = Number(otherEntry.goldenHp ?? player2Ref.current.goldenHp);
+      setPlayer2Hp(player2Ref.current.hp);
+      setPlayer2GoldenHp(player2Ref.current.goldenHp);
       aplicarEfeitosOnlineLocal(otherEntry.effects, 2);
     } else {
       setPlayer2Hp(0);
@@ -4902,7 +4901,8 @@ export default function JogoPage() {
       if (slot < 3 || slot > 4 || !entry.player) continue;
       const runtime = existing.get(slot) ?? criarPlayerRuntime(slot);
       aplicarMetadadosRuntime(runtime, entry);
-      Object.assign(runtime.runtime, entry.player);
+      const runtimeSnapshot = projectedPvp ? espelharPlayerOnline(entry.player) : entry.player;
+      aplicarPlayerSnapshotSuave(runtime.runtime, runtimeSnapshot, false);
       runtime.hp = Number(entry.hp ?? runtime.hp);
       runtime.maxHp = Number(entry.maxHp ?? runtime.maxHp);
       runtime.goldenLives = Number(entry.goldenHp ?? runtime.goldenLives);
@@ -4930,13 +4930,13 @@ export default function JogoPage() {
       }));
     }
 
-    aplicarEventosVisuaisSnapshotOnline(snapshot.events, false);
-    if (Array.isArray(snapshot.shots)) shotsRef.current = snapshot.shots.map((shot) => ({ ...shot }));
-    if (Array.isArray(snapshot.enemies)) enemiesRef.current = snapshot.enemies.map((enemy) => ({ ...enemy }));
-    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = snapshot.enemyProjectiles.map((projectile) => ({ ...projectile }));
-    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = snapshot.bossProjectiles.map((projectile) => ({ ...projectile }));
-    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(snapshot.powerUps, false, localNow);
-    if (Array.isArray(snapshot.tokens)) tokensRef.current = snapshot.tokens.map((token) => ({ ...token })) as TokenPickup[];
+    aplicarEventosVisuaisSnapshotOnline(snapshot.events, projectedPvp);
+    if (Array.isArray(snapshot.shots)) shotsRef.current = mesclarObjetosSnapshotOnline(shotsRef.current, snapshot.shots, projectedPvp, 0.42, 260);
+    if (Array.isArray(snapshot.enemies)) enemiesRef.current = mesclarObjetosSnapshotOnline(enemiesRef.current, snapshot.enemies, projectedPvp, 0.36, 360);
+    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = mesclarObjetosSnapshotOnline(enemyProjectilesRef.current, snapshot.enemyProjectiles, projectedPvp, 0.42, 300);
+    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = mesclarObjetosSnapshotOnline(bossProjectilesRef.current, snapshot.bossProjectiles, projectedPvp, 0.42, 320);
+    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(snapshot.powerUps, projectedPvp, localNow);
+    if (Array.isArray(snapshot.tokens)) tokensRef.current = mesclarObjetosSnapshotOnline(tokensRef.current, snapshot.tokens, projectedPvp, 0.36, 320) as TokenPickup[];
     if (snapshot.boss) bossRef.current = { ...bossRef.current, ...snapshot.boss };
 
     if ((snapshot.state === "gameOver" || snapshot.state === "gameOverCutscene") && gameStateRef.current !== snapshot.state) setEstado(snapshot.state);
@@ -14819,7 +14819,7 @@ export default function JogoPage() {
       if (gameStateRef.current === "tutorial") return;
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
       if (Math.random() > dropChance) return;
-      const safeMax = mobileRuntimeRef.current ? Math.min(maxAmount, isLocalPvpMode() ? 3 : 4) : Math.min(maxAmount, isLocalPvpMode() ? 4 : 6);
+      const safeMax = mobileRuntimeRef.current ? Math.min(maxAmount, isLocalPvpMode() ? 2 : 3) : Math.min(maxAmount, isLocalPvpMode() ? 3 : 5);
       const amount = Math.max(1, Math.min(safeMax, Math.floor(rand(1, safeMax + 1))));
       const now = performance.now();
       for (let i = 0; i < amount; i++) {
@@ -14847,13 +14847,13 @@ export default function JogoPage() {
           patternIndex: i,
         });
       }
-      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 28 : 52));
+      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 18 : 36));
       if (!mobileRuntimeRef.current) criarExplosao(x, y, "#ffd45a", isLocalPvpMode() ? 6 : 9); else criarParticulasHit(x, y, "#ffd45a", 5);
       tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.18, "sfx");
     }
 
     function agendarProximoToken(now = performance.now()) {
-      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 3600 : 2600, isLocalPvpMode() ? 5600 : 4400);
+      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 7200 : 5200, isLocalPvpMode() ? 9800 : 7600);
     }
 
     function spawnTokenPattern(force = false) {
@@ -14861,7 +14861,7 @@ export default function JogoPage() {
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
-      const maxTokens = mobileRuntimeRef.current ? 28 : 48;
+      const maxTokens = mobileRuntimeRef.current ? 16 : 30;
       if (tokensRef.current.length > maxTokens) { agendarProximoToken(now); return; }
 
       const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
@@ -14872,16 +14872,16 @@ export default function JogoPage() {
       const planned: Array<{ x: number; y: number; delay: number }> = [];
 
       if (pattern === "line") {
-        const count = 18;
+        const count = mobileRuntimeRef.current ? 7 : 10;
         for (let i = 0; i < count; i++) planned.push({ x: startX + i * 34, y: baseY, delay: i });
       } else if (pattern === "zigzag") {
-        const count = 20;
+        const count = mobileRuntimeRef.current ? 8 : 11;
         for (let i = 0; i < count; i++) {
           const y = clamp(baseY + (i % 2 === 0 ? -44 : 44), 78, CONFIG.canvasHeight - 90);
           planned.push({ x: startX + i * 32, y, delay: i });
         }
       } else if (pattern === "arc") {
-        const count = 18;
+        const count = mobileRuntimeRef.current ? 7 : 10;
         for (let i = 0; i < count; i++) {
           const t = i / Math.max(1, count - 1);
           const y = clamp(baseY + Math.sin(t * Math.PI) * -82 + 28, 76, CONFIG.canvasHeight - 90);
@@ -14915,7 +14915,7 @@ export default function JogoPage() {
           patternIndex: i,
         });
       }
-      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 44 : 64));
+      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 22 : 38));
       agendarProximoToken(now);
     }
 

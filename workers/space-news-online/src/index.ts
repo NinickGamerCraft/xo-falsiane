@@ -201,8 +201,8 @@ const MAX_SPEED_Y = 6.8;
 const NORMAL_COOLDOWN = 300;
 const STRONG_COOLDOWN = 8000;
 const DODGE_COOLDOWN = 720;
-const TOKEN_SPAWN_MS = 2200;
-const POWERUP_SPAWN_MS = 9000;
+const TOKEN_SPAWN_MS = 7200;
+const POWERUP_SPAWN_MS = 11000;
 const SERVER_TICK_MS = 1000 / 60;
 const SNAPSHOT_EVERY_TICKS = 1;
 
@@ -285,7 +285,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.3.4-authoritative", netModel: "server-authoritative-v234" });
+      return json({ ok: true, service: "Space News Online", version: "2.3.5-authoritative", netModel: "server-authoritative-v235" });
     }
 
     if (url.pathname === "/create") {
@@ -407,7 +407,7 @@ export class GameRoom extends DurableObject<Env> {
     server.serializeAttachment(placeholder);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, placeholder);
-    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v234" }));
+    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v235" }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -435,7 +435,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sessions.set(ws, session);
       this.ensureHost();
       this.syncSessionToState(session);
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v234" }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v235" }));
       this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
@@ -478,7 +478,7 @@ export class GameRoom extends DurableObject<Env> {
       if (!canStart) { ws.send(JSON.stringify({ type: "error", error: "Aguarde todos ficarem READY." })); return; }
       this.selectedGameMode = cleanMode(msg.mode || this.selectedMode());
       this.startMatch(this.selectedGameMode);
-      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v234" });
+      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v235" });
       this.broadcastState();
       return;
     }
@@ -545,10 +545,14 @@ export class GameRoom extends DurableObject<Env> {
     this.shots = [];
     this.tokens = [];
     this.powerUps = [];
+    this.enemies = [];
     this.tokenId = 1;
     this.powerUpId = 1;
-    this.nextTokenSpawnAt = Date.now() + 1200;
-    this.nextPowerUpSpawnAt = Date.now() + 4500;
+    this.enemyId = 1;
+    this.waveNumber = 0;
+    this.nextTokenSpawnAt = Date.now() + 5200;
+    this.nextPowerUpSpawnAt = Date.now() + 7500;
+    this.nextEnemyWaveAt = mode === "localCoop" ? Date.now() + 1200 : Number.MAX_SAFE_INTEGER;
     this.scores.clear();
     this.playersState.clear();
     this.visualEvents = [];
@@ -645,11 +649,14 @@ export class GameRoom extends DurableObject<Env> {
     const step = dtMs / 16.67;
     this.serverTick += 1;
     this.spawnAmbientPickups(now);
+    if (this.selectedGameMode === "localCoop") this.updateCoopEnemies(now, step);
     this.updatePlayers(now, step);
     this.updateShots(now, step);
     this.updatePickups(now, step);
     this.resolvePlayerBumps(now);
     this.resolveShotHits(now);
+    this.resolveShotHitsEnemies(now);
+    this.resolveEnemyContact(now);
     this.resolvePickupCollect(now);
     this.visualEvents = this.visualEvents.filter((event) => now - (event.t || now) < 1200).slice(-36);
     if (this.serverTick % SNAPSHOT_EVERY_TICKS === 0) this.broadcastSnapshot();
@@ -677,9 +684,9 @@ export class GameRoom extends DurableObject<Env> {
 
   private spawnAmbientPickups(now: number) {
     // Versus: tokens/power-ups só aparecem por dano, igual o pedido. Together: spawns naturais.
-    if (this.selectedGameMode === "localCoop" && now >= this.nextTokenSpawnAt && this.tokens.length < 52) {
+    if (this.selectedGameMode === "localCoop" && now >= this.nextTokenSpawnAt && this.tokens.length < 28) {
       this.spawnTokenWave(now);
-      this.nextTokenSpawnAt = now + TOKEN_SPAWN_MS + Math.floor(Math.random() * 2400);
+      this.nextTokenSpawnAt = now + TOKEN_SPAWN_MS + Math.floor(Math.random() * 3600);
     }
     if (this.selectedGameMode === "localCoop" && now >= this.nextPowerUpSpawnAt && this.powerUps.length < 4) {
       this.spawnPowerUp(now);
@@ -694,21 +701,21 @@ export class GameRoom extends DurableObject<Env> {
     const baseY = 130 + Math.random() * (CANVAS_H - 260);
     const points: Array<{ x: number; y: number }> = [];
     if (pattern === "line") {
-      for (let i = 0; i < 12; i++) points.push({ x: startX + i * 38, y: baseY });
+      for (let i = 0; i < 8; i++) points.push({ x: startX + i * 42, y: baseY });
     } else if (pattern === "zigzag") {
-      for (let i = 0; i < 14; i++) points.push({ x: startX + i * 36, y: clamp(baseY + (i % 2 ? 34 : -34), 70, CANVAS_H - 80) });
+      for (let i = 0; i < 9; i++) points.push({ x: startX + i * 40, y: clamp(baseY + (i % 2 ? 30 : -30), 70, CANVAS_H - 80) });
     } else if (pattern === "triple") {
-      for (let i = 0; i < 8; i++) for (const off of [-52, 0, 52]) points.push({ x: startX + i * 42, y: clamp(baseY + off, 70, CANVAS_H - 80) });
+      for (let i = 0; i < 5; i++) for (const off of [-48, 0, 48]) points.push({ x: startX + i * 44, y: clamp(baseY + off, 70, CANVAS_H - 80) });
     } else if (pattern === "cross") {
       for (let i = 0; i < 5; i++) { points.push({ x: startX + i * 46, y: baseY }); points.push({ x: startX + 92, y: clamp(baseY + (i - 2) * 38, 70, CANVAS_H - 80) }); }
     } else {
-      for (let i = 0; i < 12; i++) { const t = i / 11; points.push({ x: startX + i * 38, y: clamp(baseY - Math.sin(t * Math.PI) * 74 + 26, 70, CANVAS_H - 80) }); }
+      for (let i = 0; i < 8; i++) { const t = i / 7; points.push({ x: startX + i * 40, y: clamp(baseY - Math.sin(t * Math.PI) * 58 + 20, 70, CANVAS_H - 80) }); }
     }
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       this.tokens.push({ id: this.tokenId++, x: p.x, y: p.y, w: 23, h: 23, vx: -2.35, vy: 0, age: -i * 12, life: 10500, wavePhase: Math.random() * Math.PI * 2, bornAt: now, value: 1, frameOffset: i % 4, pattern, patternIndex: i });
     }
-    this.tokens = this.tokens.slice(-70);
+    this.tokens = this.tokens.slice(-38);
   }
 
   private spawnPowerUp(now: number) {
@@ -736,7 +743,7 @@ export class GameRoom extends DurableObject<Env> {
         }
       }
       return { ...t, age, life: t.life - 16.67 * step, vx, vy, x: t.x + vx * step, y: t.y + vy * step + (t.burst ? 0 : Math.sin((t.age + t.wavePhase * 100) * 0.01) * 0.12) };
-    }).filter((t) => t.life > 0 && t.x > -80).slice(this.selectedGameMode === "localPvp" ? -52 : -140);
+    }).filter((t) => t.life > 0 && t.x > -80).slice(this.selectedGameMode === "localPvp" ? -24 : -48);
     this.powerUps = this.powerUps.map((p) => ({ ...p, age: p.age + 16.67 * step, life: p.life - 16.67 * step, x: p.x + p.vx * step })).filter((p) => p.life > 0 && p.x > -80).slice(-8);
   }
 
@@ -944,7 +951,7 @@ export class GameRoom extends DurableObject<Env> {
 
   private spawnDamageTokenBurst(x: number, y: number, owner: PlayerSlot, now: number, strong = false) {
     if (this.selectedGameMode !== "localPvp") return;
-    const amount = strong ? 4 : 2;
+    const amount = strong ? 3 : 1;
     for (let i = 0; i < amount; i++) {
       const angle = -Math.PI + (i / Math.max(1, amount - 1)) * Math.PI * 0.8 + (Math.random() - 0.5) * 0.35;
       const speed = strong ? 3.2 : 2.55;
@@ -955,7 +962,7 @@ export class GameRoom extends DurableObject<Env> {
         value: 1, frameOffset: i % 4, pattern: "burst", patternIndex: i, targetSlot: owner, magnetDelay: 180, burst: true,
       });
     }
-    this.tokens = this.tokens.slice(-34);
+    this.tokens = this.tokens.slice(-22);
     this.addEvent("tokenBurst", x, y, "#ffd45a", amount, "tokenBurst", 0.12, "sfx", owner, strong ? 58 : 42);
   }
 
@@ -966,6 +973,61 @@ export class GameRoom extends DurableObject<Env> {
     const kinds: ServerPowerUp["kind"][] = ["regen", "shield", "fireRate", "powerShot", "homingShot", "randomBox"];
     const kind = kinds[Math.floor(Math.random() * kinds.length)] || "regen";
     this.powerUps.push({ id: this.powerUpId++, kind, x: clamp(x - 20, 80, CANVAS_W - 120), y: clamp(y - 20, 70, CANVAS_H - 90), w: 42, h: 42, vx: 0, vy: 0, age: 0, life: 8500, wavePhase: Math.random() * Math.PI * 2, bornAt: now });
+  }
+
+
+  private updateCoopEnemies(now: number, step: number) {
+    if (now >= this.nextEnemyWaveAt && this.enemies.length === 0) {
+      this.waveNumber += 1;
+      this.spawnCoopWave(now);
+      this.nextEnemyWaveAt = now + 6200 + Math.min(4200, this.waveNumber * 480);
+    }
+    this.enemies = this.enemies
+      .map((enemy) => {
+        const wave = Math.sin((enemy.age + enemy.phase * 1000) * 0.004) * 1.2;
+        return {
+          ...enemy,
+          age: enemy.age + 16.67 * step,
+          x: enemy.x + enemy.vx * step,
+          y: clamp(enemy.y + (enemy.vy + wave * 0.08) * step, 50, CANVAS_H - enemy.h - 50),
+          rotation: (enemy.rotation || 0) + (enemy.rotationSpeed || 0) * 16.67 * step,
+        };
+      })
+      .filter((enemy) => enemy.hp > 0 && enemy.x > -enemy.w - 80)
+      .slice(-26);
+  }
+
+  private spawnCoopWave(now: number) {
+    const count = clamp(3 + Math.floor(this.waveNumber * 0.55), 3, 10);
+    for (let i = 0; i < count; i++) {
+      const kind: ServerEnemy["kind"] = i % 5 === 0 ? "asteroid" : i % 3 === 0 ? "purple" : "red";
+      const w = kind === "asteroid" ? 76 : 62;
+      const h = kind === "asteroid" ? 76 : 48;
+      const hp = kind === "asteroid" ? 3 : kind === "purple" ? 2 : 1;
+      const y = 82 + ((i * 97 + this.waveNumber * 37) % Math.max(120, CANVAS_H - 170));
+      this.enemies.push({
+        id: this.enemyId++,
+        stretchUntil: 0,
+        kind,
+        x: CANVAS_W + 90 + i * 92,
+        y,
+        w,
+        h,
+        vx: -(1.45 + Math.min(1.2, this.waveNumber * 0.045) + Math.random() * 0.35),
+        vy: 0,
+        hp,
+        maxHp: hp,
+        age: 0,
+        waveBaseY: y,
+        shotCooldown: 0,
+        windUpMs: 0,
+        isDashing: false,
+        rotation: 0,
+        rotationSpeed: kind === "asteroid" ? 0.0025 : 0,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+    this.addEvent("sound", CANVAS_W / 2, 120, "#fff1a8", 0, "waveStart", 0.22, "sfx");
   }
 
   private resolveShotHitsEnemies(now: number) {
@@ -1084,7 +1146,7 @@ export class GameRoom extends DurableObject<Env> {
       serverTime: now,
       sentAt: now,
       authoritativeSlot: 0,
-      netModel: "server-authoritative-v234",
+      netModel: "server-authoritative-v235",
       mode: this.selectedGameMode,
       state: this.gameActive ? "playing" : "mainMenu",
       players: runtimePlayers,
@@ -1135,7 +1197,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcastSnapshot() {
-    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v234" });
+    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v235" });
   }
 
   private clearPendingDisconnect(slot: number) {
@@ -1209,7 +1271,7 @@ export class GameRoom extends DurableObject<Env> {
   private broadcastState() {
     const players = this.players();
     const selectedMode = this.selectedMode();
-    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v234", version: "2.3.2-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
+    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v235", version: "2.3.2-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
   }
 
   private broadcastPauseState() {
