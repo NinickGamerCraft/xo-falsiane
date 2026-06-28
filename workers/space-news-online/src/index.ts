@@ -160,14 +160,14 @@ const CANVAS_H = 720;
 const PLAYER_W = 170;
 const PLAYER_H = 100;
 const MAX_HP = 5;
-const ACCEL = 0.42;
-const FRICTION = 0.92;
-const MAX_SPEED_X = 7.4;
+const ACCEL = 0.36;
+const FRICTION = 0.94;
+const MAX_SPEED_X = 7.5;
 const MAX_SPEED_Y = 6.8;
-const NORMAL_COOLDOWN = 165;
-const STRONG_COOLDOWN = 1250;
+const NORMAL_COOLDOWN = 300;
+const STRONG_COOLDOWN = 8000;
 const DODGE_COOLDOWN = 720;
-const TOKEN_SPAWN_MS = 2600;
+const TOKEN_SPAWN_MS = 2200;
 const POWERUP_SPAWN_MS = 9000;
 const SERVER_TICK_MS = 1000 / 60;
 const SNAPSHOT_EVERY_TICKS = 1;
@@ -251,7 +251,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.3.1-authoritative", netModel: "server-authoritative-v231" });
+      return json({ ok: true, service: "Space News Online", version: "2.3.2-authoritative", netModel: "server-authoritative-v232" });
     }
 
     if (url.pathname === "/create") {
@@ -304,6 +304,7 @@ export class GameRoom extends DurableObject<Env> {
   private nextTokenSpawnAt = 0;
   private nextPowerUpSpawnAt = 0;
   private scores = new Map<number, number>();
+  private activeVersusSlots: PlayerSlot[] = [];
   private visualEvents: OnlineVisualEvent[] = [];
   private visualEventId = 0;
   private shotId = 1;
@@ -368,7 +369,7 @@ export class GameRoom extends DurableObject<Env> {
     server.serializeAttachment(placeholder);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, placeholder);
-    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v231" }));
+    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v232" }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -396,7 +397,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sessions.set(ws, session);
       this.ensureHost();
       this.syncSessionToState(session);
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v231" }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v232" }));
       this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
@@ -439,7 +440,7 @@ export class GameRoom extends DurableObject<Env> {
       if (!canStart) { ws.send(JSON.stringify({ type: "error", error: "Aguarde todos ficarem READY." })); return; }
       this.selectedGameMode = cleanMode(msg.mode || this.selectedMode());
       this.startMatch(this.selectedGameMode);
-      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v231" });
+      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v232" });
       this.broadcastState();
       return;
     }
@@ -516,6 +517,7 @@ export class GameRoom extends DurableObject<Env> {
     this.visualEventId = 0;
     this.shotId = 1;
     const players = this.players();
+    this.activeVersusSlots = mode === "localPvp" ? players.slice(0, 2).map((p) => p.slot as PlayerSlot) : players.map((p) => p.slot as PlayerSlot);
     const count = Math.max(2, players.length);
     for (const pub of players) {
       const session = [...this.sessions.values()].find((s) => s.slot === pub.slot);
@@ -536,10 +538,10 @@ export class GameRoom extends DurableObject<Env> {
         vx: 0,
         vy: 0,
         tilt: 0,
-        hp: MAX_HP,
+        hp: (mode === "localPvp" && !this.activeVersusSlots.includes(pub.slot as PlayerSlot)) ? 0 : MAX_HP,
         maxHp: MAX_HP,
         goldenHp: 0,
-        alive: true,
+        alive: mode === "localPvp" ? this.activeVersusSlots.includes(pub.slot as PlayerSlot) : true,
         invincibleUntil: Date.now() + 1400,
         dodgeUntil: 0,
         boostUntil: 0,
@@ -555,7 +557,7 @@ export class GameRoom extends DurableObject<Env> {
         lastInputY: 0,
         lastMoveAngle: 0,
         lastStretchAt: 0,
-        respawnAt: 0,
+        respawnAt: (mode === "localPvp" && !this.activeVersusSlots.includes(pub.slot as PlayerSlot)) ? Number.MAX_SAFE_INTEGER : 0,
         petCooldownUntil: 0,
         petActiveUntil: 0,
         input: session?.input || { ...EMPTY_INPUT },
@@ -574,6 +576,7 @@ export class GameRoom extends DurableObject<Env> {
     this.tokens = [];
     this.powerUps = [];
     this.visualEvents = [];
+    this.activeVersusSlots = [];
   }
 
   private startTickTimer() {
@@ -733,6 +736,8 @@ export class GameRoom extends DurableObject<Env> {
   private updatePlayers(now: number, step: number) {
     for (const session of this.sessions.values()) this.syncSessionToState(session);
     for (const p of this.playersState.values()) {
+      const waitingVersus = this.selectedGameMode === "localPvp" && this.activeVersusSlots.length >= 2 && !this.activeVersusSlots.includes(p.slot);
+      if (waitingVersus) { p.alive = false; p.hp = 0; p.respawnAt = Number.MAX_SAFE_INTEGER; continue; }
       if (!p.alive) {
         if (p.respawnAt && now >= p.respawnAt) {
           p.alive = true;
@@ -795,23 +800,25 @@ export class GameRoom extends DurableObject<Env> {
   private spawnShot(p: ServerPlayer, type: "normal" | "strong", now: number, shotMul = 1, damageMul = 1) {
     const dir = p.slot % 2 === 1 ? 1 : -1;
     const strong = type === "strong";
-    const speed = (strong ? 18.5 : 13.2) * shotMul;
+    const speed = (strong ? 12 : 8.2) * shotMul;
+    const shotW = strong ? 60 : 30;
+    const shotH = strong ? 60 : 30;
     const shot: ServerShot = {
       id: this.shotId++, ownerId: p.slot, bornAt: now, stretchUntil: now + (strong ? 190 : 120),
-      x: dir > 0 ? p.x + p.w - 28 : p.x - (strong ? 44 : 26),
-      y: p.y + p.h * 0.48 - (strong ? 12 : 7),
-      w: strong ? 44 : 24, h: strong ? 24 : 14,
-      speed, damage: Math.max(1, Math.round((strong ? 2 : 1) * damageMul)), type, variant: "normal",
+      x: dir > 0 ? p.x + p.w - 2 : p.x - shotW + 2,
+      y: p.y + p.h / 2 - shotH / 2,
+      w: shotW, h: shotH,
+      speed, damage: Math.max(1, Math.round((strong ? 5 : 1) * damageMul)), type, variant: "normal",
       vx: speed * dir, vy: strong ? (p.vy * 0.12) : (p.vy * 0.08), life: strong ? 820 : 620,
     };
     this.shots.push(shot);
     if (strong) {
       p.strongReadyAt = now + STRONG_COOLDOWN;
       p.vx -= dir * 2.5;
-      this.addEvent("shockwave", shot.x, shot.y, "#fff1a8", 8, "strongShot", 0.22, "sfx", p.slot, 90);
+      this.addEvent("shockwave", shot.x, shot.y, "#fff1a8", 8, "strongShot", 0.38, "sfx", p.slot, 220);
     } else {
-      p.normalCooldown = now + Math.max(92, NORMAL_COOLDOWN / shotMul);
-      this.addEvent("sound", shot.x, shot.y, "#ffffff", 0, "normalShot", 0.14, "sfx", p.slot);
+      p.normalCooldown = now + Math.max(170, NORMAL_COOLDOWN / shotMul);
+      this.addEvent("sound", shot.x, shot.y, "#ffffff", 0, "normalShot", 0.32, "sfx", p.slot);
     }
   }
 
@@ -850,6 +857,7 @@ export class GameRoom extends DurableObject<Env> {
     for (const shot of this.shots) {
       let consumed = false;
       for (const p of this.playersState.values()) {
+        if (this.selectedGameMode === "localCoop") continue;
         if (!p.alive || p.slot === shot.ownerId || now < p.invincibleUntil) continue;
         if (!this.overlap(shot, p)) continue;
         consumed = true;
@@ -865,6 +873,7 @@ export class GameRoom extends DurableObject<Env> {
           p.respawnAt = now + 1600;
           p.hp = 0;
           this.scores.set(shot.ownerId, (this.scores.get(shot.ownerId) || 0) + 1);
+          this.rotateVersusAfterElimination(p.slot, shot.ownerId as PlayerSlot, now);
           this.addEvent("explosion", p.x + p.w / 2, p.y + p.h / 2, "#ffcf6e", 14, "explosion", 0.26, "hit", shot.ownerId);
         }
         break;
@@ -872,6 +881,31 @@ export class GameRoom extends DurableObject<Env> {
       if (!consumed) nextShots.push(shot);
     }
     this.shots = nextShots;
+  }
+
+  private rotateVersusAfterElimination(deadSlot: PlayerSlot, killerSlot: PlayerSlot, now: number) {
+    if (this.selectedGameMode !== "localPvp") return;
+    const allSlots = [...this.playersState.keys()].sort((a, b) => a - b) as PlayerSlot[];
+    if (allSlots.length <= 2) return;
+    const waiting = allSlots.filter((slot) => !this.activeVersusSlots.includes(slot));
+    const nextSlot = waiting[0];
+    const dead = this.playersState.get(deadSlot);
+    if (dead) { dead.alive = false; dead.hp = 0; dead.respawnAt = Number.MAX_SAFE_INTEGER; }
+    if (!nextSlot) return;
+    this.activeVersusSlots = [killerSlot, nextSlot];
+    const next = this.playersState.get(nextSlot);
+    if (next) {
+      const killer = this.playersState.get(killerSlot);
+      const sideLeft = !killer || killer.x > CANVAS_W / 2;
+      next.alive = true;
+      next.hp = next.maxHp;
+      next.respawnAt = 0;
+      next.invincibleUntil = now + 1400;
+      next.x = sideLeft ? 130 : CANVAS_W - PLAYER_W - 130;
+      next.y = CANVAS_H / 2 - PLAYER_H / 2;
+      next.vx = 0; next.vy = 0;
+      this.addEvent("explosion", next.x + next.w / 2, next.y + next.h / 2, "#dbeafe", 9, "powerUpPickup", 0.16, "sfx", next.slot);
+    }
   }
 
   private overlap(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
@@ -902,6 +936,9 @@ export class GameRoom extends DurableObject<Env> {
       reviveProgress: p.alive ? 0 : clamp(1 - Math.max(0, p.respawnAt - now) / 1600, 0, 1),
       input: p.input,
       effects: { petActive: now < p.petActiveUntil, petCooldownUntil: p.petCooldownUntil },
+      score: this.scores.get(p.slot) || 0,
+      active: activeSlots.includes(p.slot),
+      waiting: waitingSlots.includes(p.slot),
       cosmetics: p.cosmetics,
       profileColor: p.profileColor,
     }));
@@ -909,6 +946,9 @@ export class GameRoom extends DurableObject<Env> {
     const p1 = bySlot.get(1), p2 = bySlot.get(2);
     const p1Score = this.scores.get(1) || 0;
     const p2Score = this.scores.get(2) || 0;
+    const scoresBySlot = Object.fromEntries([...this.scores.entries()].map(([slot, value]) => [String(slot), value]));
+    const activeSlots = this.selectedGameMode === "localPvp" ? this.activeVersusSlots : players.map((p) => p.slot);
+    const waitingSlots = players.map((p) => p.slot).filter((slot) => !activeSlots.includes(slot));
     return {
       tick: this.serverTick,
       seq: this.serverTick,
@@ -916,7 +956,7 @@ export class GameRoom extends DurableObject<Env> {
       serverTime: now,
       sentAt: now,
       authoritativeSlot: 0,
-      netModel: "server-authoritative-v231",
+      netModel: "server-authoritative-v232",
       mode: this.selectedGameMode,
       state: this.gameActive ? "playing" : "mainMenu",
       players: runtimePlayers,
@@ -930,7 +970,10 @@ export class GameRoom extends DurableObject<Env> {
       localP1Score: p1Score,
       localP2Score: p2Score,
       localPvpRound: 1,
-      wave: { mode: this.selectedGameMode, wave: 1, active: true, bossWave: false, message: "VERSUS ONLINE" },
+      scoresBySlot,
+      activeSlots,
+      waitingSlots,
+      wave: { mode: this.selectedGameMode, wave: 1, active: true, bossWave: false, message: this.selectedGameMode === "localCoop" ? "TOGETHER ONLINE" : "VERSUS ONLINE" },
       shots: this.shots.map((s) => ({ ...s, life: undefined })),
       enemies: [],
       enemyProjectiles: [],
@@ -964,7 +1007,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcastSnapshot() {
-    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v231" });
+    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v232" });
   }
 
   private clearPendingDisconnect(slot: number) {
@@ -1031,14 +1074,14 @@ export class GameRoom extends DurableObject<Env> {
     const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
     const top = ranked[0]?.[1] ?? 0;
     const tied = ranked.filter(([, count]) => count === top && count > 0).map(([mode]) => mode);
-    if (tied.length > 1) return tied[Math.floor(Date.now() / 1200) % tied.length];
-    return ranked[0]?.[0] || "localPvp";
+    if (tied.length > 1) return tied.includes(this.selectedGameMode) ? this.selectedGameMode : tied[0];
+    return ranked[0]?.[0] || this.selectedGameMode || "localPvp";
   }
 
   private broadcastState() {
     const players = this.players();
     const selectedMode = this.selectedMode();
-    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v231", version: "2.3.1-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
+    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v232", version: "2.3.2-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
   }
 
   private broadcastPauseState() {

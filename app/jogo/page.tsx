@@ -168,6 +168,9 @@ type OnlineRuntimePlayerSnapshot = {
   effects: OnlineEffectSnapshot;
   cosmetics?: EquippedCosmetics;
   profileColor?: string;
+  score?: number;
+  active?: boolean;
+  waiting?: boolean;
 };
 
 type OnlineGameplaySnapshot = {
@@ -197,6 +200,9 @@ type OnlineGameplaySnapshot = {
   localP1Score?: number;
   localP2Score?: number;
   localPvpRound?: number;
+  scoresBySlot?: Record<string, number>;
+  activeSlots?: number[];
+  waitingSlots?: number[];
   wave?: Partial<WaveState>;
   shots?: Shot[];
   enemies?: Enemy[];
@@ -1676,7 +1682,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.3.1";
+const SPACE_NEWS_VERSION = "2.3.2";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2375,7 +2381,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260616-v26-audio-flames";
+const ASSET_VERSION = "space-news-20260628-v232-sprite-refresh";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -3263,6 +3269,9 @@ export default function JogoPage() {
   const [onlinePausePanelOpen, setOnlinePausePanelOpen] = useState(false);
   const [onlineSyncWarning, setOnlineSyncWarning] = useState("");
   const [onlineEventOverlay, setOnlineEventOverlay] = useState<OnlineEventOverlayState | null>(null);
+  const [onlineScoresBySlot, setOnlineScoresBySlot] = useState<Record<number, number>>({});
+  const [onlineActiveSlots, setOnlineActiveSlots] = useState<number[]>([]);
+  const [onlineWaitingSlots, setOnlineWaitingSlots] = useState<number[]>([]);
   const [localProfile, setLocalProfile] = useState<LocalProfile>(() => carregarPerfilLocalInicial());
   const [profileManagerOpen, setProfileManagerOpen] = useState(false);
   const [shopManagerOpen, setShopManagerOpen] = useState(false);
@@ -4535,8 +4544,9 @@ export default function JogoPage() {
         });
         criarParticulasHit(x, y, event.color || "#fff1a8", 10);
       } else if (event.kind === "tokenBurst") {
-        criarExplosao(x, y, event.color || "#ffd166", Math.max(5, Math.min(24, Number(event.amount ?? 9))));
-        tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.14, "sfx");
+        const amount = mobileRuntimeRef.current || adaptivePerformanceRef.current.reduced ? Math.max(2, Math.min(7, Number(event.amount ?? 5))) : Math.max(5, Math.min(18, Number(event.amount ?? 9)));
+        criarExplosao(x, y, event.color || "#ffd166", amount);
+        tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.12, "sfx");
       } else if (event.kind === "bump") {
         criarParticulasHit(x, y, event.color || "#67e8f9", 9);
         shockwavesRef.current.push({ id: enemyIdRef.current++, x, y, radius: 72, life: 160, maxLife: 160 });
@@ -4623,9 +4633,17 @@ export default function JogoPage() {
       const incomingVx = typeof incoming.vx === "number" ? incoming.vx : oldVx;
       const incomingVy = typeof incoming.vy === "number" ? incoming.vy : oldVy;
       const velocityDrift = Math.hypot(incomingVx - oldVx, incomingVy - oldVy);
-      const strictOnline = onlineGameplayActiveRef.current && !souHostOnline();
+      const strictOnline = onlineGameplayActiveRef.current && (onlineServerAuthoritativeRef.current || !souHostOnline());
       const bumpLike = velocityDrift > 2.4 || dist > 10 || Math.abs(Number(incoming.throwVx ?? 0)) > 0.1 || Math.abs(Number(incoming.throwVy ?? 0)) > 0.1;
-      if (strictOnline) {
+      if (strictOnline && onlineServerAuthoritativeRef.current) {
+        // Servidor manda a verdade, mas o player local ainda recebe prediction logo depois.
+        // Correção forte em bump/hit, correção curta em movimento normal.
+        const blend = bumpLike ? 0.82 : dist > 140 ? 0.5 : dist > 42 ? 0.24 : dist > 10 ? 0.1 : 0;
+        target.x = oldX + dx * blend;
+        target.y = oldY + dy * blend;
+        target.vx = oldVx * 0.35 + incomingVx * 0.65;
+        target.vy = oldVy * 0.35 + incomingVy * 0.65;
+      } else if (strictOnline) {
         if (bumpLike) {
           const bumpBlend = dist > 180 ? 0.74 : dist > 72 ? 0.56 : 0.36;
           target.x = oldX + dx * bumpBlend;
@@ -4657,18 +4675,18 @@ export default function JogoPage() {
         target.vy = oldVy;
       }
     } else {
-      // Remote players não devem teletransportar a cada snapshot: interpolação curta + snap só em drift absurdo.
-      const hardSnap = 620;
-      const blend = dist < 24 ? 0.08 : dist < 120 ? 0.14 : 0.22;
+      // Remote players no servidor autoritativo precisam acompanhar firme, senão vira slideshow.
+      const hardSnap = onlineServerAuthoritativeRef.current ? 260 : 620;
+      const blend = onlineServerAuthoritativeRef.current ? (dist < 18 ? 0.42 : dist < 120 ? 0.68 : 0.86) : (dist < 24 ? 0.08 : dist < 120 ? 0.14 : 0.22);
       if (dist > hardSnap) {
-        target.x = oldX + dx * 0.45;
-        target.y = oldY + dy * 0.45;
+        target.x = oldX + dx * (onlineServerAuthoritativeRef.current ? 0.92 : 0.45);
+        target.y = oldY + dy * (onlineServerAuthoritativeRef.current ? 0.92 : 0.45);
       } else {
         target.x = oldX + dx * blend;
         target.y = oldY + dy * blend;
       }
-      target.vx = typeof incoming.vx === "number" ? oldVx * 0.72 + incoming.vx * 0.28 : oldVx;
-      target.vy = typeof incoming.vy === "number" ? oldVy * 0.72 + incoming.vy * 0.28 : oldVy;
+      target.vx = typeof incoming.vx === "number" ? oldVx * 0.25 + incoming.vx * 0.75 : oldVx;
+      target.vy = typeof incoming.vy === "number" ? oldVy * 0.25 + incoming.vy * 0.75 : oldVy;
     }
 
     // Não deixa snapshot atrasado congelar sprites de dodge/boost no cliente.
@@ -4718,7 +4736,10 @@ export default function JogoPage() {
       const dx = next.x - old.x;
       const dy = next.y - old.y;
       const dist = Math.hypot(dx, dy);
-      const onlineStrictBlend = onlineGameplayActiveRef.current && (onlineServerAuthoritativeRef.current || !souHostOnline()) ? Math.max(blend, 0.72) : blend;
+      if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current) {
+        return { ...old, ...next, x: next.x, y: next.y, vx: next.vx, vy: next.vy } as T;
+      }
+      const onlineStrictBlend = onlineGameplayActiveRef.current && !souHostOnline() ? Math.max(blend, 0.72) : blend;
       if (dist > hardSnap) return { ...old, ...next, x: old.x + dx * 0.82, y: old.y + dy * 0.82 } as T;
       return {
         ...old,
@@ -4835,6 +4856,13 @@ export default function JogoPage() {
         if (remote?.slot && remote.profileColor) onlineProfileColorBySlotRef.current[remote.slot] = remote.profileColor;
       }
     }
+    if (snapshot.scoresBySlot) {
+      const nextScores: Record<number, number> = {};
+      for (const [slot, value] of Object.entries(snapshot.scoresBySlot)) nextScores[Number(slot)] = Number(value) || 0;
+      setOnlineScoresBySlot(nextScores);
+    }
+    if (Array.isArray(snapshot.activeSlots)) setOnlineActiveSlots(snapshot.activeSlots.map(Number).filter(Boolean));
+    if (Array.isArray(snapshot.waitingSlots)) setOnlineWaitingSlots(snapshot.waitingSlots.map(Number).filter(Boolean));
     if (snapshot.mode) {
       currentModeRef.current = snapshot.mode;
     }
@@ -5058,6 +5086,9 @@ export default function JogoPage() {
     onlineSnapshotSeqRef.current = 0;
     onlineVisualEventSeqRef.current = 0;
     onlineVisualEventLogRef.current = [];
+    setOnlineScoresBySlot({});
+    setOnlineActiveSlots([]);
+    setOnlineWaitingSlots([]);
     onlineSeenVisualEventsRef.current.clear();
     onlinePredictedBoostReadyAtRef.current = 0;
     setOnlineSyncWarning("");
@@ -16221,13 +16252,16 @@ export default function JogoPage() {
       }
 
       if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && gameStateRef.current === "playing") {
-        // v2.3.0: online autoritativo. Todos os clientes renderizam o estado oficial do Worker.
+        // v2.3.2: servidor é a verdade, mas o player local recebe prediction curta para parecer o jogo base.
         const snapshotToRender = escolherSnapshotOnlineParaRender();
         if (snapshotToRender) aplicarSnapshotOnline(snapshotToRender);
-        // Extrapola só tiros/objetos para suavizar entre snapshots; players ficam oficiais para evitar borracha.
+        aplicarPredicaoOnlineLocal(delta, canvas);
+        const sf = delta / 16.67;
         shotsRef.current = shotsRef.current
-          .map((shot) => ({ ...shot, x: shot.x + (shot.vx ?? shot.speed) * (delta / 16.67), y: shot.y + (shot.vy ?? 0) * (delta / 16.67) }))
+          .map((shot) => ({ ...shot, x: shot.x + (shot.vx ?? shot.speed) * sf, y: shot.y + (shot.vy ?? 0) * sf }))
           .filter((shot) => shot.x + shot.w > -80 && shot.x < canvas.width + 80 && shot.y + shot.h > -80 && shot.y < canvas.height + 80);
+        powerUpsRef.current = powerUpsRef.current.map((p) => ({ ...p, age: p.age + delta, x: p.x + p.vx * sf })).filter((p) => p.x > -90 && p.life > 0);
+        tokensRef.current = tokensRef.current.map((t) => ({ ...t, age: t.age + delta, x: t.x + t.vx * sf, y: t.y + Math.sin((t.age + delta) * 0.01 + t.wavePhase) * 0.14 })).filter((t) => t.x > -70 && t.life > 0);
         atualizarParticulas(delta);
         atualizarShockwaves(delta);
         atualizarPowerUpUi();
@@ -18116,8 +18150,25 @@ export default function JogoPage() {
           </div>
         )}
 
+      {(gameState === "playing" || gameState === "paused") && onlineGameplayActive && onlineHostSlot === 0 && isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (
+        <div className="sn-online-score-list-v232" aria-label="Pontuação online">
+          {[...onlinePlayers].sort((a, b) => a.slot - b.slot).map((player) => {
+            const active = onlineActiveSlots.length === 0 || onlineActiveSlots.includes(player.slot);
+            const waiting = onlineWaitingSlots.includes(player.slot);
+            return (
+              <div key={`score-${player.slot}`} className={`${active ? "is-active" : ""} ${waiting ? "is-waiting" : ""}`}>
+                <span style={{ "--profile-color": onlineProfileColorBySlotRef.current[player.slot as PlayerSlot] || LOCAL_PLAYER_COLORS[(player.slot - 1) % LOCAL_PLAYER_COLORS.length] } as CSSProperties}>{(player.name || `P${player.slot}`).slice(0, 1).toUpperCase()}</span>
+                <strong>P{player.slot}</strong>
+                <b>{onlineScoresBySlot[player.slot] || 0}</b>
+                {waiting && <em>PRÓX. ROUND</em>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {(gameState === "playing" || gameState === "paused") &&
-        isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && (
+        isLocalPvpMode(waveUi.mode ?? currentModeRef.current) && !(onlineGameplayActive && onlineHostSlot === 0) && (
           <div className="sn-pvp-scoreboard sn-pvp-scoreboard-v7" aria-label="Placar e vida do VERSUS">
             <div className="sn-pvp-fighter is-p1">
               <header><strong>{labelPvpVisual(1)}</strong><span>{hpPvpVisual(1)}/100</span></header>
