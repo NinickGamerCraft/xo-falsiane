@@ -1661,7 +1661,7 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
   { label: "INFINITO", mode: "infinite", hint: "Sobreviva o máximo possível" },
   { label: "MULTIPLAYER", action: "multiplayer", hint: "Local e online" },
   { label: "CONFIGURAÇÕES", action: "settings" },
-  { label: "LOJA", action: "shop", hint: "Cosméticos, pets e upgrades" },
+  { label: "SHOP", action: "shop", hint: "Comprar e equipar cosméticos" },
   { label: "EXTRA", action: "extras" },
 ];
 
@@ -1676,7 +1676,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.2.2";
+const SPACE_NEWS_VERSION = "2.2.3";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -3265,8 +3265,10 @@ export default function JogoPage() {
   const [onlineEventOverlay, setOnlineEventOverlay] = useState<OnlineEventOverlayState | null>(null);
   const [localProfile, setLocalProfile] = useState<LocalProfile>(() => carregarPerfilLocalInicial());
   const [profileManagerOpen, setProfileManagerOpen] = useState(false);
+  const [shopManagerOpen, setShopManagerOpen] = useState(false);
   const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
   const [shopTab, setShopTab] = useState<ShopSlot>("front");
+  const [shopMode, setShopMode] = useState<"buy" | "inventory">("buy");
   const [petAbilityCooldownUi, setPetAbilityCooldownUi] = useState(0);
   const [pingBoardOpen, setPingBoardOpen] = useState(false);
   const [profileToast, setProfileToast] = useState("");
@@ -8872,8 +8874,9 @@ export default function JogoPage() {
 
     if (option.action === "shop") {
       tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
-      setShopTab("pet");
-      setProfileManagerOpen(true);
+      setShopTab("front");
+      setShopMode("buy");
+      setShopManagerOpen(true);
       return;
     }
 
@@ -18255,8 +18258,9 @@ export default function JogoPage() {
 
                       if (option.action === "shop") {
                         tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
-                        setShopTab("pet");
-                        setProfileManagerOpen(true);
+                        setShopTab("front");
+                        setShopMode("buy");
+                        setShopManagerOpen(true);
                         return;
                       }
 
@@ -19140,6 +19144,111 @@ export default function JogoPage() {
         </div>
       )}
 
+      {shopManagerOpen && (
+        <div className="sn-profile-backdrop-v20 sn-shop-backdrop-v223" role="dialog" aria-modal="true">
+          <section className="sn-shop-manager-v223">
+            <header className="sn-profile-header-v20 sn-shop-header-v223">
+              <div>
+                <span>SPACE NEWS SHOP</span>
+                <h2>SHOP</h2>
+                <p>Compre cosméticos com tokens e equipe sua nave no inventário.</p>
+              </div>
+              <strong><span className="sn-token-icon-v20" /> X{localProfile.tokens}</strong>
+              <button type="button" onClick={() => setShopManagerOpen(false)} aria-label="Fechar Shop">×</button>
+            </header>
+
+            <div className="sn-shop-layout-v223">
+              {(() => {
+                const equipped = localProfile.equipped || {};
+                const previewItems = [
+                  itemShopPorId(equipped.recolor),
+                  itemShopPorId(equipped.middle),
+                  itemShopPorId(equipped.front),
+                ].filter(Boolean) as ShopItem[];
+                const pet = itemShopPorId(equipped.pet);
+                return (
+                  <aside className="sn-shop-preview-panel-v223">
+                    <div className="sn-shop-ship-stage-v221">
+                      <div className="sn-shop-ship-preview-v221" aria-label="Preview da nave customizada">
+                        <div className="sn-shop-preview-glow-v221" />
+                        <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                        {previewItems.map((item) => item.id !== "recolor-classic" && (
+                          <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />
+                        ))}
+                        {pet && <img className="sn-shop-preview-pet-v221" src={assetUrl(pet.asset)} alt="" />}
+                      </div>
+                      <div className="sn-shop-preview-info-v221">
+                        <span>PREVIEW GRANDE</span>
+                        <strong>{pet ? `${pet.name} equipado` : "Sem pet equipado"}</strong>
+                        <small>Vel {Math.round(profileBuffsForHud.speed * 100)}% · Tiro {Math.round(profileBuffsForHud.shotSpeed * 100)}% · Dano {Math.round(profileBuffsForHud.damage * 100)}% · Tokens +{Math.round(profileBuffsForHud.tokenBonus * 100)}%</small>
+                        <em>Itens equipados afetam sua nave e são salvos no perfil.</em>
+                      </div>
+                    </div>
+                    <div className="sn-shop-equipped-v220">
+                      {SHOP_SLOTS.map((slot) => {
+                        const equippedItem = itemShopPorId(localProfile.equipped?.[slot]);
+                        return (
+                          <span key={slot}>
+                            <b>{SHOP_SLOT_LABEL[slot]}</b>
+                            <em>{equippedItem?.name || "VAZIO"}</em>
+                            {slot !== "recolor" && equippedItem && (
+                              <button type="button" onClick={() => desequiparSlotShop(slot)}>tirar</button>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </aside>
+                );
+              })()}
+
+              <main className="sn-shop-store-panel-v223">
+                <div className="sn-shop-mode-tabs-v223">
+                  <button type="button" className={shopMode === "buy" ? "is-active" : ""} onClick={() => setShopMode("buy")}>COMPRAR</button>
+                  <button type="button" className={shopMode === "inventory" ? "is-active" : ""} onClick={() => setShopMode("inventory")}>INVENTÁRIO</button>
+                </div>
+                <div className="sn-shop-tabs-v220">
+                  {SHOP_SLOTS.map((slot) => (
+                    <button type="button" key={slot} className={shopTab === slot ? "is-active" : ""} onClick={() => setShopTab(slot)}>
+                      {SHOP_SLOT_LABEL[slot]}
+                    </button>
+                  ))}
+                </div>
+                <div className="sn-shop-grid-v220 sn-shop-grid-v223">
+                  {SHOP_ITEMS.filter((item) => item.slot === shopTab).filter((item) => shopMode === "buy" || localProfile.inventory.includes(item.id)).map((item) => {
+                    const owned = localProfile.inventory.includes(item.id);
+                    const equipped = localProfile.equipped?.[item.slot] === item.id;
+                    return (
+                      <article key={item.id} className={`is-${item.rarity} ${equipped ? "is-equipped" : ""}`}>
+                        <div className="sn-shop-preview-v220">
+                          <img src={assetUrl(item.asset)} alt="" onError={(event) => { event.currentTarget.style.opacity = "0"; }} />
+                        </div>
+                        <div className="sn-shop-info-v220">
+                          <small>{item.tag || item.rarity.toUpperCase()}</small>
+                          <strong>{item.name}</strong>
+                          <p>{item.description}</p>
+                          <em>{descricaoBuffs(item)}</em>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={item.disabled || (!owned && shopMode === "inventory")}
+                          onClick={() => owned ? equiparItemShop(item) : comprarItemShop(item)}
+                        >
+                          {equipped ? "EQUIPADO" : owned ? "EQUIPAR" : `COMPRAR X${item.price}`}
+                        </button>
+                      </article>
+                    );
+                  })}
+                  {shopMode === "inventory" && SHOP_ITEMS.filter((item) => item.slot === shopTab && localProfile.inventory.includes(item.id)).length === 0 && (
+                    <article className="sn-shop-empty-v223"><strong>Nada comprado nesse slot ainda.</strong><p>Vá em COMPRAR para adquirir novos itens.</p></article>
+                  )}
+                </div>
+              </main>
+            </div>
+          </section>
+        </div>
+      )}
+
       {profileManagerOpen && (
         <div className="sn-profile-backdrop-v20" role="dialog" aria-modal="true">
           <section className="sn-profile-manager-v20">
@@ -19183,14 +19292,8 @@ export default function JogoPage() {
                 </div>
               </article>
 
-              <article className="sn-profile-card-v20 sn-shop-card-v220">
-                <div className="sn-shop-head-v220">
-                  <div>
-                    <h3>SHOP & CUSTOMIZAÇÃO</h3>
-                    <p className="sn-profile-muted-v20">Compre com tokens, equipe por slot e veja os buffs balanceados. Sprites acompanham squish/squash da nave.</p>
-                  </div>
-                  <strong><span className="sn-token-icon-v20" /> X{localProfile.tokens}</strong>
-                </div>
+              <article className="sn-profile-card-v20 sn-profile-ship-card-v223">
+                <h3>NAVE PERSONALIZADA</h3>
                 {(() => {
                   const equipped = localProfile.equipped || {};
                   const previewItems = [
@@ -19200,8 +19303,8 @@ export default function JogoPage() {
                   ].filter(Boolean) as ShopItem[];
                   const pet = itemShopPorId(equipped.pet);
                   return (
-                    <div className="sn-shop-ship-stage-v221">
-                      <div className="sn-shop-ship-preview-v221" aria-label="Preview da nave customizada">
+                    <div className="sn-profile-hero-v223">
+                      <div className="sn-profile-ship-preview-v223" aria-label="Nave do perfil">
                         <div className="sn-shop-preview-glow-v221" />
                         <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
                         {previewItems.map((item) => item.id !== "recolor-classic" && (
@@ -19209,64 +19312,15 @@ export default function JogoPage() {
                         ))}
                         {pet && <img className="sn-shop-preview-pet-v221" src={assetUrl(pet.asset)} alt="" />}
                       </div>
-                      <div className="sn-shop-preview-info-v221">
-                        <span>PREVIEW DA NAVE</span>
-                        <strong>{pet ? `${pet.name} equipado` : "Sem pet equipado"}</strong>
-                        <small>
-                          Vel {Math.round(profileBuffsForHud.speed * 100)}% · Tiro {Math.round(profileBuffsForHud.shotSpeed * 100)}% · Dano {Math.round(profileBuffsForHud.damage * 100)}% · Tokens +{Math.round(profileBuffsForHud.tokenBonus * 100)}%
-                        </small>
-                        <em>Os pets têm passivo pequeno permanente e uma habilidade especial com cooldown.</em>
+                      <div className="sn-profile-loadout-v223">
+                        <span>LOADOUT</span>
+                        <strong>{pet ? pet.name : "Sem pet equipado"}</strong>
+                        <small>Vel {Math.round(profileBuffsForHud.speed * 100)}% · Tiro {Math.round(profileBuffsForHud.shotSpeed * 100)}% · Dano {Math.round(profileBuffsForHud.damage * 100)}% · Tokens +{Math.round(profileBuffsForHud.tokenBonus * 100)}%</small>
+                        <button type="button" onClick={() => { setShopTab("front"); setShopManagerOpen(true); }}>ABRIR SHOP</button>
                       </div>
                     </div>
                   );
                 })()}
-                <div className="sn-shop-tabs-v220">
-                  {SHOP_SLOTS.map((slot) => (
-                    <button type="button" key={slot} className={shopTab === slot ? "is-active" : ""} onClick={() => setShopTab(slot)}>
-                      {SHOP_SLOT_LABEL[slot]}
-                    </button>
-                  ))}
-                </div>
-                <div className="sn-shop-equipped-v220">
-                  {SHOP_SLOTS.map((slot) => {
-                    const equipped = itemShopPorId(localProfile.equipped?.[slot]);
-                    return (
-                      <span key={slot}>
-                        <b>{SHOP_SLOT_LABEL[slot]}</b>
-                        <em>{equipped?.name || "VAZIO"}</em>
-                        {slot !== "recolor" && equipped && (
-                          <button type="button" onClick={() => desequiparSlotShop(slot)}>tirar</button>
-                        )}
-                      </span>
-                    );
-                  })}
-                </div>
-                <div className="sn-shop-grid-v220">
-                  {SHOP_ITEMS.filter((item) => item.slot === shopTab).map((item) => {
-                    const owned = localProfile.inventory.includes(item.id);
-                    const equipped = localProfile.equipped?.[item.slot] === item.id;
-                    return (
-                      <article key={item.id} className={`is-${item.rarity} ${equipped ? "is-equipped" : ""}`}>
-                        <div className="sn-shop-preview-v220">
-                          <img src={assetUrl(item.asset)} alt="" onError={(event) => { event.currentTarget.style.opacity = "0"; }} />
-                        </div>
-                        <div className="sn-shop-info-v220">
-                          <small>{item.tag || item.rarity.toUpperCase()}</small>
-                          <strong>{item.name}</strong>
-                          <p>{item.description}</p>
-                          <em>{descricaoBuffs(item)}</em>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={item.disabled}
-                          onClick={() => owned ? equiparItemShop(item) : comprarItemShop(item)}
-                        >
-                          {equipped ? "EQUIPADO" : owned ? "EQUIPAR" : `COMPRAR X${item.price}`}
-                        </button>
-                      </article>
-                    );
-                  })}
-                </div>
               </article>
 
               <article className="sn-profile-card-v20">
