@@ -1684,7 +1684,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.4.6";
+const SPACE_NEWS_VERSION = "2.4.8";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2383,8 +2383,8 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v246-host-sync";
-const ACCESSORY_SPRITES_ENABLED = false; // v2.4.6: acessórios antigos ficam desativados até terem sprites bons.
+const ASSET_VERSION = "space-news-20260628-v248-dual-sim-sync";
+const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
 function assetRevisionAtual() {
@@ -4150,14 +4150,10 @@ export default function JogoPage() {
     player.invincibleUntil = performance.now() + 999999;
     resetarReviveLocal();
     const vivos = jogadoresCoopOnlineVivosAposMorte();
-    // v2.4.6: se todo mundo morreu, não existe revive possível. Vai para game over normal.
-    // Em cliente não-host, o host continua sendo a autoridade; o snapshot oficial confirma o estado.
-    if (vivos <= 0 && (souHostOnline() || !onlineGameplayActiveRef.current)) {
+    // v2.4.8: no Together dual-sim, se todos morreram não há quem reviva.
+    // Cada tela pode ir para o game over normal sem esperar snapshot do host.
+    if (vivos <= 0) {
       iniciarGameOverCutscene();
-      return;
-    }
-    if (vivos <= 0 && !souHostOnline()) {
-      setLocalModeNotice("TODOS CAÍRAM · AGUARDANDO HOST");
       return;
     }
     setLocalModeNotice(notice);
@@ -5951,6 +5947,143 @@ export default function JogoPage() {
     if (runtime) aplicarPowerUpRuntimeExtraSincronizado(runtime, kind);
   }
 
+
+  function powerUpSnapshotParaSync(power: PowerUp) {
+    return {
+      id: power.id,
+      kind: power.kind,
+      x: power.x,
+      y: power.y,
+      w: power.w,
+      h: power.h,
+      vx: power.vx,
+      vy: power.vy,
+      age: power.age,
+      life: power.life,
+      wavePhase: power.wavePhase,
+      blockedPlayer: power.blockedPlayer,
+      blockedUntil: power.blockedUntil,
+    };
+  }
+
+  function tokenSnapshotParaSync(token: TokenPickup) {
+    return {
+      id: token.id,
+      x: token.x,
+      y: token.y,
+      w: token.w,
+      h: token.h,
+      vx: token.vx,
+      vy: token.vy,
+      age: token.age,
+      life: token.life,
+      wavePhase: token.wavePhase,
+      value: token.value,
+      frameOffset: token.frameOffset,
+      targetSlot: token.targetSlot,
+      magnetDelay: token.magnetDelay,
+      burst: token.burst,
+      collectScale: token.collectScale,
+      pattern: token.pattern,
+      patternIndex: token.patternIndex,
+    };
+  }
+
+  function adicionarPowerUpRemotoSincronizado(raw: Partial<PowerUp> | null | undefined) {
+    if (!raw || !raw.kind) return;
+    const kind = String(raw.kind) as PowerUpKind;
+    const x = Number(raw.x ?? 0);
+    const y = Number(raw.y ?? 0);
+    const same = powerUpsRef.current.some((power) => (
+      power.id === Number(raw.id) ||
+      (power.kind === kind && Math.abs(power.x - x) < 36 && Math.abs(power.y - y) < 36)
+    ));
+    if (same) return;
+    const cfg = CONFIG.gameplay.powerups;
+    const id = Number.isFinite(Number(raw.id)) ? Number(raw.id) : powerUpIdRef.current++;
+    powerUpIdRef.current = Math.max(powerUpIdRef.current, id + 1);
+    const power: PowerUp = {
+      id,
+      kind,
+      x: clamp(x, -160, CONFIG.canvasWidth + 160),
+      y: clamp(y, -140, CONFIG.canvasHeight + 140),
+      w: Number(raw.w ?? cfg.width),
+      h: Number(raw.h ?? cfg.height),
+      vx: Number(raw.vx ?? -cfg.speed),
+      vy: Number(raw.vy ?? 0),
+      age: Number(raw.age ?? 0),
+      life: Number(raw.life ?? cfg.lifeMs),
+      wavePhase: Number(raw.wavePhase ?? 0),
+      bornAt: performance.now(),
+      blockedPlayer: raw.blockedPlayer as PlayerSlot | undefined,
+      blockedUntil: typeof raw.blockedUntil === "number" ? raw.blockedUntil : undefined,
+    };
+    powerUpsRef.current.push(power);
+    powerUpsRef.current = powerUpsRef.current.slice(-10);
+    tocarLoopPowerUpTrail(power.id);
+  }
+
+  function adicionarTokensRemotosSincronizados(rawTokens: Partial<TokenPickup>[] | null | undefined) {
+    if (!Array.isArray(rawTokens) || rawTokens.length === 0) return;
+    const next = [...tokensRef.current];
+    let added = 0;
+    for (const raw of rawTokens.slice(0, 20)) {
+      const x = Number(raw.x ?? 0);
+      const y = Number(raw.y ?? 0);
+      const id = Number.isFinite(Number(raw.id)) ? Number(raw.id) : tokenIdRef.current++;
+      const duplicate = next.some((token) => (
+        token.id === id ||
+        (Math.abs(token.x - x) < 22 && Math.abs(token.y - y) < 22 && token.pattern === raw.pattern && token.patternIndex === raw.patternIndex)
+      ));
+      if (duplicate) continue;
+      tokenIdRef.current = Math.max(tokenIdRef.current, id + 1);
+      next.push({
+        id,
+        x: clamp(x, -120, CONFIG.canvasWidth + 220),
+        y: clamp(y, -120, CONFIG.canvasHeight + 120),
+        w: Number(raw.w ?? 23),
+        h: Number(raw.h ?? 23),
+        vx: Number(raw.vx ?? -1.25),
+        vy: Number(raw.vy ?? 0),
+        age: Number(raw.age ?? 0),
+        life: Number(raw.life ?? 3200),
+        wavePhase: Number(raw.wavePhase ?? 0),
+        bornAt: performance.now(),
+        value: Math.max(1, Math.min(9, Number(raw.value ?? 1))),
+        frameOffset: Math.max(0, Math.floor(Number(raw.frameOffset ?? 0))) % 4,
+        targetSlot: raw.targetSlot as PlayerSlot | undefined,
+        magnetDelay: typeof raw.magnetDelay === "number" ? raw.magnetDelay : undefined,
+        burst: Boolean(raw.burst),
+        collectScale: typeof raw.collectScale === "number" ? raw.collectScale : 1,
+        pattern: raw.pattern as TokenPickup["pattern"],
+        patternIndex: typeof raw.patternIndex === "number" ? raw.patternIndex : undefined,
+      });
+      added += 1;
+    }
+    if (added > 0) {
+      tokensRef.current = next.slice(-(mobileRuntimeRef.current ? 20 : 38));
+      if (performance.now() - tokenUiPulseUntilRef.current > 120) tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.1, "sfx");
+    }
+  }
+
+  function removerTokensCoopSincronizados(tokenIds: number[] | undefined, amount = 0) {
+    const ids = new Set((tokenIds || []).map((id) => Math.floor(Number(id))).filter((id) => Number.isFinite(id) && id > 0));
+    const before = tokensRef.current.length;
+    if (ids.size > 0) {
+      tokensRef.current = tokensRef.current.filter((token) => !ids.has(token.id));
+    }
+    let removed = before - tokensRef.current.length;
+    if (removed === 0 && amount > 0 && tokensRef.current.length > 0) {
+      const count = Math.min(tokensRef.current.length, Math.max(1, Math.min(12, Math.floor(amount))));
+      tokensRef.current = tokensRef.current.slice(count);
+      removed = count;
+    }
+    if (removed > 0 && performance.now() - tokenUiPulseUntilRef.current > 120) {
+      tokenUiPulseUntilRef.current = performance.now() + 180;
+      tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.menuConfirm, 0.16, "sfx");
+    }
+  }
+
   function aplicarHabilidadePetCoopSincronizada(slot: PlayerSlot, petId: string, remote = false) {
     if (!petId || petId === "pet-none") return false;
     const player = playerPorSlotOnline(slot);
@@ -6644,8 +6777,8 @@ export default function JogoPage() {
         setOnlineHostSlot(hostSlot);
         onlineGameplayActiveRef.current = true;
         onlineServerAuthoritativeRef.current = mode !== "localCoop" && String(msg.netModel || "").includes("server-authoritative");
-        // v2.4.6: Together online volta a ser host-authoritative.
-        // O Worker só repassa o snapshot oficial do host, evitando duas simulações brigando.
+        // v2.4.8: Together online volta ao dual-sim coordenado por eventos.
+        // Player local não é corrigido por snapshot; inputs/power-ups/moedas/revive são relayados pelo Worker.
         setOnlineGameplayActive(true);
         setOnlineMatchIntroUntil(mode === "localPvp" ? Date.now() + 1800 : 0);
         onlineRemoteInputsRef.current = {};
@@ -6653,7 +6786,7 @@ export default function JogoPage() {
         onlineLatestSnapshotRef.current = null;
         onlineLastAppliedSnapshotTickRef.current = 0;
         onlineLastAppliedSnapshotSeqRef.current = 0;
-        feedbackOnline("success", mode === "localCoop" ? "Together online: host autoritativo ativo. Sincronizando pelo P1/host..." : (onlineServerAuthoritativeRef.current ? "Servidor autoritativo ativo. Sincronizando partida..." : `Iniciando ${labelModoMultiplayer(mode)} online...`));
+        feedbackOnline("success", mode === "localCoop" ? "Together online: dual-sim ativo. Sincronizando eventos, power-ups e moedas..." : (onlineServerAuthoritativeRef.current ? "Servidor autoritativo ativo. Sincronizando partida..." : `Iniciando ${labelModoMultiplayer(mode)} online...`));
         window.setTimeout(() => iniciarJogo(mode), 260);
         return;
       }
@@ -6772,6 +6905,31 @@ export default function JogoPage() {
         onlinePausePanelOpenRef.current = false;
         setOnlinePausePanelOpen(false);
         if (gameStateRef.current === "paused") iniciarContagemRetomada();
+        return;
+      }
+
+      if (msg.type === "coop_token_spawn") {
+        const from = Number(msg.from || msg.slot || 0);
+        if (from !== onlineSlotRef.current) {
+          adicionarTokensRemotosSincronizados(msg.tokens as Partial<TokenPickup>[]);
+        }
+        return;
+      }
+
+      if (msg.type === "coop_token_collect") {
+        const from = Number(msg.from || msg.slot || 0);
+        if (from !== onlineSlotRef.current) {
+          const tokenIds = Array.isArray(msg.tokenIds) ? msg.tokenIds.map((id: unknown) => Number(id)).filter((id: number) => Number.isFinite(id)) : [];
+          removerTokensCoopSincronizados(tokenIds, Number(msg.amount || 0));
+        }
+        return;
+      }
+
+      if (msg.type === "coop_powerup_spawn") {
+        const from = Number(msg.from || msg.slot || 0);
+        if (from !== onlineSlotRef.current) {
+          adicionarPowerUpRemotoSincronizado(msg.power as Partial<PowerUp>);
+        }
         return;
       }
 
@@ -11115,7 +11273,7 @@ export default function JogoPage() {
     const spawnY = clamp(y - cfg.height / 2, safeTop, safeBottom);
     const id = powerUpIdRef.current++;
 
-    powerUpsRef.current.push({
+    const power: PowerUp = {
       id,
       kind,
       x: spawnX,
@@ -11128,7 +11286,12 @@ export default function JogoPage() {
       life: cfg.lifeMs,
       wavePhase: rand(0, Math.PI * 2),
       bornAt: performance.now(),
-    });
+    };
+
+    powerUpsRef.current.push(power);
+    if (onlineTogetherCoordenado()) {
+      enviarOnline({ type: "coop_powerup_spawn", slot: slotLocalOnline(), power: powerUpSnapshotParaSync(power), seq: Date.now() });
+    }
 
     tocarSom(
       CONFIG.sounds.powerUpSpawn || CONFIG.sounds.abilityReady,
@@ -13723,6 +13886,7 @@ export default function JogoPage() {
           ctx.closePath();
           ctx.fill();
         }
+        desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.28 : 0.82, movingFrame: anim.frame, equipped: onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[runtime.slot] : undefined });
         const shieldUntil = runtime.powerups.shieldUntil ?? runtime.shieldUntil ?? 0;
         if (player.hp > 0 && now < shieldUntil) {
           ctx.globalAlpha = 0.35 + Math.sin(now * 0.012) * 0.08;
@@ -15352,10 +15516,11 @@ export default function JogoPage() {
       const safeMax = mobileRuntimeRef.current ? Math.min(maxAmount, isLocalPvpMode() ? 2 : 3) : Math.min(maxAmount, isLocalPvpMode() ? 3 : 5);
       const amount = Math.max(1, Math.min(safeMax, Math.floor(rand(1, safeMax + 1))));
       const now = performance.now();
+      const spawnedTokens: TokenPickup[] = [];
       for (let i = 0; i < amount; i++) {
         const angle = rand(-Math.PI * 0.72, Math.PI * 0.72);
         const speed = rand(isLocalPvpMode() ? 3.1 : 2.4, isLocalPvpMode() ? 6.6 : 5.8);
-        tokensRef.current.push({
+        const token: TokenPickup = {
           id: tokenIdRef.current++,
           x: x - 14 + rand(-10, 10),
           y: y - 14 + rand(-10, 10),
@@ -15375,9 +15540,14 @@ export default function JogoPage() {
           collectScale: 1,
           pattern: "burst",
           patternIndex: i,
-        });
+        };
+        tokensRef.current.push(token);
+        spawnedTokens.push(token);
       }
       tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 18 : 36));
+      if (onlineTogetherCoordenado() && spawnedTokens.length > 0) {
+        enviarOnline({ type: "coop_token_spawn", slot: slotLocalOnline(), tokens: spawnedTokens.map(tokenSnapshotParaSync), seq: Date.now() });
+      }
       if (!mobileRuntimeRef.current) criarExplosao(x, y, "#ffd45a", isLocalPvpMode() ? 6 : 9); else criarParticulasHit(x, y, "#ffd45a", 5);
       tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.18, "sfx");
     }
@@ -15424,9 +15594,10 @@ export default function JogoPage() {
         for (let i = 0; i < offsets.length; i++) planned.push({ x: startX + offsets[i].x, y: clamp(baseY + offsets[i].y, 78, CONFIG.canvasHeight - 90), delay: i });
       }
 
+      const spawnedTokens: TokenPickup[] = [];
       for (let i = 0; i < planned.length; i++) {
         const point = planned[i];
-        tokensRef.current.push({
+        const token: TokenPickup = {
           id: tokenIdRef.current++,
           x: point.x,
           y: point.y,
@@ -15443,9 +15614,14 @@ export default function JogoPage() {
           collectScale: 1,
           pattern,
           patternIndex: i,
-        });
+        };
+        tokensRef.current.push(token);
+        spawnedTokens.push(token);
       }
       tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 18 : 34));
+      if (onlineTogetherCoordenado() && spawnedTokens.length > 0) {
+        enviarOnline({ type: "coop_token_spawn", slot: slotLocalOnline(), tokens: spawnedTokens.map(tokenSnapshotParaSync), seq: Date.now() });
+      }
       agendarProximoToken(now);
     }
 
@@ -15566,6 +15742,12 @@ export default function JogoPage() {
       }
       if (collected.size > 0) {
         tokensRef.current = tokensRef.current.filter((token) => !collected.has(token.id));
+        if (onlineTogetherCoordenado()) {
+          const amount = collectedBySlot.get(slotLocalOnline()) || 0;
+          if (amount > 0) {
+            enviarOnline({ type: "coop_token_collect", slot: slotLocalOnline(), tokenIds: Array.from(collected), amount, seq: Date.now() });
+          }
+        }
         for (const [slot, amount] of collectedBySlot.entries()) {
           if (!onlineGameplayActiveRef.current || slot === onlineSlotRef.current) {
             adicionarTokensPerfil(amount);
