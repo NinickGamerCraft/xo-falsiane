@@ -509,6 +509,7 @@ type ShopBuffs = {
   defense?: number;
   waveSkipChance?: number;
   freezeOnStart?: number;
+  tokenBonus?: number;
 };
 
 type ShopItem = {
@@ -1665,7 +1666,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.2.0";
+const SPACE_NEWS_VERSION = "2.2.1";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2920,25 +2921,27 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "front-lunar-hat", name: "Chapéu Lunar", slot: "front", price: 60, rarity: "basic", description: "Chapéu pequeno encaixado na ponta da nave.", asset: "/game/shop/accessories/front/front-lunar-hat.png", dodgeAsset: "/game/shop/accessories/front/front-lunar-hat-dodge.png" },
   { id: "front-space-horn", name: "Chifre Espacial", slot: "front", price: 90, rarity: "rare", description: "Bico agressivo. +dano leve, -velocidade mínima.", asset: "/game/shop/accessories/front/front-space-horn.png", dodgeAsset: "/game/shop/accessories/front/front-space-horn-dodge.png", buffs: { damage: 0.06, speed: -0.02 } },
   { id: "front-rinaldo-horn", name: "Chifre do Rinaldo", slot: "front", price: 120, rarity: "epic", description: "Chifre exagerado, mas balanceado. +dano, -tamanho visual leve.", asset: "/game/shop/accessories/front/front-rinaldo-horn.png", dodgeAsset: "/game/shop/accessories/front/front-rinaldo-horn-dodge.png", buffs: { damage: 0.09, size: 0.03 } },
-  { id: "front-sonic-fin", name: "Barbatana Sonic", slot: "front", price: 110, rarity: "epic", description: "Muda a ponta da nave. +velocidade, -defesa leve.", asset: "/game/shop/accessories/front/front-sonic-fin.png", dodgeAsset: "/game/shop/accessories/front/front-sonic-fin-dodge.png", buffs: { speed: 0.07, defense: -0.05 } },
+  { id: "front-sonic-fin", name: "Barbatana Velocista", slot: "front", price: 110, rarity: "epic", description: "Muda a ponta da nave. +velocidade, -defesa leve.", asset: "/game/shop/accessories/front/front-sonic-fin.png", dodgeAsset: "/game/shop/accessories/front/front-sonic-fin-dodge.png", buffs: { speed: 0.07, defense: -0.05 } },
   { id: "front-parabolic", name: "Antena Parabólica", slot: "front", price: 85, rarity: "rare", description: "Melhora rastreio dos sinais e combina com tiros teleguiados.", asset: "/game/shop/accessories/front/front-parabolic.png", dodgeAsset: "/game/shop/accessories/front/front-parabolic-dodge.png", buffs: { shotSpeed: 0.03 } },
   { id: "middle-mahoraga-ring", name: "Anel Branco Orbital", slot: "middle", price: 150, rarity: "legendary", description: "Um aro branco giratório, inspirado em energia cósmica. +dano, -velocidade.", asset: "/game/shop/accessories/middle/middle-mahoraga-ring.png", dodgeAsset: "/game/shop/accessories/middle/middle-mahoraga-ring-dodge.png", buffs: { damage: 0.1, speed: -0.04 } },
   { id: "middle-giant-cap", name: "Touca Gigante", slot: "middle", price: 100, rarity: "rare", description: "Grande, engraçada e sem cobrir a nave toda.", asset: "/game/shop/accessories/middle/middle-giant-cap.png", dodgeAsset: "/game/shop/accessories/middle/middle-giant-cap-dodge.png", buffs: { maxHp: 1, speed: -0.04 } },
   { id: "middle-bat-wings", name: "Asas de Morcego", slot: "middle", price: 130, rarity: "event", description: "Halloween 2026. +velocidade, -dodge um pouco mais lento.", asset: "/game/shop/accessories/middle/middle-bat-wings.png", dodgeAsset: "/game/shop/accessories/middle/middle-bat-wings-dodge.png", buffs: { speed: 0.06, dodgeCooldown: 0.08 }, tag: "HALLOWEEN 2026" },
   { id: "middle-clown-kit", name: "Kit Palhaço", slot: "middle", price: 75, rarity: "event", description: "Cabelo e nariz de palhaço para a Nave do Circo.", asset: "/game/shop/accessories/middle/middle-clown-kit.png", dodgeAsset: "/game/shop/accessories/middle/middle-clown-kit-dodge.png" },
   { id: "middle-extra-arms", name: "Armamento Extra", slot: "middle", price: 170, rarity: "legendary", description: "Duas mini-naves decorativas. +velocidade de tiro, -velocidade, +vida.", asset: "/game/shop/accessories/middle/middle-extra-arms.png", dodgeAsset: "/game/shop/accessories/middle/middle-extra-arms-dodge.png", buffs: { shotSpeed: 0.12, speed: -0.05, maxHp: 1 } },
-  { id: "pet-star", name: "Pet Estrela", slot: "pet", price: 90, rarity: "rare", description: "+velocidade. Fica flutuando perto da nave.", asset: "/game/shop/pets/pet-star-0.png", frames: ["/game/shop/pets/pet-star-0.png", "/game/shop/pets/pet-star-1.png", "/game/shop/pets/pet-star-2.png", "/game/shop/pets/pet-star-3.png"], buffs: { speed: 0.08 } },
-  { id: "pet-comet", name: "Pet Cometa", slot: "pet", price: 100, rarity: "rare", description: "+vida, -velocidade. Deixa uma cauda suave.", asset: "/game/shop/pets/pet-comet-0.png", frames: ["/game/shop/pets/pet-comet-0.png", "/game/shop/pets/pet-comet-1.png", "/game/shop/pets/pet-comet-2.png", "/game/shop/pets/pet-comet-3.png"], buffs: { maxHp: 1, speed: -0.05 } },
-  { id: "pet-black-hole", name: "Pet Buraco Negro", slot: "pet", price: 220, rarity: "legendary", description: "+dano e magnetismo leve, -velocidade, tamanho maior.", asset: "/game/shop/pets/pet-black-hole-0.png", frames: ["/game/shop/pets/pet-black-hole-0.png", "/game/shop/pets/pet-black-hole-1.png", "/game/shop/pets/pet-black-hole-2.png", "/game/shop/pets/pet-black-hole-3.png"], buffs: { damage: 0.12, magnet: 0.18, speed: -0.08, size: 0.05 } },
-  { id: "pet-earth", name: "Pet Terra", slot: "pet", price: 210, rarity: "legendary", description: "+1 vida e regeneração lenta. Invoca mais desafio.", asset: "/game/shop/pets/pet-earth-0.png", frames: ["/game/shop/pets/pet-earth-0.png", "/game/shop/pets/pet-earth-1.png", "/game/shop/pets/pet-earth-2.png", "/game/shop/pets/pet-earth-3.png"], buffs: { maxHp: 1, regenSeconds: 25, extraEnemies: 0.06 } },
-  { id: "pet-moon", name: "Pet Lua", slot: "pet", price: 180, rarity: "epic", description: "Tiros ganham assistência quando a vida está baixa.", asset: "/game/shop/pets/pet-moon-0.png", frames: ["/game/shop/pets/pet-moon-0.png", "/game/shop/pets/pet-moon-1.png", "/game/shop/pets/pet-moon-2.png", "/game/shop/pets/pet-moon-3.png"] },
-  { id: "pet-white-hole", name: "Pet Buraco Branco", slot: "pet", price: 160, rarity: "epic", description: "+velocidade e tamanho menor, -dano.", asset: "/game/shop/pets/pet-white-hole-0.png", frames: ["/game/shop/pets/pet-white-hole-0.png", "/game/shop/pets/pet-white-hole-1.png", "/game/shop/pets/pet-white-hole-2.png", "/game/shop/pets/pet-white-hole-3.png"], buffs: { speed: 0.09, damage: -0.06, size: -0.04 } },
-  { id: "pet-wormhole", name: "Pet Buraco de Minhoca", slot: "pet", price: 190, rarity: "epic", description: "+velocidade e tiro, -vida e dodge.", asset: "/game/shop/pets/pet-wormhole-0.png", frames: ["/game/shop/pets/pet-wormhole-0.png", "/game/shop/pets/pet-wormhole-1.png", "/game/shop/pets/pet-wormhole-2.png", "/game/shop/pets/pet-wormhole-3.png"], buffs: { speed: 0.09, shotSpeed: 0.1, maxHp: -1, dodgeCooldown: 0.12 } },
-  { id: "pet-alien", name: "Pet Nave Alienígena", slot: "pet", price: 150, rarity: "rare", description: "Regenera energia de boost mais rápido.", asset: "/game/shop/pets/pet-alien-0.png", frames: ["/game/shop/pets/pet-alien-0.png", "/game/shop/pets/pet-alien-1.png", "/game/shop/pets/pet-alien-2.png", "/game/shop/pets/pet-alien-3.png"], buffs: { speed: 0.03 } },
-  { id: "pet-satellite", name: "Pet Satélite", slot: "pet", price: 200, rarity: "legendary", description: "Chance baixa de pular wave, mas remove dodge enquanto equipado.", asset: "/game/shop/pets/pet-satellite-0.png", frames: ["/game/shop/pets/pet-satellite-0.png", "/game/shop/pets/pet-satellite-1.png", "/game/shop/pets/pet-satellite-2.png", "/game/shop/pets/pet-satellite-3.png"], buffs: { waveSkipChance: 0.015, dodgeCooldown: 1 } },
-  { id: "pet-tundra", name: "Pet Tundra", slot: "pet", price: 185, rarity: "epic", description: "Congela inimigos ao início da run e reduz um pouco a pressão.", asset: "/game/shop/pets/pet-tundra-0.png", frames: ["/game/shop/pets/pet-tundra-0.png", "/game/shop/pets/pet-tundra-1.png", "/game/shop/pets/pet-tundra-2.png", "/game/shop/pets/pet-tundra-3.png"], buffs: { freezeOnStart: 1 } },
-  { id: "pet-sun", name: "Pet Sol", slot: "pet", price: 180, rarity: "epic", description: "+tamanho e tempo do lança-chamas.", asset: "/game/shop/pets/pet-sun-0.png", frames: ["/game/shop/pets/pet-sun-0.png", "/game/shop/pets/pet-sun-1.png", "/game/shop/pets/pet-sun-2.png", "/game/shop/pets/pet-sun-3.png"], buffs: { flames: 0.18 } },
-  { id: "pet-milky-way", name: "Pet Via Láctea", slot: "pet", price: 260, rarity: "legendary", description: "+buff geral, invoca mais inimigos e aumenta tamanho.", asset: "/game/shop/pets/pet-milky-way-0.png", frames: ["/game/shop/pets/pet-milky-way-0.png", "/game/shop/pets/pet-milky-way-1.png", "/game/shop/pets/pet-milky-way-2.png", "/game/shop/pets/pet-milky-way-3.png"], buffs: { speed: 0.04, damage: 0.06, maxHp: 1, size: 0.04, extraEnemies: 0.08 } },
+  { id: "pet-star", name: "Pet Estrela", slot: "pet", price: 90, rarity: "rare", description: "+3% velocidade. Especial: brilho que dá micro impulso.", asset: "/game/shop/pets/pet-star-0.png", frames: ["/game/shop/pets/pet-star-0.png", "/game/shop/pets/pet-star-1.png", "/game/shop/pets/pet-star-2.png", "/game/shop/pets/pet-star-3.png"], buffs: { speed: 0.03 } },
+  { id: "pet-blue-comet", name: "Pet Faísca Azul", slot: "pet", price: 165, rarity: "epic", description: "+4% velocidade e tiro. Especial: speed blitz fraco em inimigo próximo.", asset: "/game/shop/pets/pet-blue-comet-0.png", frames: ["/game/shop/pets/pet-blue-comet-0.png", "/game/shop/pets/pet-blue-comet-1.png", "/game/shop/pets/pet-blue-comet-2.png", "/game/shop/pets/pet-blue-comet-3.png"], buffs: { speed: 0.04, shotSpeed: 0.04 } },
+  { id: "pet-red-jumper", name: "Pet Saltador Rubro", slot: "pet", price: 165, rarity: "epic", description: "+5% dano e +10% tokens. Especial: pulso de impacto em área pequena.", asset: "/game/shop/pets/pet-red-jumper-0.png", frames: ["/game/shop/pets/pet-red-jumper-0.png", "/game/shop/pets/pet-red-jumper-1.png", "/game/shop/pets/pet-red-jumper-2.png", "/game/shop/pets/pet-red-jumper-3.png"], buffs: { damage: 0.05, tokenBonus: 0.1 } },
+  { id: "pet-comet", name: "Pet Cometa", slot: "pet", price: 100, rarity: "rare", description: "+1 vida, -3% velocidade. Especial: rastro que limpa projétil perto.", asset: "/game/shop/pets/pet-comet-0.png", frames: ["/game/shop/pets/pet-comet-0.png", "/game/shop/pets/pet-comet-1.png", "/game/shop/pets/pet-comet-2.png", "/game/shop/pets/pet-comet-3.png"], buffs: { maxHp: 1, speed: -0.03 } },
+  { id: "pet-black-hole", name: "Pet Buraco Negro", slot: "pet", price: 220, rarity: "legendary", description: "+6% dano e magnetismo sutil. Especial: puxa inimigos por pouco tempo.", asset: "/game/shop/pets/pet-black-hole-0.png", frames: ["/game/shop/pets/pet-black-hole-0.png", "/game/shop/pets/pet-black-hole-1.png", "/game/shop/pets/pet-black-hole-2.png", "/game/shop/pets/pet-black-hole-3.png"], buffs: { damage: 0.06, magnet: 0.1, speed: -0.04, size: 0.03 } },
+  { id: "pet-earth", name: "Pet Terra", slot: "pet", price: 210, rarity: "legendary", description: "+1 vida e regen lenta. Especial: invoca 1 inimigo extra às vezes.", asset: "/game/shop/pets/pet-earth-0.png", frames: ["/game/shop/pets/pet-earth-0.png", "/game/shop/pets/pet-earth-1.png", "/game/shop/pets/pet-earth-2.png", "/game/shop/pets/pet-earth-3.png"], buffs: { maxHp: 1, regenSeconds: 30, extraEnemies: 0.025 } },
+  { id: "pet-moon", name: "Pet Lua", slot: "pet", price: 180, rarity: "epic", description: "+3% tiro. Especial: homing curto quando a vida está baixa.", asset: "/game/shop/pets/pet-moon-0.png", frames: ["/game/shop/pets/pet-moon-0.png", "/game/shop/pets/pet-moon-1.png", "/game/shop/pets/pet-moon-2.png", "/game/shop/pets/pet-moon-3.png"], buffs: { shotSpeed: 0.03 } },
+  { id: "pet-white-hole", name: "Pet Buraco Branco", slot: "pet", price: 160, rarity: "epic", description: "+4% velocidade e nave menor, -3% dano. Especial: empurra projéteis.", asset: "/game/shop/pets/pet-white-hole-0.png", frames: ["/game/shop/pets/pet-white-hole-0.png", "/game/shop/pets/pet-white-hole-1.png", "/game/shop/pets/pet-white-hole-2.png", "/game/shop/pets/pet-white-hole-3.png"], buffs: { speed: 0.04, damage: -0.03, size: -0.03 } },
+  { id: "pet-wormhole", name: "Pet Buraco de Minhoca", slot: "pet", price: 190, rarity: "epic", description: "+4% velocidade e tiro, -1 vida. Especial: recarga forte levemente acelerada.", asset: "/game/shop/pets/pet-wormhole-0.png", frames: ["/game/shop/pets/pet-wormhole-0.png", "/game/shop/pets/pet-wormhole-1.png", "/game/shop/pets/pet-wormhole-2.png", "/game/shop/pets/pet-wormhole-3.png"], buffs: { speed: 0.04, shotSpeed: 0.04, maxHp: -1, dodgeCooldown: 0.04 } },
+  { id: "pet-alien", name: "Pet Nave Alienígena", slot: "pet", price: 150, rarity: "rare", description: "+2% velocidade. Especial: recarrega um pouco o boost/forte.", asset: "/game/shop/pets/pet-alien-0.png", frames: ["/game/shop/pets/pet-alien-0.png", "/game/shop/pets/pet-alien-1.png", "/game/shop/pets/pet-alien-2.png", "/game/shop/pets/pet-alien-3.png"], buffs: { speed: 0.02 } },
+  { id: "pet-satellite", name: "Pet Satélite", slot: "pet", price: 200, rarity: "legendary", description: "Especial raro: pula uma wave fraca. Dodge demora um pouco mais.", asset: "/game/shop/pets/pet-satellite-0.png", frames: ["/game/shop/pets/pet-satellite-0.png", "/game/shop/pets/pet-satellite-1.png", "/game/shop/pets/pet-satellite-2.png", "/game/shop/pets/pet-satellite-3.png"], buffs: { waveSkipChance: 0.055, dodgeCooldown: 0.1, shotSpeed: 0.02 } },
+  { id: "pet-tundra", name: "Pet Tundra", slot: "pet", price: 185, rarity: "epic", description: "+2% defesa. Especial: congela/debuffa inimigos visíveis por pouco tempo.", asset: "/game/shop/pets/pet-tundra-0.png", frames: ["/game/shop/pets/pet-tundra-0.png", "/game/shop/pets/pet-tundra-1.png", "/game/shop/pets/pet-tundra-2.png", "/game/shop/pets/pet-tundra-3.png"], buffs: { defense: 0.02, freezeOnStart: 1 } },
+  { id: "pet-sun", name: "Pet Sol", slot: "pet", price: 180, rarity: "epic", description: "+10% lança-chamas. Especial: ativa chama curta às vezes.", asset: "/game/shop/pets/pet-sun-0.png", frames: ["/game/shop/pets/pet-sun-0.png", "/game/shop/pets/pet-sun-1.png", "/game/shop/pets/pet-sun-2.png", "/game/shop/pets/pet-sun-3.png"], buffs: { flames: 0.1 } },
+  { id: "pet-milky-way", name: "Pet Via Láctea", slot: "pet", price: 260, rarity: "legendary", description: "+buff geral sutil. Especial: invoca desafio extra com recompensa.", asset: "/game/shop/pets/pet-milky-way-0.png", frames: ["/game/shop/pets/pet-milky-way-0.png", "/game/shop/pets/pet-milky-way-1.png", "/game/shop/pets/pet-milky-way-2.png", "/game/shop/pets/pet-milky-way-3.png"], buffs: { speed: 0.02, damage: 0.03, maxHp: 1, size: 0.02, extraEnemies: 0.04, tokenBonus: 0.05 } },
 ];
 
 const SHOP_DEFAULT_OWNED = ["recolor-classic"];
@@ -3445,6 +3448,9 @@ export default function JogoPage() {
   const petFrameRef = useRef(0);
   const lastPetFrameAtRef = useRef(0);
   const lastPassiveRegenAtRef = useRef(0);
+  const petSkillReadyAtRef = useRef<Record<string, number>>({});
+  const petBlackHolePullUntilRef = useRef(0);
+  const petSkillMessageUntilRef = useRef(0);
   const profilePlayTickRef = useRef(performance.now());
   const onlineEventOverlayIdRef = useRef(0);
   const onlineVisualEventSeqRef = useRef(0);
@@ -5164,6 +5170,7 @@ export default function JogoPage() {
       defense: 0,
       waveSkipChance: 0,
       freezeOnStart: 0,
+      tokenBonus: 0,
     };
     for (const id of Object.values(profile.equipped || {})) {
       const item = itemShopPorId(id);
@@ -5181,7 +5188,8 @@ export default function JogoPage() {
     total.dodgeCooldown = clamp(total.dodgeCooldown, -0.18, 1);
     total.flames = clamp(total.flames, 0, 0.4);
     total.defense = clamp(total.defense, -0.2, 0.2);
-    total.waveSkipChance = clamp(total.waveSkipChance, 0, 0.03);
+    total.waveSkipChance = clamp(total.waveSkipChance, 0, 0.08);
+    total.tokenBonus = clamp(total.tokenBonus, 0, 0.25);
     return total;
   }
 
@@ -5196,6 +5204,7 @@ export default function JogoPage() {
     if (buffs.regenSeconds) labels.push(`regen a cada ${buffs.regenSeconds}s`);
     if (buffs.dodgeCooldown) labels.push(`${buffs.dodgeCooldown >= 1 ? "sem dodge" : `${buffs.dodgeCooldown > 0 ? "+" : ""}${Math.round(buffs.dodgeCooldown * 100)}% cooldown dodge`}`);
     if (buffs.waveSkipChance) labels.push(`${Math.round(buffs.waveSkipChance * 100)}% pular wave`);
+    if (buffs.tokenBonus) labels.push(`+${Math.round(buffs.tokenBonus * 100)}% tokens`);
     return labels.length ? labels.join(" · ") : "Cosmético puro";
   }
 
@@ -5304,6 +5313,202 @@ export default function JogoPage() {
     }
   }
 
+
+  function petEquipadoAtual() {
+    return itemShopPorId(localProfileRef.current.equipped?.pet);
+  }
+
+  function habilidadePetPronta(key: string, cooldownMs: number) {
+    const now = performance.now();
+    const nextAt = petSkillReadyAtRef.current[key] || 0;
+    if (now < nextAt) return false;
+    petSkillReadyAtRef.current[key] = now + cooldownMs;
+    return true;
+  }
+
+  function mostrarMensagemPet(message: string, color = "#facc15") {
+    const now = performance.now();
+    if (now < petSkillMessageUntilRef.current) return;
+    petSkillMessageUntilRef.current = now + 1200;
+    mostrarMensagemWave(message, false);
+    criarParticulasHit(playerRef.current.x + playerRef.current.w / 2, playerRef.current.y + playerRef.current.h / 2, color, 8);
+  }
+
+  function tentarPularWaveComPet(waveNumber: number, bossWave: boolean) {
+    if (gameStateRef.current !== "playing") return false;
+    if (onlineGameplayActiveRef.current && !souHostOnline()) return false;
+    if (currentModeRef.current !== "infinite" && !isLocalWaveMode()) return false;
+    if (bossWave || waveNumber < 3) return false;
+    const pet = petEquipadoAtual();
+    const chance = Number(pet?.buffs?.waveSkipChance || 0);
+    if (!pet || pet.id !== "pet-satellite" || chance <= 0) return false;
+    if (!habilidadePetPronta("pet-satellite-wave-skip", 98000)) return false;
+    if (Math.random() > chance) return false;
+    mostrarMensagemPet("SATÉLITE: ROTA CURTA", "#93c5fd");
+    adicionarPontuacao(175);
+    window.setTimeout(() => iniciarWaveInfinita(waveNumber + 1), 60);
+    return true;
+  }
+
+  function puxarInimigosBuracoNegro(delta: number) {
+    const now = performance.now();
+    if (now > petBlackHolePullUntilRef.current) return;
+    const player = playerRef.current;
+    const pcx = player.x + player.w / 2;
+    const pcy = player.y + player.h / 2;
+    const speedFactor = delta / 16.67;
+    for (const enemy of enemiesRef.current) {
+      if (enemy.hp <= 0 || enemy.kind === "fragment") continue;
+      const ecx = enemy.x + enemy.w / 2;
+      const ecy = enemy.y + enemy.h / 2;
+      const dx = pcx - ecx;
+      const dy = pcy - ecy;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      if (dist > 520) continue;
+      const force = (1 - dist / 520) * 0.055 * speedFactor;
+      enemy.vx += (dx / dist) * force;
+      enemy.vy += (dy / dist) * force;
+      enemy.stretchUntil = Math.max(enemy.stretchUntil ?? 0, now + 70);
+    }
+  }
+
+  function executarHabilidadesPetAvancadas(delta: number, canvas: HTMLCanvasElement) {
+    if (gameStateRef.current !== "playing" || gameStateRef.current === "tutorial") return;
+    if (isLocalPvpMode()) return;
+    if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+    const pet = petEquipadoAtual();
+    if (!pet) return;
+    const now = performance.now();
+    const player = playerRef.current;
+
+    if (pet.id === "pet-black-hole") {
+      if (habilidadePetPronta("pet-black-hole-pull", 27000) && enemiesRef.current.some((enemy) => enemy.hp > 0 && enemy.x < canvas.width + 80)) {
+        petBlackHolePullUntilRef.current = now + 1900;
+        mostrarMensagemPet("BURACO NEGRO: GRAVIDADE", "#a78bfa");
+        criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#7c3aed", 9);
+      }
+      puxarInimigosBuracoNegro(delta);
+    }
+
+    if (pet.id === "pet-star" && habilidadePetPronta("pet-star-spark", 28000)) {
+      player.vx += 0.45;
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 650);
+      mostrarMensagemPet("ESTRELA: IMPULSO", "#fde68a");
+    }
+
+    if (pet.id === "pet-comet" && habilidadePetPronta("pet-comet-tail", 34000)) {
+      const cx = player.x + player.w / 2;
+      const cy = player.y + player.h / 2;
+      let cleared = 0;
+      const keepEnemy = enemyProjectilesRef.current.filter((bullet) => {
+        if (cleared >= 2) return true;
+        const dist = Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy);
+        if (dist < 150) { cleared += 1; return false; }
+        return true;
+      });
+      enemyProjectilesRef.current = keepEnemy;
+      if (cleared > 0) {
+        criarParticulasHit(cx, cy, "#fbbf24", 9);
+        mostrarMensagemPet("COMETA: RASTRO LIMPO", "#fbbf24");
+      }
+    }
+
+    if (pet.id === "pet-white-hole" && habilidadePetPronta("pet-white-hole-pulse", 32000)) {
+      const cx = player.x + player.w / 2;
+      const cy = player.y + player.h / 2;
+      let pushed = 0;
+      for (const bullet of enemyProjectilesRef.current) {
+        const bx = bullet.x + bullet.w / 2;
+        const by = bullet.y + bullet.h / 2;
+        const dx = bx - cx;
+        const dy = by - cy;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        if (dist < 180) {
+          pushed += 1;
+          bullet.vx += (dx / dist) * 2.1;
+          bullet.vy += (dy / dist) * 2.1;
+        }
+      }
+      if (pushed > 0) {
+        shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 92, life: 190, maxLife: 190 });
+        mostrarMensagemPet("BURACO BRANCO: REPULSO", "#f8fafc");
+      }
+    }
+
+    if (pet.id === "pet-tundra" && habilidadePetPronta("pet-tundra-freeze", 52000)) {
+      const targets = enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > -20 && enemy.x < canvas.width + 80 && enemy.y > -20 && enemy.y < canvas.height + 40).slice(0, 9);
+      if (targets.length >= 2) {
+        for (const enemy of targets) {
+          enemy.vx *= 0.18;
+          enemy.vy *= 0.18;
+          enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 1500);
+          enemy.stretchUntil = now + 220;
+          criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#bfdbfe", 5);
+        }
+        mostrarMensagemPet("TUNDRA: CONGELAMENTO", "#bfdbfe");
+      }
+    }
+
+    if ((pet.id === "pet-earth" || pet.id === "pet-milky-way") && habilidadePetPronta(`${pet.id}-extra-enemy`, pet.id === "pet-milky-way" ? 42000 : 48000)) {
+      if (waveStateRef.current.active && enemiesRef.current.length < 18) {
+        const pool: EnemyKind[] = pet.id === "pet-milky-way" ? ["red", "purple", "alien"] : ["red", "asteroid"];
+        spawnEnemy(pool[Math.floor(rand(0, pool.length))] || "red");
+        mostrarMensagemPet(pet.id === "pet-milky-way" ? "VIA LÁCTEA: SINAL EXTRA" : "TERRA: DESAFIO EXTRA", "#86efac");
+      }
+    }
+
+    if (pet.id === "pet-sun" && habilidadePetPronta("pet-sun-flames", 39000)) {
+      flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 2300);
+      mostrarMensagemPet("SOL: CHAMA CURTA", "#fb923c");
+    }
+
+    if (pet.id === "pet-moon" && player.hp <= 1 && habilidadePetPronta("pet-moon-homing", 43000)) {
+      homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + 4700);
+      mostrarMensagemPet("LUA: MIRA DE EMERGÊNCIA", "#ddd6fe");
+    }
+
+    if (pet.id === "pet-alien" && habilidadePetPronta("pet-alien-recharge", 31000)) {
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1400);
+      mostrarMensagemPet("ALIENÍGENA: RECARGA", "#67e8f9");
+    }
+
+    if (pet.id === "pet-wormhole" && habilidadePetPronta("pet-wormhole-charge", 36000)) {
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1900);
+      player.vx += 0.8;
+      mostrarMensagemPet("MINHOCA: DOBRA CURTA", "#c084fc");
+    }
+
+    if (pet.id === "pet-blue-comet" && habilidadePetPronta("pet-blue-comet-blitz", 33000)) {
+      const target = enemiesRef.current
+        .filter((enemy) => enemy.hp > 0 && enemy.x > player.x && enemy.x < canvas.width + 80)
+        .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))[0];
+      if (target) {
+        target.hp -= Math.min(5, Math.max(2, target.maxHp * 0.32));
+        criarExplosao(target.x + target.w / 2, target.y + target.h / 2, "#38bdf8", 12);
+        shockwavesRef.current.push({ id: enemyIdRef.current++, x: target.x + target.w / 2, y: target.y + target.h / 2, radius: 72, life: 180, maxLife: 180 });
+        mostrarMensagemPet("FAÍSCA AZUL: SPEED BLITZ", "#38bdf8");
+      }
+    }
+
+    if (pet.id === "pet-red-jumper" && habilidadePetPronta("pet-red-jumper-burst", 37000)) {
+      const cx = player.x + player.w / 2;
+      const cy = player.y + player.h / 2;
+      let hit = 0;
+      for (const enemy of enemiesRef.current) {
+        const dist = Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy);
+        if (enemy.hp > 0 && dist < 150) {
+          enemy.hp -= 3;
+          hit += 1;
+          criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#f97316", 5);
+        }
+      }
+      if (hit > 0) {
+        criarExplosao(cx, cy, "#f97316", 14);
+        mostrarMensagemPet("SALTADOR RUBRO: IMPACTO", "#f97316");
+      }
+    }
+  }
+
   function mostrarTokensPorTempo(ms = 1050) {
     const until = performance.now() + ms;
     tokensVisibleUntilRef.current = until;
@@ -5313,13 +5518,15 @@ export default function JogoPage() {
   function adicionarTokensPerfil(amount: number, reason = "coleta") {
     const safeAmount = Math.max(0, Math.floor(amount));
     if (safeAmount <= 0) return;
+    const equippedBuffs = buffsCosmeticosEquipados();
+    const finalAmount = Math.max(1, Math.floor(safeAmount * (1 + equippedBuffs.tokenBonus)));
     const current = localProfileRef.current;
     const now = Date.now();
-    const nextTokens = Math.max(0, Math.floor(current.tokens + safeAmount));
+    const nextTokens = Math.max(0, Math.floor(current.tokens + finalAmount));
     const nextStats = {
       ...criarStatsPerfilPadrao(),
       ...current.stats,
-      tokensCollected: Math.max(0, Math.floor((current.stats?.tokensCollected ?? 0) + safeAmount)),
+      tokensCollected: Math.max(0, Math.floor((current.stats?.tokensCollected ?? 0) + finalAmount)),
     };
     let achievements = normalizarConquistasPerfil(current.achievements);
     function unlockTokenAchievement(id: string) {
@@ -9847,6 +10054,7 @@ export default function JogoPage() {
       1 + Math.max(0, waveNumber - 1) * cfg.difficultyPerWave,
     );
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
+    if (tentarPularWaveComPet(waveNumber, bossWave)) return;
 
     waveStateRef.current = {
       mode: isLocalWaveMode() ? (currentModeRef.current as GameMode) : "infinite",
@@ -11249,8 +11457,9 @@ export default function JogoPage() {
         }
       }
 
-      const range = cfg.flamesRange * (powerActive ? 1.18 : 1);
-      const cone = cfg.flamesConeWidth * (powerActive ? 1.45 : 1);
+      const flamesBuff = buffsCosmeticosEquipados().flames;
+      const range = cfg.flamesRange * (powerActive ? 1.18 : 1) * (1 + flamesBuff * 0.55);
+      const cone = cfg.flamesConeWidth * (powerActive ? 1.45 : 1) * (1 + flamesBuff * 0.5);
       const damage =
         ((cfg.flamesDamagePerSecond + bonusDanoInfinito()) / 30) *
         (powerActive ? 3 : 1);
@@ -15816,6 +16025,7 @@ export default function JogoPage() {
           criarParticulasHit(player.x + player.w * .5, player.y + player.h * .5, "#86efac", 10);
         }
       }
+      executarHabilidadesPetAvancadas(delta, canvas);
 
       if (!isTutorialMode && bossIntroSequenceRef.current.active) {
         atualizarCutsceneChocado(delta);
@@ -18816,6 +19026,35 @@ export default function JogoPage() {
                   </div>
                   <strong><span className="sn-token-icon-v20" /> X{localProfile.tokens}</strong>
                 </div>
+                {(() => {
+                  const equipped = localProfile.equipped || {};
+                  const previewItems = [
+                    itemShopPorId(equipped.recolor),
+                    itemShopPorId(equipped.middle),
+                    itemShopPorId(equipped.front),
+                  ].filter(Boolean) as ShopItem[];
+                  const pet = itemShopPorId(equipped.pet);
+                  return (
+                    <div className="sn-shop-ship-stage-v221">
+                      <div className="sn-shop-ship-preview-v221" aria-label="Preview da nave customizada">
+                        <div className="sn-shop-preview-glow-v221" />
+                        <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                        {previewItems.map((item) => item.id !== "recolor-classic" && (
+                          <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />
+                        ))}
+                        {pet && <img className="sn-shop-preview-pet-v221" src={assetUrl(pet.asset)} alt="" />}
+                      </div>
+                      <div className="sn-shop-preview-info-v221">
+                        <span>PREVIEW DA NAVE</span>
+                        <strong>{pet ? `${pet.name} equipado` : "Sem pet equipado"}</strong>
+                        <small>
+                          Vel {Math.round(profileBuffsForHud.speed * 100)}% · Tiro {Math.round(profileBuffsForHud.shotSpeed * 100)}% · Dano {Math.round(profileBuffsForHud.damage * 100)}% · Tokens +{Math.round(profileBuffsForHud.tokenBonus * 100)}%
+                        </small>
+                        <em>Os pets têm passivo pequeno permanente e uma habilidade especial com cooldown.</em>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="sn-shop-tabs-v220">
                   {SHOP_SLOTS.map((slot) => (
                     <button type="button" key={slot} className={shopTab === slot ? "is-active" : ""} onClick={() => setShopTab(slot)}>

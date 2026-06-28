@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-// v3 reseta o ranking antigo e passa a sincronizar 1 melhor recorde por perfil local.
-const LEADERBOARD_KEY = "space-news:infinite:leaderboard:v3";
+// v4 reseta o ranking e passa a sobrescrever recorde por perfil local.
+const LEADERBOARD_KEY = "space-news:infinite:leaderboard:v4";
 const MAX_STORED_ENTRIES = 100;
 
 const BLOCKED_INITIALS = new Set([
@@ -26,17 +26,14 @@ type LeaderboardEntry = {
   updatedAt?: number;
 };
 
-type ParsedMember = { member: string; redisScore: number; entry: LeaderboardEntry };
+type StoredLeaderboardEntry = LeaderboardEntry & { member: string };
 
 async function redisCommand<T = unknown>(...command: Array<string | number>) {
   if (!REDIS_URL || !REDIS_TOKEN) throw new Error("Leaderboard online não configurado.");
 
   const response = await fetch(REDIS_URL, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${REDIS_TOKEN}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify(command.map(String)),
     cache: "no-store",
   });
@@ -55,12 +52,6 @@ function normalizeInitials(value: unknown) {
     .replace(/[\s._-]+/g, "");
 }
 
-function normalizeProfileId(value: unknown) {
-  return String(value ?? "")
-    .replace(/[^a-zA-Z0-9._:-]/g, "")
-    .slice(0, 80);
-}
-
 function validateInitials(value: unknown) {
   const initials = normalizeInitials(value);
   if (!/^[A-Z]{3}$/.test(initials)) return { initials: "", error: "Use exatamente 3 letras de A a Z." };
@@ -69,83 +60,64 @@ function validateInitials(value: unknown) {
   return { initials, error: "" };
 }
 
-function redisScoreFor(score: number, wave: number) {
-  return score * 100_000 + Math.min(wave, 99_999);
+function normalizeProfileId(value: unknown) {
+  return String(value ?? "").replace(/[^a-zA-Z0-9._:-]/g, "").slice(0, 80);
 }
 
-function compareEntries(a: Pick<LeaderboardEntry, "score" | "wave" | "createdAt">, b: Pick<LeaderboardEntry, "score" | "wave" | "createdAt">) {
-  return b.score - a.score || b.wave - a.wave || a.createdAt - b.createdAt;
+function scoreFor(entry: Pick<LeaderboardEntry, "score" | "wave">) {
+  return entry.score * 100_000 + Math.min(entry.wave, 99_999);
 }
 
-function parseLeaderboardMembers(raw: unknown): ParsedMember[] {
+function parseLeaderboard(raw: unknown) {
   const values = Array.isArray(raw) ? raw : [];
-  const parsed: ParsedMember[] = [];
+  const entries: StoredLeaderboardEntry[] = [];
 
   for (let index = 0; index < values.length; index += 2) {
     const member = String(values[index] ?? "");
-    const redisScore = Number(values[index + 1] ?? 0);
     try {
-      const entryRaw = JSON.parse(member) as Partial<LeaderboardEntry>;
-      const validation = validateInitials(entryRaw.name);
-      const score = Math.floor(Number(entryRaw.score));
-      const wave = Math.floor(Number(entryRaw.wave));
-      const profileId = normalizeProfileId(entryRaw.profileId || entryRaw.id || "legacy");
+      const parsed = JSON.parse(member) as Partial<LeaderboardEntry>;
+      const validation = validateInitials(parsed?.name);
+      const profileId = normalizeProfileId(parsed?.profileId || parsed?.id);
       if (
-        entryRaw &&
-        typeof entryRaw.id === "string" &&
+        parsed &&
+        typeof parsed.id === "string" &&
         profileId &&
         validation.initials &&
-        Number.isFinite(score) &&
-        Number.isFinite(wave)
+        Number.isFinite(parsed.score) &&
+        Number.isFinite(parsed.wave)
       ) {
-        parsed.push({
+        entries.push({
+          id: parsed.id,
+          profileId,
+          name: validation.initials,
+          score: Math.floor(Number(parsed.score)),
+          wave: Math.floor(Number(parsed.wave)),
+          createdAt: Number(parsed.createdAt || Date.now()),
+          updatedAt: parsed.updatedAt ? Number(parsed.updatedAt) : undefined,
           member,
-          redisScore,
-          entry: {
-            id: entryRaw.id,
-            profileId,
-            name: validation.initials,
-            score,
-            wave,
-            createdAt: Number(entryRaw.createdAt) || Date.now(),
-            updatedAt: Number(entryRaw.updatedAt) || undefined,
-          },
         });
       }
     } catch {}
   }
 
-  return parsed.sort((a, b) => compareEntries(a.entry, b.entry));
+  return entries.sort((a, b) => b.score - a.score || b.wave - a.wave || a.createdAt - b.createdAt);
 }
 
-async function getAllMembers() {
-  const result = await redisCommand<unknown[]>("ZRANGE", LEADERBOARD_KEY, 0, -1, "REV", "WITHSCORES");
-  return parseLeaderboardMembers(result);
+async function getStoredEntries(start = 0, stop = 99) {
+  const result = await redisCommand<unknown[]>("ZRANGE", LEADERBOARD_KEY, start, stop, "REV", "WITHSCORES");
+  return parseLeaderboard(result);
 }
 
 async function getTopEntries() {
-  return (await getAllMembers()).map((item) => item.entry).slice(0, 10);
-}
-
-async function trimLeaderboard() {
-  const storedCount = Number(await redisCommand<number>("ZCARD", LEADERBOARD_KEY));
-  if (storedCount > MAX_STORED_ENTRIES) {
-    await redisCommand("ZREMRANGEBYRANK", LEADERBOARD_KEY, 0, storedCount - MAX_STORED_ENTRIES - 1);
-  }
+  return (await getStoredEntries(0, 9)).map(({ member: _member, ...entry }) => entry);
 }
 
 export async function GET() {
   try {
     const entries = await getTopEntries();
-    return NextResponse.json(
-      { entries, online: true, version: "v3-profile-upsert", reset: true },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ entries, online: true, profileSynced: true, version: "v4" }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json(
-      { entries: [], online: false, error: error instanceof Error ? error.message : "Leaderboard indisponível." },
-      { status: REDIS_URL && REDIS_TOKEN ? 500 : 503 },
-    );
+    return NextResponse.json({ entries: [], online: false, error: error instanceof Error ? error.message : "Leaderboard indisponível." }, { status: REDIS_URL && REDIS_TOKEN ? 500 : 503 });
   }
 }
 
@@ -158,49 +130,49 @@ export async function POST(request: NextRequest) {
     const score = Math.floor(Number(body.score));
     const wave = Math.floor(Number(body.wave));
 
-    if (!profileId) return NextResponse.json({ error: "Perfil local inválido. Abra o menu Perfil e tente novamente." }, { status: 400 });
+    if (!profileId) return NextResponse.json({ error: "Perfil local ausente. Reabra o jogo e tente novamente." }, { status: 400 });
     if (!name) return NextResponse.json({ error: validation.error }, { status: 400 });
     if (!Number.isFinite(score) || score < 1 || score > 50_000_000) return NextResponse.json({ error: "Pontuação inválida." }, { status: 400 });
     if (!Number.isFinite(wave) || wave < 1 || wave > 10_000) return NextResponse.json({ error: "Wave inválida." }, { status: 400 });
 
     const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-    const clientId = (forwardedFor || request.headers.get("x-real-ip") || profileId || "unknown").replace(/[^a-zA-Z0-9:._-]/g, "").slice(0, 80);
-    const rateKey = `space-news:leaderboard:v3:rate:${clientId}`;
+    const clientId = (forwardedFor || request.headers.get("x-real-ip") || "unknown").replace(/[^a-zA-Z0-9:._-]/g, "").slice(0, 80);
+    const rateKey = `space-news:leaderboard:v4:rate:${clientId}`;
     const attempts = Number(await redisCommand<number>("INCR", rateKey));
     if (attempts === 1) await redisCommand("EXPIRE", rateKey, 60);
     if (attempts > 8) return NextResponse.json({ error: "Muitas tentativas. Aguarde um minuto." }, { status: 429 });
 
-    const allMembers = await getAllMembers();
-    const currentBest = allMembers.find((item) => item.entry.profileId === profileId);
-    const incomingBase = { score, wave, createdAt: Date.now() };
-    const shouldReplace = !currentBest || compareEntries(incomingBase, currentBest.entry) < 0;
+    const currentEntries = await getStoredEntries(0, MAX_STORED_ENTRIES - 1);
+    const previous = currentEntries.find((entry) => entry.profileId === profileId);
+    const better = !previous || score > previous.score || (score === previous.score && wave > previous.wave);
 
-    if (shouldReplace) {
-      for (const item of allMembers.filter((member) => member.entry.profileId === profileId)) {
-        await redisCommand("ZREM", LEADERBOARD_KEY, item.member);
-      }
-      const entry: LeaderboardEntry = {
-        id: currentBest?.entry.id || crypto.randomUUID(),
-        profileId,
-        name,
-        score,
-        wave,
-        createdAt: currentBest?.entry.createdAt || Date.now(),
-        updatedAt: Date.now(),
-      };
-      await redisCommand("ZADD", LEADERBOARD_KEY, redisScoreFor(score, wave), JSON.stringify(entry));
-      await trimLeaderboard();
+    if (previous && !better) {
+      const entries = (await getTopEntries());
+      return NextResponse.json({ entries, online: true, keptPrevious: true }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    if (previous?.member) await redisCommand("ZREM", LEADERBOARD_KEY, previous.member);
+
+    const entry: LeaderboardEntry = {
+      id: previous?.id || crypto.randomUUID(),
+      profileId,
+      name,
+      score,
+      wave,
+      createdAt: previous?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await redisCommand("ZADD", LEADERBOARD_KEY, scoreFor(entry), JSON.stringify(entry));
+
+    const storedCount = Number(await redisCommand<number>("ZCARD", LEADERBOARD_KEY));
+    if (storedCount > MAX_STORED_ENTRIES) {
+      await redisCommand("ZREMRANGEBYRANK", LEADERBOARD_KEY, 0, storedCount - MAX_STORED_ENTRIES - 1);
     }
 
     const entries = await getTopEntries();
-    return NextResponse.json(
-      { entries, online: true, replaced: shouldReplace, version: "v3-profile-upsert" },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json({ entries, online: true, profileSynced: true }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Falha ao registrar pontuação." },
-      { status: REDIS_URL && REDIS_TOKEN ? 500 : 503 },
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Falha ao registrar pontuação." }, { status: REDIS_URL && REDIS_TOKEN ? 500 : 503 });
   }
 }
