@@ -228,6 +228,8 @@ type OnlineEffectSnapshot = {
   powerShotMs?: number;
   homingShotMs?: number;
   flamesMs?: number;
+  petActive?: boolean;
+  petCooldownUntil?: number;
 };
 
 type OnlineVisualEventKind =
@@ -1682,7 +1684,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.3.3";
+const SPACE_NEWS_VERSION = "2.3.4";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2381,7 +2383,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v233-online-focus";
+const ASSET_VERSION = "space-news-20260628-v234-online-normalized";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -4531,7 +4533,7 @@ export default function JogoPage() {
   }
 
   function aplicarEventosVisuaisSnapshotOnline(events: OnlineVisualEvent[] | undefined, projectedPvp: boolean) {
-    if (!Array.isArray(events) || souHostOnline()) return;
+    if (!Array.isArray(events) || (souHostOnline() && !onlineServerAuthoritativeRef.current)) return;
     const seen = onlineSeenVisualEventsRef.current;
     for (const raw of events) {
       const id = Number(raw.id || 0);
@@ -4845,6 +4847,103 @@ export default function JogoPage() {
     }
   }
 
+
+  function aplicarSnapshotServidorAutoritativo(snapshot: OnlineGameplaySnapshot, localNow: number) {
+    const players = Array.isArray(snapshot.players) ? snapshot.players : [];
+    const localSlot = Math.max(1, Math.min(4, Number(onlineSlotRef.current || 1))) as PlayerSlot;
+    const activeSlots = Array.isArray(snapshot.activeSlots) ? snapshot.activeSlots.map(Number).filter(Boolean) : players.filter((p) => p.active !== false).map((p) => Number(p.slot));
+    const waitingSlots = Array.isArray(snapshot.waitingSlots) ? snapshot.waitingSlots.map(Number).filter(Boolean) : players.filter((p) => p.waiting).map((p) => Number(p.slot));
+    setOnlineActiveSlots(activeSlots);
+    setOnlineWaitingSlots(waitingSlots);
+
+    for (const remote of players) {
+      const slot = Number(remote.slot) as PlayerSlot;
+      if (slot >= 1 && slot <= 4) {
+        if (remote.cosmetics) onlineCosmeticsBySlotRef.current[slot] = remote.cosmetics;
+        if (remote.profileColor) onlineProfileColorBySlotRef.current[slot] = remote.profileColor;
+      }
+    }
+
+    const localEntry = players.find((p) => Number(p.slot) === localSlot) || players[0];
+    const otherEntry = players.find((p) => Number(p.slot) !== localSlot && (activeSlots.length === 0 || activeSlots.includes(Number(p.slot)))) || players.find((p) => Number(p.slot) !== localSlot);
+    const extraEntries = players.filter((p) => p !== localEntry && p !== otherEntry);
+
+    if (localEntry?.player) {
+      aplicarPlayerSnapshotSuave(playerRef.current, localEntry.player, true);
+      playerRef.current.hp = Number(localEntry.hp ?? playerRef.current.hp);
+      playerRef.current.goldenHp = Number(localEntry.goldenHp ?? playerRef.current.goldenHp);
+      setPlayerHp(playerRef.current.hp);
+      setGoldenHp(playerRef.current.goldenHp);
+      aplicarEfeitosOnlineLocal(localEntry.effects, 1);
+      const remainingPet = Math.max(0, Number(localEntry.effects?.petCooldownUntil ?? 0) - Number(snapshot.serverTime || snapshot.t || Date.now()));
+      if (remainingPet > 0) petAbilityCooldownUntilRef.current = performance.now() + remainingPet;
+      if (localEntry.effects?.petActive) petSuperSparkUntilRef.current = Math.max(petSuperSparkUntilRef.current, performance.now() + 260);
+    }
+
+    if (otherEntry?.player) {
+      if (!player2Ref.current) player2Ref.current = criarPlayer2Inicial();
+      // Remote player tem que parecer vivo e fluido. Snapshot do Worker a 60Hz pode aplicar direto.
+      const old = player2Ref.current;
+      const incoming = otherEntry.player;
+      Object.assign(old, incoming);
+      old.hp = Number(otherEntry.hp ?? old.hp);
+      old.goldenHp = Number(otherEntry.goldenHp ?? old.goldenHp);
+      setPlayer2Hp(old.hp);
+      setPlayer2GoldenHp(old.goldenHp);
+      aplicarEfeitosOnlineLocal(otherEntry.effects, 2);
+    } else {
+      setPlayer2Hp(0);
+    }
+
+    const existing = new Map<PlayerSlot, PlayerRuntime>(playersRef.current.map((runtime) => [runtime.slot, runtime] as [PlayerSlot, PlayerRuntime]));
+    const nextRuntimes: PlayerRuntime[] = [];
+    for (const entry of extraEntries) {
+      const slot = Number(entry.slot) as PlayerSlot;
+      if (slot < 3 || slot > 4 || !entry.player) continue;
+      const runtime = existing.get(slot) ?? criarPlayerRuntime(slot);
+      aplicarMetadadosRuntime(runtime, entry);
+      Object.assign(runtime.runtime, entry.player);
+      runtime.hp = Number(entry.hp ?? runtime.hp);
+      runtime.maxHp = Number(entry.maxHp ?? runtime.maxHp);
+      runtime.goldenLives = Number(entry.goldenHp ?? runtime.goldenLives);
+      runtime.alive = Boolean(entry.alive ?? runtime.hp > 0);
+      runtime.ghost = Boolean(entry.ghost ?? !runtime.alive);
+      nextRuntimes.push(runtime);
+    }
+    playersRef.current = nextRuntimes.sort((a, b) => a.slot - b.slot);
+
+    if (snapshot.scoresBySlot) {
+      const nextScores: Record<number, number> = {};
+      for (const [slot, value] of Object.entries(snapshot.scoresBySlot)) nextScores[Number(slot)] = Number(value) || 0;
+      setOnlineScoresBySlot(nextScores);
+    }
+    if (snapshot.mode) currentModeRef.current = snapshot.mode;
+    if (snapshot.wave) {
+      waveStateRef.current = { ...waveStateRef.current, ...snapshot.wave } as WaveState;
+      setWaveUi((current) => ({
+        ...current,
+        mode: (snapshot.wave?.mode ?? waveStateRef.current.mode) as GameMode | null,
+        wave: Number(snapshot.wave?.wave ?? waveStateRef.current.wave ?? 0),
+        active: Boolean(snapshot.wave?.active ?? waveStateRef.current.active),
+        bossWave: Boolean(snapshot.wave?.bossWave ?? waveStateRef.current.bossWave ?? current.bossWave),
+        message: String(snapshot.wave?.message ?? waveStateRef.current.message ?? current.message ?? ""),
+      }));
+    }
+
+    aplicarEventosVisuaisSnapshotOnline(snapshot.events, false);
+    if (Array.isArray(snapshot.shots)) shotsRef.current = snapshot.shots.map((shot) => ({ ...shot }));
+    if (Array.isArray(snapshot.enemies)) enemiesRef.current = snapshot.enemies.map((enemy) => ({ ...enemy }));
+    if (Array.isArray(snapshot.enemyProjectiles)) enemyProjectilesRef.current = snapshot.enemyProjectiles.map((projectile) => ({ ...projectile }));
+    if (Array.isArray(snapshot.bossProjectiles)) bossProjectilesRef.current = snapshot.bossProjectiles.map((projectile) => ({ ...projectile }));
+    if (Array.isArray(snapshot.powerUps)) powerUpsRef.current = normalizarPowerUpsSnapshotOnline(snapshot.powerUps, false, localNow);
+    if (Array.isArray(snapshot.tokens)) tokensRef.current = snapshot.tokens.map((token) => ({ ...token })) as TokenPickup[];
+    if (snapshot.boss) bossRef.current = { ...bossRef.current, ...snapshot.boss };
+
+    if ((snapshot.state === "gameOver" || snapshot.state === "gameOverCutscene") && gameStateRef.current !== snapshot.state) setEstado(snapshot.state);
+    if (snapshot.state === "playing" && gameStateRef.current !== "playing") setEstado("playing");
+    onlineLastExtrapolatedAtRef.current = performance.now();
+  }
+
   function aplicarSnapshotOnline(snapshot: OnlineGameplaySnapshot) {
     if (!onlineGameplayActiveRef.current || !snapshot) return;
     const serverAuthoritative = String(snapshot.netModel || "").includes("server-authoritative") || onlineServerAuthoritativeRef.current;
@@ -4895,6 +4994,10 @@ export default function JogoPage() {
 
     const projectedPvp = deveProjetarOnlinePvpLocal();
     const localNow = performance.now();
+    if (serverAuthoritative) {
+      aplicarSnapshotServidorAutoritativo(snapshot, localNow);
+      return;
+    }
     if (Array.isArray(snapshot.players)) {
       for (const remote of snapshot.players) {
         const slot = Number(remote.slot) as PlayerSlot;
@@ -5550,6 +5653,21 @@ export default function JogoPage() {
 
   function ativarHabilidadePetManual() {
     if (gameStateRef.current !== "playing") return;
+    if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current) {
+      const pet = petEquipadoAtual();
+      if (!pet) return;
+      const now = performance.now();
+      if (now < petAbilityCooldownUntilRef.current) {
+        mostrarMensagemPet(`PET: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
+        return;
+      }
+      mobilePetPressedRef.current = true;
+      enviarInputOnlineAtual(true);
+      window.setTimeout(() => { mobilePetPressedRef.current = false; enviarInputOnlineAtual(true); }, 180);
+      mostrarMensagemPet("PET: ENVIADO", "#93c5fd");
+      desbloquearConquistaPerfil("pet-power");
+      return;
+    }
     if (onlineGameplayActiveRef.current && !souHostOnline()) {
       mostrarMensagemPet("PET SINCRONIZA PELO HOST", "#93c5fd");
       return;
@@ -12273,7 +12391,7 @@ export default function JogoPage() {
         ctx.fillRect(player.w * 0.12, -7, 14, 14);
       }
 
-      desenharCosmeticosNave(ctx, player, { dodge: isDodging, alpha: ghostLocal ? 0.42 : 1, movingFrame: anim.frame, superSpark: onlineSlotRef.current === 1 && performance.now() < petSuperSparkUntilRef.current, equipped: onlineGameplayActiveRef.current && onlineSlotRef.current !== 1 ? onlineCosmeticsBySlotRef.current[1] : undefined });
+      desenharCosmeticosNave(ctx, player, { dodge: isDodging, alpha: ghostLocal ? 0.42 : 1, movingFrame: anim.frame, superSpark: performance.now() < petSuperSparkUntilRef.current, equipped: undefined });
 
       if (isDodging && !dodgeAsset && Math.floor(now / 70) % 2 === 0) {
         ctx.save();
@@ -17893,6 +18011,13 @@ export default function JogoPage() {
         <div className={`sn-token-counter-v20 ${tokenUiPulseUntilRef.current > performance.now() ? "is-pulsing" : ""}`} aria-label="Tokens do perfil">
           <span className="sn-token-icon-v20" aria-hidden="true" />
           <strong><span>X</span>{localProfile.tokens}</strong>
+        </div>
+      )}
+
+      {(gameState === "playing" || gameState === "paused") && petEquipadoAtual() && (
+        <div className={`sn-pet-cooldown-hud-v234 ${petAbilityCooldownUi > 0 ? "is-cooling" : "is-ready"}`} aria-label="Habilidade do pet">
+          <img src={assetUrl(petEquipadoAtual()?.asset || CONFIG.uiImages.mobilePet)} alt="" draggable={false} />
+          <strong>{petAbilityCooldownUi > 0 ? `${petAbilityCooldownUi}s` : "C"}</strong>
         </div>
       )}
 

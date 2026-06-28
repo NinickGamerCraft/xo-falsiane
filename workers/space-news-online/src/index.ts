@@ -285,7 +285,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.3.2-authoritative", netModel: "server-authoritative-v232" });
+      return json({ ok: true, service: "Space News Online", version: "2.3.4-authoritative", netModel: "server-authoritative-v234" });
     }
 
     if (url.pathname === "/create") {
@@ -407,7 +407,7 @@ export class GameRoom extends DurableObject<Env> {
     server.serializeAttachment(placeholder);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, placeholder);
-    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v232" }));
+    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v234" }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -435,7 +435,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sessions.set(ws, session);
       this.ensureHost();
       this.syncSessionToState(session);
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v232" }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v234" }));
       this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
@@ -478,7 +478,7 @@ export class GameRoom extends DurableObject<Env> {
       if (!canStart) { ws.send(JSON.stringify({ type: "error", error: "Aguarde todos ficarem READY." })); return; }
       this.selectedGameMode = cleanMode(msg.mode || this.selectedMode());
       this.startMatch(this.selectedGameMode);
-      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v232" });
+      this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel: "server-authoritative-v234" });
       this.broadcastState();
       return;
     }
@@ -676,13 +676,14 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private spawnAmbientPickups(now: number) {
-    if (now >= this.nextTokenSpawnAt && this.tokens.length < 72) {
+    // Versus: tokens/power-ups só aparecem por dano, igual o pedido. Together: spawns naturais.
+    if (this.selectedGameMode === "localCoop" && now >= this.nextTokenSpawnAt && this.tokens.length < 52) {
       this.spawnTokenWave(now);
-      this.nextTokenSpawnAt = now + TOKEN_SPAWN_MS + Math.floor(Math.random() * 1900);
+      this.nextTokenSpawnAt = now + TOKEN_SPAWN_MS + Math.floor(Math.random() * 2400);
     }
-    if (now >= this.nextPowerUpSpawnAt && this.powerUps.length < 5) {
+    if (this.selectedGameMode === "localCoop" && now >= this.nextPowerUpSpawnAt && this.powerUps.length < 4) {
       this.spawnPowerUp(now);
-      this.nextPowerUpSpawnAt = now + POWERUP_SPAWN_MS + Math.floor(Math.random() * 5500);
+      this.nextPowerUpSpawnAt = now + POWERUP_SPAWN_MS + Math.floor(Math.random() * 6500);
     }
   }
 
@@ -693,21 +694,21 @@ export class GameRoom extends DurableObject<Env> {
     const baseY = 130 + Math.random() * (CANVAS_H - 260);
     const points: Array<{ x: number; y: number }> = [];
     if (pattern === "line") {
-      for (let i = 0; i < 18; i++) points.push({ x: startX + i * 34, y: baseY });
+      for (let i = 0; i < 12; i++) points.push({ x: startX + i * 38, y: baseY });
     } else if (pattern === "zigzag") {
-      for (let i = 0; i < 20; i++) points.push({ x: startX + i * 32, y: clamp(baseY + (i % 2 ? 42 : -42), 70, CANVAS_H - 80) });
+      for (let i = 0; i < 14; i++) points.push({ x: startX + i * 36, y: clamp(baseY + (i % 2 ? 34 : -34), 70, CANVAS_H - 80) });
     } else if (pattern === "triple") {
-      for (let i = 0; i < 12; i++) for (const off of [-58, 0, 58]) points.push({ x: startX + i * 38, y: clamp(baseY + off, 70, CANVAS_H - 80) });
+      for (let i = 0; i < 8; i++) for (const off of [-52, 0, 52]) points.push({ x: startX + i * 42, y: clamp(baseY + off, 70, CANVAS_H - 80) });
     } else if (pattern === "cross") {
-      for (let i = 0; i < 7; i++) { points.push({ x: startX + i * 44, y: baseY }); points.push({ x: startX + 132, y: clamp(baseY + (i - 3) * 36, 70, CANVAS_H - 80) }); }
+      for (let i = 0; i < 5; i++) { points.push({ x: startX + i * 46, y: baseY }); points.push({ x: startX + 92, y: clamp(baseY + (i - 2) * 38, 70, CANVAS_H - 80) }); }
     } else {
-      for (let i = 0; i < 18; i++) { const t = i / 17; points.push({ x: startX + i * 34, y: clamp(baseY - Math.sin(t * Math.PI) * 92 + 34, 70, CANVAS_H - 80) }); }
+      for (let i = 0; i < 12; i++) { const t = i / 11; points.push({ x: startX + i * 38, y: clamp(baseY - Math.sin(t * Math.PI) * 74 + 26, 70, CANVAS_H - 80) }); }
     }
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
       this.tokens.push({ id: this.tokenId++, x: p.x, y: p.y, w: 23, h: 23, vx: -2.35, vy: 0, age: -i * 12, life: 10500, wavePhase: Math.random() * Math.PI * 2, bornAt: now, value: 1, frameOffset: i % 4, pattern, patternIndex: i });
     }
-    this.tokens = this.tokens.slice(-96);
+    this.tokens = this.tokens.slice(-70);
   }
 
   private spawnPowerUp(now: number) {
@@ -943,18 +944,18 @@ export class GameRoom extends DurableObject<Env> {
 
   private spawnDamageTokenBurst(x: number, y: number, owner: PlayerSlot, now: number, strong = false) {
     if (this.selectedGameMode !== "localPvp") return;
-    const amount = strong ? 5 : 3;
+    const amount = strong ? 4 : 2;
     for (let i = 0; i < amount; i++) {
       const angle = -Math.PI + (i / Math.max(1, amount - 1)) * Math.PI * 0.8 + (Math.random() - 0.5) * 0.35;
       const speed = strong ? 3.2 : 2.55;
       this.tokens.push({
         id: this.tokenId++, x: x - 12 + Math.random() * 24, y: y - 12 + Math.random() * 24,
-        w: 21, h: 21, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 0.35,
+        w: 19, h: 19, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 0.35,
         age: 0, life: 2100, wavePhase: Math.random() * Math.PI * 2, bornAt: now,
         value: 1, frameOffset: i % 4, pattern: "burst", patternIndex: i, targetSlot: owner, magnetDelay: 180, burst: true,
       });
     }
-    this.tokens = this.tokens.slice(-46);
+    this.tokens = this.tokens.slice(-34);
     this.addEvent("tokenBurst", x, y, "#ffd45a", amount, "tokenBurst", 0.12, "sfx", owner, strong ? 58 : 42);
   }
 
@@ -1083,7 +1084,7 @@ export class GameRoom extends DurableObject<Env> {
       serverTime: now,
       sentAt: now,
       authoritativeSlot: 0,
-      netModel: "server-authoritative-v232",
+      netModel: "server-authoritative-v234",
       mode: this.selectedGameMode,
       state: this.gameActive ? "playing" : "mainMenu",
       players: runtimePlayers,
@@ -1134,7 +1135,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcastSnapshot() {
-    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v232" });
+    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v234" });
   }
 
   private clearPendingDisconnect(slot: number) {
@@ -1208,7 +1209,7 @@ export class GameRoom extends DurableObject<Env> {
   private broadcastState() {
     const players = this.players();
     const selectedMode = this.selectedMode();
-    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v232", version: "2.3.2-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
+    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "server-authoritative-v234", version: "2.3.2-authoritative", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
   }
 
   private broadcastPauseState() {
