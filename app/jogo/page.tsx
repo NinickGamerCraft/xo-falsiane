@@ -133,6 +133,7 @@ type OnlineInputState = {
   boost: boolean;
   dodge: boolean;
   pause: boolean;
+  pet: boolean;
 };
 
 const EMPTY_ONLINE_INPUT_STATE: OnlineInputState = {
@@ -145,6 +146,7 @@ const EMPTY_ONLINE_INPUT_STATE: OnlineInputState = {
   boost: false,
   dodge: false,
   pause: false,
+  pet: false,
 };
 
 type OnlineRuntimePlayerSnapshot = {
@@ -164,6 +166,8 @@ type OnlineRuntimePlayerSnapshot = {
   reviveProgress: number;
   input: OnlineInputState;
   effects: OnlineEffectSnapshot;
+  cosmetics?: EquippedCosmetics;
+  profileColor?: string;
 };
 
 type OnlineGameplaySnapshot = {
@@ -253,6 +257,7 @@ type MobileControlId =
   | "strong"
   | "boost"
   | "dodge"
+  | "pet"
   | "pause"
   | "fullscreen";
 
@@ -522,6 +527,7 @@ type ShopItem = {
   asset: string;
   dodgeAsset?: string;
   frames?: string[];
+  moveFrames?: string[];
   buffs?: ShopBuffs;
   disabled?: boolean;
   tag?: string;
@@ -761,7 +767,7 @@ type GameCssVars = CSSProperties & {
 type MenuOption = {
   label: string;
   mode?: GameMode;
-  action?: "settings" | "extras" | "multiplayer" | "profile";
+  action?: "settings" | "extras" | "multiplayer" | "profile" | "shop";
   disabled?: boolean;
   hint?: string;
 };
@@ -1483,6 +1489,8 @@ const CONFIG = {
     fakeNewsIntercepted: "/sounds/fake-news-intercepted.mp3",
     fakeNewsTransmit: "/sounds/fake-news-transmit.mp3",
     gameOverFinalExplosion: "/sounds/game-over-final-explosion.mp3",
+    petSuperSpark: "/sounds/pets/super-faisca.mp3",
+    petActivate: "/sounds/pets/pet-activate.mp3",
   },
 
   uiImages: {
@@ -1499,6 +1507,7 @@ const CONFIG = {
     mobilePause: "/game/ui/mobile-pause.png",
     mobileBoost: "/game/ui/mobile-boost.png",
     mobileDodge: "/game/ui/mobile-dodge.png",
+    mobilePet: "/game/ui/mobile-pet.png",
     mobileFullscreen: "/game/ui/mobile-fullscreen.png",
     powerRegen: "/game/powerups/regen.png",
     powerFireRate: "/game/powerups/fire-rate.png",
@@ -1652,6 +1661,7 @@ const MAIN_MENU_OPTIONS: MenuOption[] = [
   { label: "INFINITO", mode: "infinite", hint: "Sobreviva o máximo possível" },
   { label: "MULTIPLAYER", action: "multiplayer", hint: "Local e online" },
   { label: "CONFIGURAÇÕES", action: "settings" },
+  { label: "LOJA", action: "shop", hint: "Cosméticos, pets e upgrades" },
   { label: "EXTRA", action: "extras" },
 ];
 
@@ -1666,7 +1676,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.2.1";
+const SPACE_NEWS_VERSION = "2.2.2";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -1938,6 +1948,7 @@ type GameSettingOption = {
 const DEFAULT_MOBILE_CONTROL_LAYOUT: MobileControlLayoutMap = {
   joystick: { x: 14, y: 76, scale: 0.88 },
   dodge: { x: 78, y: 68, scale: 0.78 },
+  pet: { x: 68, y: 76, scale: 0.58 },
   boost: { x: 89, y: 68, scale: 0.78 },
   shot: { x: 78, y: 84, scale: 0.82 },
   strong: { x: 89, y: 84, scale: 0.82 },
@@ -1951,6 +1962,7 @@ const MOBILE_CONTROL_LABELS: Record<MobileControlId, string> = {
   strong: "TIRO FORTE",
   boost: "BOOST",
   dodge: "DODGE",
+  pet: "PET",
   pause: "PAUSE",
   fullscreen: "TELA CHEIA",
 };
@@ -2913,11 +2925,12 @@ const SPACE_NEWS_PROFILE_KEY = "spaceNews.localProfile.v2";
 const SPACE_NEWS_OLD_PROFILE_KEY = "spaceNews.localProfile.v1";
 
 const PROFILE_COLOR_OPTIONS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9", "#facc15", "#67e8f9"];
+const SPACE_NEWS_CREATOR_NAME_RE = /(ninick|nicolas|criador|dev)/i;
 
 const SHOP_ITEMS: ShopItem[] = [
-  { id: "recolor-classic", name: "Nave Clássica", slot: "recolor", price: 0, rarity: "basic", description: "Visual padrão da nave Space News.", asset: "/game/shop/recolors/recolor-classic-idle.png", dodgeAsset: "/game/shop/recolors/recolor-classic-dodge.png" },
-  { id: "recolor-aurora", name: "Recolor Aurora", slot: "recolor", price: 80, rarity: "rare", description: "Pintura fria e brilhante. +tempo de power-ups, -defesa leve.", asset: "/game/shop/recolors/recolor-aurora-idle.png", dodgeAsset: "/game/shop/recolors/recolor-aurora-dodge.png", buffs: { defense: -0.04 } },
-  { id: "recolor-circus", name: "Nave do Circo", slot: "recolor", price: 95, rarity: "event", description: "Paleta circense para combinar com acessórios de palhaço.", asset: "/game/shop/recolors/recolor-circus-idle.png", dodgeAsset: "/game/shop/recolors/recolor-circus-dodge.png" },
+  { id: "recolor-classic", name: "Nave Clássica", slot: "recolor", price: 0, rarity: "basic", description: "Visual padrão da nave Space News.", asset: "/game/shop/recolors/recolor-classic-idle.png", dodgeAsset: "/game/shop/recolors/recolor-classic-dodge.png", moveFrames: ["/game/shop/recolors/recolor-classic-move-1.png", "/game/shop/recolors/recolor-classic-move-2.png", "/game/shop/recolors/recolor-classic-move-3.png", "/game/shop/recolors/recolor-classic-move-4.png"] },
+  { id: "recolor-aurora", name: "Recolor Aurora", slot: "recolor", price: 80, rarity: "rare", description: "Pintura fria e brilhante. +tempo de power-ups, -defesa leve.", asset: "/game/shop/recolors/recolor-aurora-idle.png", dodgeAsset: "/game/shop/recolors/recolor-aurora-dodge.png", moveFrames: ["/game/shop/recolors/recolor-aurora-move-1.png", "/game/shop/recolors/recolor-aurora-move-2.png", "/game/shop/recolors/recolor-aurora-move-3.png", "/game/shop/recolors/recolor-aurora-move-4.png"], buffs: { defense: -0.04 } },
+  { id: "recolor-circus", name: "Nave do Circo", slot: "recolor", price: 95, rarity: "event", description: "Paleta circense para combinar com acessórios de palhaço.", asset: "/game/shop/recolors/recolor-circus-idle.png", dodgeAsset: "/game/shop/recolors/recolor-circus-dodge.png", moveFrames: ["/game/shop/recolors/recolor-circus-move-1.png", "/game/shop/recolors/recolor-circus-move-2.png", "/game/shop/recolors/recolor-circus-move-3.png", "/game/shop/recolors/recolor-circus-move-4.png"] },
   { id: "front-lunar-hat", name: "Chapéu Lunar", slot: "front", price: 60, rarity: "basic", description: "Chapéu pequeno encaixado na ponta da nave.", asset: "/game/shop/accessories/front/front-lunar-hat.png", dodgeAsset: "/game/shop/accessories/front/front-lunar-hat-dodge.png" },
   { id: "front-space-horn", name: "Chifre Espacial", slot: "front", price: 90, rarity: "rare", description: "Bico agressivo. +dano leve, -velocidade mínima.", asset: "/game/shop/accessories/front/front-space-horn.png", dodgeAsset: "/game/shop/accessories/front/front-space-horn-dodge.png", buffs: { damage: 0.06, speed: -0.02 } },
   { id: "front-rinaldo-horn", name: "Chifre do Rinaldo", slot: "front", price: 120, rarity: "epic", description: "Chifre exagerado, mas balanceado. +dano, -tamanho visual leve.", asset: "/game/shop/accessories/front/front-rinaldo-horn.png", dodgeAsset: "/game/shop/accessories/front/front-rinaldo-horn-dodge.png", buffs: { damage: 0.09, size: 0.03 } },
@@ -2929,8 +2942,8 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "middle-clown-kit", name: "Kit Palhaço", slot: "middle", price: 75, rarity: "event", description: "Cabelo e nariz de palhaço para a Nave do Circo.", asset: "/game/shop/accessories/middle/middle-clown-kit.png", dodgeAsset: "/game/shop/accessories/middle/middle-clown-kit-dodge.png" },
   { id: "middle-extra-arms", name: "Armamento Extra", slot: "middle", price: 170, rarity: "legendary", description: "Duas mini-naves decorativas. +velocidade de tiro, -velocidade, +vida.", asset: "/game/shop/accessories/middle/middle-extra-arms.png", dodgeAsset: "/game/shop/accessories/middle/middle-extra-arms-dodge.png", buffs: { shotSpeed: 0.12, speed: -0.05, maxHp: 1 } },
   { id: "pet-star", name: "Pet Estrela", slot: "pet", price: 90, rarity: "rare", description: "+3% velocidade. Especial: brilho que dá micro impulso.", asset: "/game/shop/pets/pet-star-0.png", frames: ["/game/shop/pets/pet-star-0.png", "/game/shop/pets/pet-star-1.png", "/game/shop/pets/pet-star-2.png", "/game/shop/pets/pet-star-3.png"], buffs: { speed: 0.03 } },
-  { id: "pet-blue-comet", name: "Pet Faísca Azul", slot: "pet", price: 165, rarity: "epic", description: "+4% velocidade e tiro. Especial: speed blitz fraco em inimigo próximo.", asset: "/game/shop/pets/pet-blue-comet-0.png", frames: ["/game/shop/pets/pet-blue-comet-0.png", "/game/shop/pets/pet-blue-comet-1.png", "/game/shop/pets/pet-blue-comet-2.png", "/game/shop/pets/pet-blue-comet-3.png"], buffs: { speed: 0.04, shotSpeed: 0.04 } },
-  { id: "pet-red-jumper", name: "Pet Saltador Rubro", slot: "pet", price: 165, rarity: "epic", description: "+5% dano e +10% tokens. Especial: pulso de impacto em área pequena.", asset: "/game/shop/pets/pet-red-jumper-0.png", frames: ["/game/shop/pets/pet-red-jumper-0.png", "/game/shop/pets/pet-red-jumper-1.png", "/game/shop/pets/pet-red-jumper-2.png", "/game/shop/pets/pet-red-jumper-3.png"], buffs: { damage: 0.05, tokenBonus: 0.1 } },
+  { id: "pet-blue-comet", name: "Pet Faísca Azul", slot: "pet", price: 165, rarity: "epic", description: "+4% velocidade e tiro. Especial ativo: Super Faísca por 10s.", asset: "/game/shop/pets/pet-blue-comet-0.png", frames: ["/game/shop/pets/pet-blue-comet-0.png", "/game/shop/pets/pet-blue-comet-1.png", "/game/shop/pets/pet-blue-comet-2.png", "/game/shop/pets/pet-blue-comet-3.png"], buffs: { speed: 0.025, shotSpeed: 0.025 } },
+  { id: "pet-red-jumper", name: "Pet Saltador Rubro", slot: "pet", price: 165, rarity: "epic", description: "+5% dano e +10% tokens. Especial: pulso de impacto em área pequena.", asset: "/game/shop/pets/pet-red-jumper-0.png", frames: ["/game/shop/pets/pet-red-jumper-0.png", "/game/shop/pets/pet-red-jumper-1.png", "/game/shop/pets/pet-red-jumper-2.png", "/game/shop/pets/pet-red-jumper-3.png"], buffs: { damage: 0.025, tokenBonus: 0.025 } },
   { id: "pet-comet", name: "Pet Cometa", slot: "pet", price: 100, rarity: "rare", description: "+1 vida, -3% velocidade. Especial: rastro que limpa projétil perto.", asset: "/game/shop/pets/pet-comet-0.png", frames: ["/game/shop/pets/pet-comet-0.png", "/game/shop/pets/pet-comet-1.png", "/game/shop/pets/pet-comet-2.png", "/game/shop/pets/pet-comet-3.png"], buffs: { maxHp: 1, speed: -0.03 } },
   { id: "pet-black-hole", name: "Pet Buraco Negro", slot: "pet", price: 220, rarity: "legendary", description: "+6% dano e magnetismo sutil. Especial: puxa inimigos por pouco tempo.", asset: "/game/shop/pets/pet-black-hole-0.png", frames: ["/game/shop/pets/pet-black-hole-0.png", "/game/shop/pets/pet-black-hole-1.png", "/game/shop/pets/pet-black-hole-2.png", "/game/shop/pets/pet-black-hole-3.png"], buffs: { damage: 0.06, magnet: 0.1, speed: -0.04, size: 0.03 } },
   { id: "pet-earth", name: "Pet Terra", slot: "pet", price: 210, rarity: "legendary", description: "+1 vida e regen lenta. Especial: invoca 1 inimigo extra às vezes.", asset: "/game/shop/pets/pet-earth-0.png", frames: ["/game/shop/pets/pet-earth-0.png", "/game/shop/pets/pet-earth-1.png", "/game/shop/pets/pet-earth-2.png", "/game/shop/pets/pet-earth-3.png"], buffs: { maxHp: 1, regenSeconds: 30, extraEnemies: 0.025 } },
@@ -2959,6 +2972,10 @@ const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
   { id: "infinite-25", title: "Antena Lendária", description: "Chegou na wave 25 do modo infinito." },
   { id: "pvp-win", title: "Arena News", description: "Venceu uma partida Versus." },
   { id: "long-play", title: "Plantão Espacial", description: "Jogou por 30 minutos no total." },
+  { id: "creator-match", title: "Joguei com o Criador", description: "Entrou em uma sala online com o criador do Space News." },
+  { id: "pet-power", title: "Parceiro Cósmico", description: "Usou uma habilidade especial de pet." },
+  { id: "shop-first", title: "Primeira Compra", description: "Comprou seu primeiro cosmético na loja." },
+  { id: "full-style", title: "Nave Montada", description: "Equipou recolor, frente, meio e pet ao mesmo tempo." },
 ];
 
 function criarIdPerfilLocal() {
@@ -3250,6 +3267,8 @@ export default function JogoPage() {
   const [profileManagerOpen, setProfileManagerOpen] = useState(false);
   const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
   const [shopTab, setShopTab] = useState<ShopSlot>("front");
+  const [petAbilityCooldownUi, setPetAbilityCooldownUi] = useState(0);
+  const [pingBoardOpen, setPingBoardOpen] = useState(false);
   const [profileToast, setProfileToast] = useState("");
   const [achievementPopup, setAchievementPopup] = useState<LocalAchievement | null>(null);
   const [inviteFriendsOpen, setInviteFriendsOpen] = useState(false);
@@ -3451,6 +3470,11 @@ export default function JogoPage() {
   const petSkillReadyAtRef = useRef<Record<string, number>>({});
   const petBlackHolePullUntilRef = useRef(0);
   const petSkillMessageUntilRef = useRef(0);
+  const petAbilityCooldownUntilRef = useRef(0);
+  const petSuperSparkUntilRef = useRef(0);
+  const mobilePetPressedRef = useRef(false);
+  const onlineCosmeticsBySlotRef = useRef<Record<number, EquippedCosmetics>>({});
+  const onlineProfileColorBySlotRef = useRef<Record<number, string>>({});
   const profilePlayTickRef = useRef(performance.now());
   const onlineEventOverlayIdRef = useRef(0);
   const onlineVisualEventSeqRef = useRef(0);
@@ -3672,7 +3696,9 @@ export default function JogoPage() {
 
 
   function vidaMaximaLocal() {
-    return isLocalPvpMode() ? 100 : CONFIG.gameplay.player.maxHp;
+    if (isLocalPvpMode()) return 100;
+    const buffs = buffsCosmeticosEquipados();
+    return Math.max(1, CONFIG.gameplay.player.maxHp + Math.round(buffs.maxHp));
   }
 
   function danoPvpPorTipo(tipo: "normal" | "strong" | "boost" | "bump" | "power") {
@@ -4033,6 +4059,8 @@ export default function JogoPage() {
       reviveProgress: runtime.reviveProgress,
       input: runtime.input,
       effects: snapshotEfeitosPorSlot(runtime.slot, now),
+      cosmetics: runtime.slot === onlineSlotRef.current ? localProfileRef.current.equipped : onlineCosmeticsBySlotRef.current[runtime.slot],
+      profileColor: runtime.slot === onlineSlotRef.current ? localProfileRef.current.color : onlineProfileColorBySlotRef.current[runtime.slot],
     }));
   }
 
@@ -4213,7 +4241,7 @@ export default function JogoPage() {
     onlineDeviceIndexRef.current = safeIndex;
     setOnlineDeviceIndex(safeIndex);
     const choice = choices[safeIndex] ?? choices[0];
-    if (onlineConnected) enviarOnline({ type: "profile", name: nomeOnlineSeguro(), device: choice.label });
+    if (onlineConnected) enviarOnline({ type: "profile", name: nomeOnlineSeguro(), device: choice.label, cosmetics: localProfileRef.current.equipped, profileColor: localProfileRef.current.color });
     tocarSom(CONFIG.sounds.menuMove, 0.25, "menu");
   }
 
@@ -4325,6 +4353,7 @@ export default function JogoPage() {
       boost: controleAcaoSegurando("boost"),
       dodge: controleAcaoSegurando("dodge"),
       pause: gameStateRef.current === "paused",
+      pet: mobilePetPressedRef.current,
     };
   }
 
@@ -4344,10 +4373,10 @@ export default function JogoPage() {
     const input = inputOnlineLocalAtual();
     const payload = JSON.stringify(input);
     if (!force && payload === onlineLastInputPayloadRef.current && now - onlineLastInputSentAtRef.current < 60) return;
-    if (!force && now - onlineLastInputSentAtRef.current < 12) return;
+    if (!force && now - onlineLastInputSentAtRef.current < 8) return;
     onlineLastInputPayloadRef.current = payload;
     onlineLastInputSentAtRef.current = now;
-    enviarOnline({ type: "input", seq: ++onlineInputSeqRef.current, input });
+    enviarOnline({ type: "input", seq: ++onlineInputSeqRef.current, input, cosmetics: localProfileRef.current.equipped, profileColor: localProfileRef.current.color, pet: localProfileRef.current.equipped?.pet });
   }
 
   function sanitizarPlayerParaSync(player: Player | null): Partial<Player> | null {
@@ -4523,7 +4552,7 @@ export default function JogoPage() {
       sentAt,
       seq: tick,
       authoritativeSlot: onlineHostSlotRef.current as PlayerSlot,
-      netModel: "server-tick-input-v1",
+      netModel: "owner-input-host-state-v222",
       players: snapshotPlayersOnline(now),
       mode: currentModeRef.current,
       state: gameStateRef.current,
@@ -4709,6 +4738,8 @@ export default function JogoPage() {
       const incomingBase = remote.player || {};
       const incoming = projectedPvp ? espelharPlayerOnline(incomingBase) : incomingBase;
       const runtime = existing.get(slot) ?? criarPlayerRuntime(slot);
+      if (remote.cosmetics) onlineCosmeticsBySlotRef.current[slot] = remote.cosmetics;
+      if (remote.profileColor) onlineProfileColorBySlotRef.current[slot] = remote.profileColor;
       aplicarMetadadosRuntime(runtime, remote);
       aplicarPlayerSnapshotSuave(runtime.runtime, incoming, slot === onlineSlotRef.current);
       runtime.hp = Number(remote.hp ?? runtime.runtime.hp ?? runtime.hp);
@@ -4791,6 +4822,12 @@ export default function JogoPage() {
     }
     onlineLastAppliedSyncAtRef.current = snapshot.serverTime || snapshot.t || Date.now();
 
+    if (Array.isArray(snapshot.players)) {
+      for (const remote of snapshot.players) {
+        if (remote?.slot && remote.cosmetics) onlineCosmeticsBySlotRef.current[remote.slot] = remote.cosmetics;
+        if (remote?.slot && remote.profileColor) onlineProfileColorBySlotRef.current[remote.slot] = remote.profileColor;
+      }
+    }
     if (snapshot.mode) {
       currentModeRef.current = snapshot.mode;
     }
@@ -4981,7 +5018,7 @@ export default function JogoPage() {
 
     if (souHostOnline()) {
       // Snapshots menores em ~20 Hz com eventos visuais dedicados evitam fila no WebSocket e queda forte de FPS.
-      if (now - onlineLastSyncSentAtRef.current < 42) return;
+      if (now - onlineLastSyncSentAtRef.current < 45) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
@@ -5048,7 +5085,7 @@ export default function JogoPage() {
     salvarPerfilLocal(next);
     const onlineName = clean.trim() || "Player";
     setOnlinePlayerName(onlineName);
-    if (onlineConnected) enviarOnline({ type: "profile", name: onlineName, device: dispositivoOnlineAtual().label });
+    if (onlineConnected) enviarOnline({ type: "profile", name: onlineName, device: dispositivoOnlineAtual().label, cosmetics: localProfileRef.current.equipped, profileColor: localProfileRef.current.color });
   }
 
   function atualizarCorPerfilLocal(color: string) {
@@ -5065,6 +5102,22 @@ export default function JogoPage() {
     setAchievementPopup(achievement);
     if (achievementPopupTimerRef.current !== null) window.clearTimeout(achievementPopupTimerRef.current);
     achievementPopupTimerRef.current = window.setTimeout(() => setAchievementPopup(null), 2800);
+  }
+
+  function desbloquearConquistaPerfil(id: string) {
+    const current = localProfileRef.current;
+    const now = Date.now();
+    let unlockedNow: LocalAchievement | null = null;
+    const achievements = normalizarConquistasPerfil(current.achievements).map((achievement) => {
+      if (achievement.id === id && !achievement.unlockedAt) {
+        unlockedNow = { ...achievement, unlockedAt: now };
+        return unlockedNow;
+      }
+      return achievement;
+    });
+    if (!unlockedNow) return;
+    salvarPerfilLocal({ ...current, achievements, updatedAt: now });
+    mostrarPopupConquista(unlockedNow);
   }
 
   function atualizarStatsPerfilLocal(updater: (stats: LocalProfileStats) => LocalProfileStats) {
@@ -5172,7 +5225,8 @@ export default function JogoPage() {
       freezeOnStart: 0,
       tokenBonus: 0,
     };
-    for (const id of Object.values(profile.equipped || {})) {
+    for (const rawId of Object.values(profile.equipped || {})) {
+      const id = typeof rawId === "string" ? rawId : "";
       const item = itemShopPorId(id);
       if (!item?.buffs) continue;
       for (const [key, value] of Object.entries(item.buffs) as Array<[keyof ShopBuffs, number]>) {
@@ -5272,29 +5326,43 @@ export default function JogoPage() {
     return imagemShop(dodge ? item.dodgeAsset || item.asset : item.asset);
   }
 
-  function desenharCosmeticosNave(ctx: CanvasRenderingContext2D, player: Player, options?: { dodge?: boolean; alpha?: number }) {
+  function desenharCosmeticosNave(ctx: CanvasRenderingContext2D, player: Player, options?: { dodge?: boolean; alpha?: number; equipped?: EquippedCosmetics; movingFrame?: number; superSpark?: boolean }) {
     const profile = localProfileRef.current;
-    const equipped = profile.equipped || {};
+    const equipped = options?.equipped || profile.equipped || {};
     const now = performance.now();
     const dodge = Boolean(options?.dodge);
     const alpha = options?.alpha ?? 1;
-    const drawFull = (itemId?: string) => {
+    const drawFull = (itemId?: string, isRecolor = false) => {
       const item = itemShopPorId(itemId);
-      const img = assetCosmetico(item, dodge);
+      let srcItem = item;
+      let img: HTMLImageElement | null = null;
+      if (item && isRecolor && !dodge && item.moveFrames?.length && typeof options?.movingFrame === "number") {
+        img = imagemShop(item.moveFrames[options.movingFrame % item.moveFrames.length]);
+      }
+      if (!img) img = assetCosmetico(srcItem, dodge);
       if (!img) return;
       ctx.save();
       ctx.globalAlpha *= alpha;
       ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+      if (options?.superSpark) {
+        ctx.globalCompositeOperation = "screen";
+        ctx.globalAlpha = 0.34;
+        ctx.fillStyle = "#fde047";
+        ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
+      }
       ctx.restore();
     };
     const recolor = itemShopPorId(equipped.recolor);
-    if (recolor && recolor.id !== "recolor-classic") drawFull(recolor.id);
+    if (recolor && recolor.id !== "recolor-classic") drawFull(recolor.id, true);
     drawFull(equipped.middle);
     drawFull(equipped.front);
 
     const pet = itemShopPorId(equipped.pet);
     if (pet) {
-      const frames = pet.frames?.length ? pet.frames : [pet.asset];
+      const superFrames = pet.id === "pet-blue-comet" && performance.now() < petSuperSparkUntilRef.current
+        ? ["/game/shop/pets/pet-blue-super-0.png", "/game/shop/pets/pet-blue-super-1.png", "/game/shop/pets/pet-blue-super-2.png", "/game/shop/pets/pet-blue-super-3.png"]
+        : null;
+      const frames = superFrames || (pet.frames?.length ? pet.frames : [pet.asset]);
       if (now - lastPetFrameAtRef.current > 120) {
         petFrameRef.current = (petFrameRef.current + 1) % frames.length;
         lastPetFrameAtRef.current = now;
@@ -5372,141 +5440,185 @@ export default function JogoPage() {
     }
   }
 
-  function executarHabilidadesPetAvancadas(delta: number, canvas: HTMLCanvasElement) {
-    if (gameStateRef.current !== "playing" || gameStateRef.current === "tutorial") return;
-    if (isLocalPvpMode()) return;
-    if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+  function cooldownHabilidadePetMs(petId: string) {
+    if (petId === "pet-satellite") return 100000;
+    if (petId === "pet-tundra") return 62000;
+    if (petId === "pet-blue-comet") return 68000;
+    if (petId === "pet-red-jumper") return 52000;
+    if (petId === "pet-black-hole") return 56000;
+    if (petId === "pet-earth" || petId === "pet-milky-way") return 54000;
+    return 42000;
+  }
+
+  function definirCooldownPet(ms: number) {
+    petAbilityCooldownUntilRef.current = performance.now() + ms;
+    setPetAbilityCooldownUi(Math.ceil(ms / 1000));
+  }
+
+  function ativarHabilidadePetManual() {
+    if (gameStateRef.current !== "playing") return;
+    if (onlineGameplayActiveRef.current && !souHostOnline()) {
+      mostrarMensagemPet("PET SINCRONIZA PELO HOST", "#93c5fd");
+      return;
+    }
     const pet = petEquipadoAtual();
     if (!pet) return;
     const now = performance.now();
+    if (now < petAbilityCooldownUntilRef.current) {
+      mostrarMensagemPet(`PET: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
+      return;
+    }
     const player = playerRef.current;
+    const cx = player.x + player.w / 2;
+    const cy = player.y + player.h / 2;
+    definirCooldownPet(cooldownHabilidadePetMs(pet.id));
+    desbloquearConquistaPerfil("pet-power");
+    tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, 0.28, "sfx");
+
+    if (pet.id === "pet-blue-comet") {
+      petSuperSparkUntilRef.current = now + 10000;
+      player.invincibleUntil = Math.max(player.invincibleUntil, now + 10000);
+      player.stretchUntil = now + 420;
+      player.stretchVx = 4.2;
+      player.stretchVy = -1.2;
+      tocarSom(CONFIG.sounds.petSuperSpark || CONFIG.sounds.abilityReady, 0.45, "sfx");
+      mostrarMensagemPet("SUPER FAÍSCA: 10s", "#fde047");
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 120, life: 240, maxLife: 240 });
+      return;
+    }
+
+    if (pet.id === "pet-red-jumper") {
+      let hit = 0;
+      for (const enemy of enemiesRef.current) {
+        const dist = Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy);
+        if (enemy.hp > 0 && dist < 165 && hit < 6) {
+          enemy.hp -= 3.2;
+          hit += 1;
+          criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#f97316", 5);
+        }
+      }
+      criarExplosao(cx, cy, "#f97316", mobileRuntimeRef.current ? 8 : 14);
+      mostrarMensagemPet("SALTADOR RUBRO: PULSO", "#f97316");
+      return;
+    }
+
+    if (pet.id === "pet-satellite") {
+      const wave = waveStateRef.current.wave || 1;
+      if ((currentModeRef.current === "infinite" || isLocalWaveMode()) && waveStateRef.current.active && !waveStateRef.current.bossWave && wave >= 3) {
+        adicionarPontuacao(150);
+        mostrarMensagemPet("SATÉLITE: ATALHO DE WAVE", "#93c5fd");
+        window.setTimeout(() => iniciarWaveInfinita(wave + 1), 80);
+      } else {
+        player.strongReadyAt = Math.max(now, player.strongReadyAt - 1100);
+        mostrarMensagemPet("SATÉLITE: RECARGA", "#93c5fd");
+      }
+      return;
+    }
+
+    if (pet.id === "pet-tundra") {
+      const targets = enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > -20 && enemy.x < CONFIG.canvasWidth + 80 && enemy.y > -20 && enemy.y < CONFIG.canvasHeight + 40).slice(0, 8);
+      for (const enemy of targets) {
+        enemy.vx *= 0.12;
+        enemy.vy *= 0.12;
+        enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 1700);
+        enemy.stretchUntil = now + 240;
+        criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#bfdbfe", 4);
+      }
+      mostrarMensagemPet("TUNDRA: GELO CURTO", "#bfdbfe");
+      return;
+    }
 
     if (pet.id === "pet-black-hole") {
-      if (habilidadePetPronta("pet-black-hole-pull", 27000) && enemiesRef.current.some((enemy) => enemy.hp > 0 && enemy.x < canvas.width + 80)) {
-        petBlackHolePullUntilRef.current = now + 1900;
-        mostrarMensagemPet("BURACO NEGRO: GRAVIDADE", "#a78bfa");
-        criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#7c3aed", 9);
+      petBlackHolePullUntilRef.current = now + 2300;
+      criarExplosao(cx, cy, "#7c3aed", mobileRuntimeRef.current ? 6 : 10);
+      mostrarMensagemPet("BURACO NEGRO: PUXÃO", "#a78bfa");
+      return;
+    }
+
+    if (pet.id === "pet-earth" || pet.id === "pet-milky-way") {
+      if (enemiesRef.current.length < 18) {
+        const pool: EnemyKind[] = pet.id === "pet-milky-way" ? ["red", "purple", "alien"] : ["red", "asteroid"];
+        spawnEnemy(pool[Math.floor(rand(0, pool.length))] || "red");
       }
-      puxarInimigosBuracoNegro(delta);
+      player.hp = Math.min(vidaMaximaLocal(), player.hp + 1);
+      setPlayerHp(player.hp);
+      mostrarMensagemPet(pet.id === "pet-milky-way" ? "VIA LÁCTEA: RISCO E RECOMPENSA" : "TERRA: REFORÇO", "#86efac");
+      return;
     }
 
-    if (pet.id === "pet-star" && habilidadePetPronta("pet-star-spark", 28000)) {
-      player.vx += 0.45;
-      player.strongReadyAt = Math.max(now, player.strongReadyAt - 650);
-      mostrarMensagemPet("ESTRELA: IMPULSO", "#fde68a");
+    if (pet.id === "pet-sun") {
+      flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 3000);
+      mostrarMensagemPet("SOL: CHAMA ATIVA", "#fb923c");
+      return;
     }
 
-    if (pet.id === "pet-comet" && habilidadePetPronta("pet-comet-tail", 34000)) {
-      const cx = player.x + player.w / 2;
-      const cy = player.y + player.h / 2;
+    if (pet.id === "pet-moon") {
+      homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + (player.hp <= 1 ? 5200 : 3200));
+      mostrarMensagemPet("LUA: TIROS GUIADOS", "#ddd6fe");
+      return;
+    }
+
+    if (pet.id === "pet-comet") {
       let cleared = 0;
-      const keepEnemy = enemyProjectilesRef.current.filter((bullet) => {
-        if (cleared >= 2) return true;
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => {
+        if (cleared >= 3) return true;
         const dist = Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy);
-        if (dist < 150) { cleared += 1; return false; }
+        if (dist < 175) { cleared += 1; return false; }
         return true;
       });
-      enemyProjectilesRef.current = keepEnemy;
-      if (cleared > 0) {
-        criarParticulasHit(cx, cy, "#fbbf24", 9);
-        mostrarMensagemPet("COMETA: RASTRO LIMPO", "#fbbf24");
-      }
+      criarParticulasHit(cx, cy, "#fbbf24", 9);
+      mostrarMensagemPet("COMETA: RASTRO DEFENSIVO", "#fbbf24");
+      return;
     }
 
-    if (pet.id === "pet-white-hole" && habilidadePetPronta("pet-white-hole-pulse", 32000)) {
-      const cx = player.x + player.w / 2;
-      const cy = player.y + player.h / 2;
-      let pushed = 0;
+    if (pet.id === "pet-white-hole") {
       for (const bullet of enemyProjectilesRef.current) {
         const bx = bullet.x + bullet.w / 2;
         const by = bullet.y + bullet.h / 2;
         const dx = bx - cx;
         const dy = by - cy;
         const dist = Math.max(1, Math.hypot(dx, dy));
-        if (dist < 180) {
-          pushed += 1;
-          bullet.vx += (dx / dist) * 2.1;
-          bullet.vy += (dy / dist) * 2.1;
+        if (dist < 190) {
+          bullet.vx += (dx / dist) * 2.2;
+          bullet.vy += (dy / dist) * 2.2;
         }
       }
-      if (pushed > 0) {
-        shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 92, life: 190, maxLife: 190 });
-        mostrarMensagemPet("BURACO BRANCO: REPULSO", "#f8fafc");
-      }
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 96, life: 190, maxLife: 190 });
+      mostrarMensagemPet("BURACO BRANCO: REPULSO", "#f8fafc");
+      return;
     }
 
-    if (pet.id === "pet-tundra" && habilidadePetPronta("pet-tundra-freeze", 52000)) {
-      const targets = enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > -20 && enemy.x < canvas.width + 80 && enemy.y > -20 && enemy.y < canvas.height + 40).slice(0, 9);
-      if (targets.length >= 2) {
-        for (const enemy of targets) {
-          enemy.vx *= 0.18;
-          enemy.vy *= 0.18;
-          enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 1500);
-          enemy.stretchUntil = now + 220;
-          criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#bfdbfe", 5);
-        }
-        mostrarMensagemPet("TUNDRA: CONGELAMENTO", "#bfdbfe");
-      }
+    if (pet.id === "pet-wormhole") {
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 2100);
+      player.vx += 0.55;
+      mostrarMensagemPet("MINHOCA: DOBRA", "#c084fc");
+      return;
     }
 
-    if ((pet.id === "pet-earth" || pet.id === "pet-milky-way") && habilidadePetPronta(`${pet.id}-extra-enemy`, pet.id === "pet-milky-way" ? 42000 : 48000)) {
-      if (waveStateRef.current.active && enemiesRef.current.length < 18) {
-        const pool: EnemyKind[] = pet.id === "pet-milky-way" ? ["red", "purple", "alien"] : ["red", "asteroid"];
-        spawnEnemy(pool[Math.floor(rand(0, pool.length))] || "red");
-        mostrarMensagemPet(pet.id === "pet-milky-way" ? "VIA LÁCTEA: SINAL EXTRA" : "TERRA: DESAFIO EXTRA", "#86efac");
-      }
-    }
-
-    if (pet.id === "pet-sun" && habilidadePetPronta("pet-sun-flames", 39000)) {
-      flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 2300);
-      mostrarMensagemPet("SOL: CHAMA CURTA", "#fb923c");
-    }
-
-    if (pet.id === "pet-moon" && player.hp <= 1 && habilidadePetPronta("pet-moon-homing", 43000)) {
-      homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + 4700);
-      mostrarMensagemPet("LUA: MIRA DE EMERGÊNCIA", "#ddd6fe");
-    }
-
-    if (pet.id === "pet-alien" && habilidadePetPronta("pet-alien-recharge", 31000)) {
-      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1400);
+    if (pet.id === "pet-alien") {
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1600);
+      boostChargeRef.current = Math.min(CONFIG.gameplay.boost.maxCharge, boostChargeRef.current + 18);
       mostrarMensagemPet("ALIENÍGENA: RECARGA", "#67e8f9");
+      return;
     }
 
-    if (pet.id === "pet-wormhole" && habilidadePetPronta("pet-wormhole-charge", 36000)) {
-      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1900);
-      player.vx += 0.8;
-      mostrarMensagemPet("MINHOCA: DOBRA CURTA", "#c084fc");
-    }
+    player.vx += 0.35;
+    player.strongReadyAt = Math.max(now, player.strongReadyAt - 750);
+    mostrarMensagemPet("PET: AJUDA RÁPIDA", "#fde68a");
+  }
 
-    if (pet.id === "pet-blue-comet" && habilidadePetPronta("pet-blue-comet-blitz", 33000)) {
-      const target = enemiesRef.current
-        .filter((enemy) => enemy.hp > 0 && enemy.x > player.x && enemy.x < canvas.width + 80)
-        .sort((a, b) => Math.hypot(a.x - player.x, a.y - player.y) - Math.hypot(b.x - player.x, b.y - player.y))[0];
-      if (target) {
-        target.hp -= Math.min(5, Math.max(2, target.maxHp * 0.32));
-        criarExplosao(target.x + target.w / 2, target.y + target.h / 2, "#38bdf8", 12);
-        shockwavesRef.current.push({ id: enemyIdRef.current++, x: target.x + target.w / 2, y: target.y + target.h / 2, radius: 72, life: 180, maxLife: 180 });
-        mostrarMensagemPet("FAÍSCA AZUL: SPEED BLITZ", "#38bdf8");
-      }
+  function executarHabilidadesPetAvancadas(delta: number, canvas: HTMLCanvasElement) {
+    if (gameStateRef.current !== "playing") return;
+    if (isLocalPvpMode()) return;
+    if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+    const now = performance.now();
+    if (petSuperSparkUntilRef.current > now) {
+      const player = playerRef.current;
+      if (Math.random() < 0.38) criarParticulasHit(player.x + rand(0, player.w), player.y + rand(0, player.h), "#fde047", mobileRuntimeRef.current ? 1 : 2);
+      player.invincibleUntil = Math.max(player.invincibleUntil, now + 120);
     }
-
-    if (pet.id === "pet-red-jumper" && habilidadePetPronta("pet-red-jumper-burst", 37000)) {
-      const cx = player.x + player.w / 2;
-      const cy = player.y + player.h / 2;
-      let hit = 0;
-      for (const enemy of enemiesRef.current) {
-        const dist = Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy);
-        if (enemy.hp > 0 && dist < 150) {
-          enemy.hp -= 3;
-          hit += 1;
-          criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#f97316", 5);
-        }
-      }
-      if (hit > 0) {
-        criarExplosao(cx, cy, "#f97316", 14);
-        mostrarMensagemPet("SALTADOR RUBRO: IMPACTO", "#f97316");
-      }
-    }
+    puxarInimigosBuracoNegro(delta);
+    setPetAbilityCooldownUi(Math.max(0, Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)));
   }
 
   function mostrarTokensPorTempo(ms = 1050) {
@@ -5770,6 +5882,9 @@ export default function JogoPage() {
     onlineHostSlotRef.current = hostSlot;
     setOnlineHostSlot(hostSlot);
     setOnlinePlayers(players);
+    if (players.length >= 2 && players.some((player: OnlinePlayer) => SPACE_NEWS_CREATOR_NAME_RE.test(player.name || ""))) {
+      desbloquearConquistaPerfil("creator-match");
+    }
     setOnlineCanStart(Boolean(msg.canStart));
     const selected = (msg.selectedMode || "localPvp") as GameMode;
     onlineSelectedModeRef.current = selected;
@@ -5820,6 +5935,8 @@ export default function JogoPage() {
         type: "join",
         name: safeName,
         device: dispositivoOnlineAtual().label,
+        cosmetics: localProfileRef.current.equipped,
+        profileColor: localProfileRef.current.color,
       });
       iniciarPingOnline();
     };
@@ -5898,6 +6015,8 @@ export default function JogoPage() {
         const from = Number(msg.from || 0);
         if (from > 0 && from !== onlineSlotRef.current) {
           onlineRemoteInputsRef.current[from] = { ...EMPTY_ONLINE_INPUT_STATE, ...(msg.input || {}) };
+          if (msg.cosmetics && typeof msg.cosmetics === "object") onlineCosmeticsBySlotRef.current[from] = msg.cosmetics as EquippedCosmetics;
+          if (typeof msg.profileColor === "string") onlineProfileColorBySlotRef.current[from] = msg.profileColor;
         }
         return;
       }
@@ -8748,6 +8867,13 @@ export default function JogoPage() {
 
     if (option.action === "extras") {
       abrirExtras();
+      return;
+    }
+
+    if (option.action === "shop") {
+      tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
+      setShopTab("pet");
+      setProfileManagerOpen(true);
       return;
     }
 
@@ -11661,7 +11787,7 @@ export default function JogoPage() {
       const powerActive = powerShotUntilRef.current > now;
       const homingActive = homingShotUntilRef.current > now;
       const shopBuffs = buffsCosmeticosEquipados();
-      const shotSpeed = CONFIG.gameplay.shots.normal.speed * (1 + shopBuffs.shotSpeed);
+      const shotSpeed = CONFIG.gameplay.shots.normal.speed * (1 + shopBuffs.shotSpeed + (performance.now() < petSuperSparkUntilRef.current ? 0.16 : 0));
       const shotW = powerActive
         ? CONFIG.gameplay.powerups.powerShotWidth
         : CONFIG.gameplay.shots.normal.width;
@@ -11715,7 +11841,7 @@ export default function JogoPage() {
       const now = performance.now();
       const dir = normalizarDirecao(dirXParam, dirYParam);
       const shopBuffsStrong = buffsCosmeticosEquipados();
-      const strongSpeed = CONFIG.gameplay.shots.strong.speed * (1 + shopBuffsStrong.shotSpeed);
+      const strongSpeed = CONFIG.gameplay.shots.strong.speed * (1 + shopBuffsStrong.shotSpeed + (performance.now() < petSuperSparkUntilRef.current ? 0.12 : 0));
 
       if (isLocalWaveMode() && player.hp <= 0) return;
 
@@ -12048,7 +12174,7 @@ export default function JogoPage() {
         ctx.fillRect(player.w * 0.12, -7, 14, 14);
       }
 
-      desenharCosmeticosNave(ctx, player, { dodge: isDodging, alpha: ghostLocal ? 0.42 : 1 });
+      desenharCosmeticosNave(ctx, player, { dodge: isDodging, alpha: ghostLocal ? 0.42 : 1, movingFrame: anim.frame, superSpark: performance.now() < petSuperSparkUntilRef.current });
 
       if (isDodging && !dodgeAsset && Math.floor(now / 70) % 2 === 0) {
         ctx.save();
@@ -12531,6 +12657,7 @@ export default function JogoPage() {
         boost: Boolean(pad.buttons[1]?.pressed || pad.buttons[5]?.pressed),
         dodge: Boolean(pad.buttons[3]?.pressed || pad.buttons[4]?.pressed),
         pause: Boolean(pad.buttons[9]?.pressed),
+        pet: Boolean(pad.buttons[10]?.pressed),
       };
     }
 
@@ -12789,7 +12916,7 @@ export default function JogoPage() {
         ctx.closePath();
         ctx.fill();
       }
-      desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.3 : 0.88 });
+      desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.3 : 0.88, movingFrame: anim.frame, equipped: onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[onlineSlotRef.current === 2 ? 1 : 2] : undefined });
 
       if (shieldVisual) {
         const t = now * 0.006;
@@ -14475,7 +14602,8 @@ export default function JogoPage() {
       if (gameStateRef.current === "tutorial") return;
       if (onlineGameplayActiveRef.current && !souHostOnline()) return;
       if (Math.random() > dropChance) return;
-      const amount = Math.max(1, Math.min(maxAmount, Math.floor(rand(isLocalPvpMode() ? 1 : 2, maxAmount + 1))));
+      const safeMax = mobileRuntimeRef.current ? Math.min(maxAmount, isLocalPvpMode() ? 3 : 4) : Math.min(maxAmount, isLocalPvpMode() ? 4 : 6);
+      const amount = Math.max(1, Math.min(safeMax, Math.floor(rand(1, safeMax + 1))));
       const now = performance.now();
       for (let i = 0; i < amount; i++) {
         const angle = rand(-Math.PI * 0.72, Math.PI * 0.72);
@@ -14484,8 +14612,8 @@ export default function JogoPage() {
           id: tokenIdRef.current++,
           x: x - 14 + rand(-10, 10),
           y: y - 14 + rand(-10, 10),
-          w: isLocalPvpMode() ? 24 : 28,
-          h: isLocalPvpMode() ? 24 : 28,
+          w: mobileRuntimeRef.current ? 20 : (isLocalPvpMode() ? 22 : 26),
+          h: mobileRuntimeRef.current ? 20 : (isLocalPvpMode() ? 22 : 26),
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed - rand(0.5, 1.4),
           age: 0,
@@ -14502,8 +14630,8 @@ export default function JogoPage() {
           patternIndex: i,
         });
       }
-      tokensRef.current = tokensRef.current.slice(-64);
-      criarExplosao(x, y, "#ffd45a", isLocalPvpMode() ? 7 : 10);
+      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 28 : 52));
+      if (!mobileRuntimeRef.current) criarExplosao(x, y, "#ffd45a", isLocalPvpMode() ? 6 : 9); else criarParticulasHit(x, y, "#ffd45a", 5);
       tocarSom(CONFIG.sounds.tokenBurst || CONFIG.sounds.powerUpSpawn, 0.18, "sfx");
     }
 
@@ -16010,9 +16138,10 @@ export default function JogoPage() {
       let effectiveMaxSpeedY =
         CONFIG.gameplay.player.maxSpeedY * slowMultiplier;
       if (!isLocalPvpMode()) {
-        effectiveAcceleration *= 1 + equippedBuffs.speed * 0.45;
-        effectiveMaxSpeedX *= 1 + equippedBuffs.speed;
-        effectiveMaxSpeedY *= 1 + equippedBuffs.speed * 0.82;
+        const superSparkBonus = performance.now() < petSuperSparkUntilRef.current ? 0.18 : 0;
+        effectiveAcceleration *= 1 + equippedBuffs.speed * 0.45 + superSparkBonus * 0.55;
+        effectiveMaxSpeedX *= 1 + equippedBuffs.speed + superSparkBonus;
+        effectiveMaxSpeedY *= 1 + equippedBuffs.speed * 0.82 + superSparkBonus * 0.72;
       }
 
       if (!isTutorialMode && !isLocalPvpMode() && equippedBuffs.regenSeconds > 0 && player.hp > 0) {
@@ -16671,6 +16800,7 @@ export default function JogoPage() {
         atualizarDispositivosDisponiveis();
       }
       processarEntradaGamepadGlobal();
+      if (botaoFisicoControleAcionado("10")) ativarHabilidadePetManual();
       enviarInputOnlineAtual();
 
       const fpsCounter = fpsCounterRef.current;
@@ -16798,6 +16928,12 @@ export default function JogoPage() {
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement
       ) {
+        return;
+      }
+
+      if (key === "tab") {
+        e.preventDefault();
+        setPingBoardOpen(true);
         return;
       }
 
@@ -17211,6 +17347,11 @@ export default function JogoPage() {
         }
       }
 
+      if (key === "c" && gameStateRef.current === "playing") {
+        ativarHabilidadePetManual();
+        return;
+      }
+
       if (key === "p" || key === "escape") {
         pausarOuVoltar();
       }
@@ -17219,6 +17360,10 @@ export default function JogoPage() {
     function keyUp(e: KeyboardEvent) {
       const key = e.key.toLowerCase();
       keysRef.current[key] = false;
+      if (key === "tab") {
+        setPingBoardOpen(false);
+        return;
+      }
       if (onlineGameplayActiveRef.current) enviarInputOnlineAtual(true);
 
       if (
@@ -17639,6 +17784,19 @@ export default function JogoPage() {
           <span>CONQUISTA DESBLOQUEADA</span>
           <strong>{achievementPopup.title}</strong>
           <small>{achievementPopup.description}</small>
+        </div>
+      )}
+
+      {pingBoardOpen && onlineConnected && (
+        <div className="sn-ping-board-v222">
+          <header>LINK SPACE NEWS</header>
+          {onlinePlayers.map((player) => (
+            <div key={player.slot} className={player.slot === onlineSlot ? "is-you" : ""}>
+              <span>P{player.slot} · {player.name}</span>
+              <b>{player.slot === onlineSlot ? `${onlinePing ?? "--"}ms` : player.connected === false ? "OFF" : "SYNC"}</b>
+            </div>
+          ))}
+          <small>Host: P{onlineHostSlot || 1} · Tab para ocultar</small>
         </div>
       )}
 
@@ -18092,6 +18250,13 @@ export default function JogoPage() {
 
                       if (option.action === "extras") {
                         abrirExtras();
+                        return;
+                      }
+
+                      if (option.action === "shop") {
+                        tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
+                        setShopTab("pet");
+                        setProfileManagerOpen(true);
                         return;
                       }
 
@@ -19911,6 +20076,22 @@ export default function JogoPage() {
               draggable={false}
             />
           </button>
+
+          {petEquipadoAtual() && (
+            <button
+              className="sn-mobile-button pet"
+              style={mobileControlStyle("pet")}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                mobilePetPressedRef.current = true;
+                ativarHabilidadePetManual();
+                window.setTimeout(() => { mobilePetPressedRef.current = false; }, 120);
+              }}
+              aria-label="habilidade do pet"
+            >
+              <img src={assetUrl(CONFIG.uiImages.mobilePet)} alt="pet" draggable={false} />
+            </button>
+          )}
 
           <button
             className="sn-mobile-button system fullscreen"

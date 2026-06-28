@@ -17,6 +17,7 @@ type PlayerInput = {
   boost?: boolean;
   dodge?: boolean;
   pause?: boolean;
+  pet?: boolean;
 };
 
 type HostSnapshot = Record<string, unknown> & {
@@ -37,16 +38,18 @@ type PlayerSession = {
   connectedAt: number;
   lastSeen: number;
   input: Required<PlayerInput>;
+  cosmetics?: Record<string, string>;
+  profileColor?: string;
   modeVote: GameMode;
 };
 
 type ClientMessage =
-  | { type: "join"; name?: string; device?: string }
-  | { type: "profile"; name?: string; device?: string }
+  | { type: "join"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string }
+  | { type: "profile"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string }
   | { type: "vote_mode"; mode?: GameMode }
   | { type: "start"; mode?: GameMode }
   | { type: "ready"; ready?: boolean }
-  | { type: "input"; input?: PlayerInput; seq?: number }
+  | { type: "input"; input?: PlayerInput; seq?: number; cosmetics?: Record<string, string>; profileColor?: string; pet?: string }
   | { type: "sync"; snapshot?: HostSnapshot }
   | { type: "token_collect"; slot?: number; amount?: number }
   | { type: "pause_request" }
@@ -65,6 +68,7 @@ const EMPTY_INPUT: Required<PlayerInput> = {
   boost: false,
   dodge: false,
   pause: false,
+  pet: false,
 };
 
 const VALID_MODES: GameMode[] = ["localPvp", "localCoop"];
@@ -124,6 +128,7 @@ function normalizeInput(input: PlayerInput | undefined): Required<PlayerInput> {
     boost: Boolean(input?.boost),
     dodge: Boolean(input?.dodge),
     pause: Boolean(input?.pause),
+    pet: Boolean(input?.pet),
   };
 }
 
@@ -148,7 +153,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.2.1-netcode", netModel: "server-tick-input-v1" });
+      return json({ ok: true, service: "Space News Online", version: "2.2.1-netcode", netModel: "server-tick-input-v2" });
     }
 
     if (url.pathname === "/create") {
@@ -295,6 +300,8 @@ export class GameRoom extends DurableObject<Env> {
 
       session.name = cleanName(msg.name, `P${session.slot}`);
       session.device = String(msg.device || "unknown").slice(0, 32);
+      if (msg.cosmetics && typeof msg.cosmetics === "object") session.cosmetics = msg.cosmetics;
+      if (typeof msg.profileColor === "string") session.profileColor = msg.profileColor.slice(0, 24);
       session.modeVote = session.modeVote || "localPvp";
       ws.serializeAttachment(session);
       this.sessions.set(ws, session);
@@ -310,6 +317,8 @@ export class GameRoom extends DurableObject<Env> {
       if (session.slot === 0) return;
       if (msg.name !== undefined) session.name = cleanName(msg.name, `P${session.slot}`);
       if (msg.device !== undefined) session.device = String(msg.device || "unknown").slice(0, 32);
+      if (msg.cosmetics && typeof msg.cosmetics === "object") session.cosmetics = msg.cosmetics;
+      if (typeof msg.profileColor === "string") session.profileColor = msg.profileColor.slice(0, 24);
       ws.serializeAttachment(session);
       this.broadcastState();
       return;
@@ -371,6 +380,8 @@ export class GameRoom extends DurableObject<Env> {
       if (seq > 0 && seq < lastSeq) return;
       if (seq > 0) this.lastInputSeqBySlot.set(session.slot, seq);
       session.input = normalizeInput(msg.input);
+      if (msg.cosmetics && typeof msg.cosmetics === "object") session.cosmetics = msg.cosmetics;
+      if (typeof msg.profileColor === "string") session.profileColor = msg.profileColor;
       ws.serializeAttachment(session);
       const serverTick = ++this.serverInputTick;
       this.broadcast({
@@ -380,15 +391,17 @@ export class GameRoom extends DurableObject<Env> {
         seq,
         tick: serverTick,
         input: session.input,
+        cosmetics: session.cosmetics,
+        profileColor: session.profileColor,
         serverTime: Date.now(),
         t: Date.now(),
-        netModel: "server-tick-input-v1",
+        netModel: "server-tick-input-v2",
       });
       return;
     }
 
     if (msg.type === "sync") {
-      // server-tick-input-v1: inputs ganham tick no Worker; snapshots viram correção visual leve.
+      // server-tick-input-v2: inputs ganham tick no Worker; snapshots viram correção visual leve.
       if (session.slot !== this.ensureHost() || !this.gameActive) return;
       const rawSnapshot = msg.snapshot && typeof msg.snapshot === "object" ? msg.snapshot : {};
       const incomingTick = Number(rawSnapshot.tick ?? rawSnapshot.seq ?? 0) || this.lastSnapshotTick + 1;
@@ -400,7 +413,7 @@ export class GameRoom extends DurableObject<Env> {
         tick: incomingTick,
         seq: Number(rawSnapshot.seq ?? incomingTick) || incomingTick,
         serverTime,
-        netModel: "server-tick-input-v1",
+        netModel: "server-tick-input-v2",
       };
       this.broadcast({
         type: "sync",
@@ -410,7 +423,7 @@ export class GameRoom extends DurableObject<Env> {
         serverTime,
         t: serverTime,
         priority: "host-frame",
-        netModel: "server-tick-input-v1",
+        netModel: "server-tick-input-v2",
       }, ws);
       return;
     }
@@ -589,6 +602,8 @@ export class GameRoom extends DurableObject<Env> {
       name: session.name,
       ready: session.ready,
       device: session.device,
+      cosmetics: session.cosmetics,
+      profileColor: session.profileColor,
       connected: true,
       host: session.slot === this.ensureHost(),
     };
@@ -633,7 +648,7 @@ export class GameRoom extends DurableObject<Env> {
       selectedMode,
       hostSlot: this.ensureHost(),
       canStart: players.length >= 2 && players.every((p) => p.ready),
-      netModel: "server-tick-input-v1",
+      netModel: "server-tick-input-v2",
       version: "2.2.1-netcode",
       tick: Math.max(this.lastSnapshotTick, this.serverInputTick),
       serverTick: this.serverInputTick,
