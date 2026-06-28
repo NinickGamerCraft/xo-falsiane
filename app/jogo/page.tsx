@@ -5792,6 +5792,107 @@ export default function JogoPage() {
     return playersRef.current.find((runtime) => runtime.slot === slot)?.runtime ?? null;
   }
 
+  function aplicarPowerUpRuntimeExtraSincronizado(runtime: PlayerRuntime, kind: PowerUpKind) {
+    const now = performance.now();
+    const player = runtime.runtime;
+    if (!player || player.hp <= 0) return;
+
+    if (kind === "randomBox") {
+      const options: PowerUpKind[] = ["regen", "fireRate", "shield", "powerShot", "homingShot", "flames"];
+      aplicarPowerUpRuntimeExtraSincronizado(runtime, options[Math.floor(randomFloat() * options.length)]);
+      return;
+    }
+
+    if (kind === "regen" || kind === "tripleRegen") {
+      const amount = kind === "tripleRegen" ? (isLocalPvpMode() ? 18 : 2) : (isLocalPvpMode() ? 8 : 1);
+      player.hp = Math.min(vidaMaximaLocal(), player.hp + amount);
+      runtime.hp = player.hp;
+    } else if (kind === "goldenHeart") {
+      if (isLocalPvpMode()) {
+        player.hp = Math.min(vidaMaximaLocal(), player.hp + 18);
+        runtime.hp = player.hp;
+      } else {
+        player.goldenHp = Math.min(CONFIG.gameplay.powerups.goldenHeartMax, player.goldenHp + 1);
+        runtime.goldenLives = player.goldenHp;
+      }
+    } else if (kind === "shield") {
+      runtime.powerups.shieldUntil = now + 7200;
+      runtime.shieldUntil = runtime.powerups.shieldUntil;
+      player.invincibleUntil = Math.max(player.invincibleUntil, now + (isLocalPvpMode() ? 900 : 7200));
+    } else if (kind === "fireRate") {
+      runtime.powerups.fireRateUntil = now + CONFIG.gameplay.powerups.fireRateDurationMs;
+      player.normalCooldown = 0;
+    } else if (kind === "powerShot") {
+      runtime.powerups.powerShotUntil = now + CONFIG.gameplay.powerups.powerShotDurationMs;
+      player.strongReadyAt = 0;
+    } else if (kind === "homingShot") {
+      runtime.powerups.homingUntil = now + CONFIG.gameplay.powerups.homingShotDurationMs;
+      player.strongReadyAt = 0;
+    } else if (kind === "flames") {
+      runtime.powerups.flamesUntil = now + CONFIG.gameplay.powerups.flamesDurationMs;
+      runtime.powerups.fireRateUntil = Math.max(runtime.powerups.fireRateUntil ?? 0, now + Math.max(2800, CONFIG.gameplay.powerups.fireRateDurationMs * 0.55));
+      player.strongReadyAt = 0;
+    }
+
+    runtime.x = player.x;
+    runtime.y = player.y;
+    runtime.vx = player.vx;
+    runtime.vy = player.vy;
+    runtime.alive = player.hp > 0;
+
+    criarExplosao(player.x + player.w / 2, player.y + player.h / 2, powerUpColor(kind), 14);
+    tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.abilityReady, 0.35, "ability");
+  }
+
+  function aplicarPowerUpPlayer2Sincronizado(kind: PowerUpKind) {
+    const player = player2Ref.current;
+    if (!player || player.hp <= 0) return;
+
+    const now = performance.now();
+    const glowColor = powerUpColor(kind);
+
+    tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.abilityReady, 0.45, "ability");
+    criarParticulasHit(player.x + player.w / 2, player.y + player.h / 2, glowColor, 12);
+
+    if (kind === "regen") {
+      player.hp = Math.min(vidaMaximaLocal(), player.hp + (isLocalPvpMode() ? 12 : 1));
+    } else if (kind === "tripleRegen") {
+      player.hp = Math.min(vidaMaximaLocal(), player.hp + (isLocalPvpMode() ? 22 : 3));
+    } else if (kind === "goldenHeart") {
+      if (isLocalPvpMode()) {
+        player.hp = Math.min(vidaMaximaLocal(), player.hp + 18);
+      } else {
+        player.goldenHp = Math.min(CONFIG.gameplay.powerups.goldenHeartMax, player.goldenHp + 1);
+        setPlayer2GoldenHp(player.goldenHp);
+        player.invincibleUntil = Math.max(player.invincibleUntil, now + 900);
+      }
+    } else if (kind === "shield") {
+      player2ShieldUntilRef.current = now + 7200;
+      if (!isLocalPvpMode()) player.invincibleUntil = Math.max(player.invincibleUntil, now + 7200);
+    } else if (kind === "fireRate") {
+      player.normalCooldown = 0;
+      player2FireRateUntilRef.current = now + CONFIG.gameplay.powerups.fireRateDurationMs;
+    } else if (kind === "powerShot") {
+      player2PowerShotUntilRef.current = now + CONFIG.gameplay.powerups.powerShotDurationMs;
+      player.strongReadyAt = 0;
+      player2BoostReadyAtRef.current = Math.min(player2BoostReadyAtRef.current, now + 700);
+    } else if (kind === "homingShot") {
+      player2HomingShotUntilRef.current = now + CONFIG.gameplay.powerups.homingShotDurationMs;
+      player.strongReadyAt = 0;
+    } else if (kind === "flames") {
+      player2FlamesUntilRef.current = now + Math.max(5200, CONFIG.gameplay.powerups.fireRateDurationMs * 0.78);
+      player2FireRateUntilRef.current = now + Math.max(2800, CONFIG.gameplay.powerups.fireRateDurationMs * 0.55);
+      player.strongReadyAt = 0;
+    } else if (kind === "randomBox") {
+      const options: PowerUpKind[] = ["regen", "fireRate", "shield", "powerShot", "homingShot", "flames"];
+      aplicarPowerUpPlayer2Sincronizado(options[Math.floor(randomFloat() * options.length)]);
+      return;
+    }
+
+    setPlayer2Hp(player.hp);
+    criarExplosao(player.x + player.w / 2, player.y + player.h / 2, glowColor, 10);
+  }
+
   function aplicarPowerUpPorSlotSincronizado(slot: PlayerSlot, kind: PowerUpKind, powerId?: number) {
     if (typeof powerId === "number") {
       const before = powerUpsRef.current.length;
@@ -5812,11 +5913,11 @@ export default function JogoPage() {
       return;
     }
     if (slot === slotVisualPlayer2Online()) {
-      aplicarPowerUpPlayer2(kind);
+      aplicarPowerUpPlayer2Sincronizado(kind);
       return;
     }
     const runtime = playersRef.current.find((item) => item.slot === slot);
-    if (runtime) aplicarPowerUpRuntimeExtra(runtime, kind);
+    if (runtime) aplicarPowerUpRuntimeExtraSincronizado(runtime, kind);
   }
 
   function aplicarHabilidadePetCoopSincronizada(slot: PlayerSlot, petId: string, remote = false) {

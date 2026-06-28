@@ -1040,7 +1040,7 @@ export class GameRoom extends DurableObject<Env> {
     }
     this.enemies = this.enemies
       .map((enemy) => {
-        const wave = Math.sin((enemy.age + enemy.phase * 1000) * 0.004) * 1.2;
+        const wave = Math.sin((enemy.age + (enemy.phase ?? 0) * 1000) * 0.004) * 1.2;
         return {
           ...enemy,
           age: enemy.age + 16.67 * step,
