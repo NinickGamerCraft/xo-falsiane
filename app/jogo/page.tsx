@@ -1684,7 +1684,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.3.5";
+const SPACE_NEWS_VERSION = "2.4.0";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2383,7 +2383,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v235-online-polish";
+const ASSET_VERSION = "space-news-20260628-v240-together-lockstep";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -3693,6 +3693,10 @@ export default function JogoPage() {
 
   function souHostOnline() {
     return onlineGameplayActiveRef.current && onlineSlotRef.current > 0 && onlineSlotRef.current === onlineHostSlotRef.current;
+  }
+
+  function onlineTogetherCoordenado() {
+    return onlineGameplayActiveRef.current && currentModeRef.current === "localCoop" && onlineHostSlotRef.current === 0 && !onlineServerAuthoritativeRef.current;
   }
 
   function hpPvpVisual(slot: 1 | 2) {
@@ -6210,7 +6214,7 @@ export default function JogoPage() {
         onlineHostSlotRef.current = hostSlot;
         setOnlineHostSlot(hostSlot);
         onlineGameplayActiveRef.current = true;
-        onlineServerAuthoritativeRef.current = String(msg.netModel || "").includes("server-authoritative");
+        onlineServerAuthoritativeRef.current = mode !== "localCoop" && String(msg.netModel || "").includes("server-authoritative");
         setOnlineGameplayActive(true);
         setOnlineMatchIntroUntil(mode === "localPvp" ? Date.now() + 1800 : 0);
         onlineRemoteInputsRef.current = {};
@@ -6218,7 +6222,7 @@ export default function JogoPage() {
         onlineLatestSnapshotRef.current = null;
         onlineLastAppliedSnapshotTickRef.current = 0;
         onlineLastAppliedSnapshotSeqRef.current = 0;
-        feedbackOnline("success", onlineServerAuthoritativeRef.current ? "Servidor autoritativo ativo. Sincronizando partida..." : `Iniciando ${labelModoMultiplayer(mode)} online...`);
+        feedbackOnline("success", mode === "localCoop" ? "Together online: usando a engine do coop local com inputs sincronizados." : (onlineServerAuthoritativeRef.current ? "Servidor autoritativo ativo. Sincronizando partida..." : `Iniciando ${labelModoMultiplayer(mode)} online...`));
         window.setTimeout(() => iniciarJogo(mode), 260);
         return;
       }
@@ -16425,7 +16429,7 @@ export default function JogoPage() {
         return;
       }
 
-      if (onlineGameplayActiveRef.current && !souHostOnline() && gameStateRef.current === "playing") {
+      if (onlineGameplayActiveRef.current && !onlineTogetherCoordenado() && !souHostOnline() && gameStateRef.current === "playing") {
         // Cliente não-host usa buffer de snapshots; extrapola só o frame atual e prediz o próprio input.
         const snapshotToRender = escolherSnapshotOnlineParaRender();
         if (snapshotToRender) aplicarSnapshotOnline(snapshotToRender);
@@ -16498,9 +16502,11 @@ export default function JogoPage() {
       );
 
       const onlineRemoteP1Input =
-        onlineGameplayActiveRef.current && !souHostOnline()
-          ? onlineRemoteInputsRef.current[onlineHostSlotRef.current] || EMPTY_ONLINE_INPUT_STATE
-          : null;
+        onlineTogetherCoordenado() && onlineSlotRef.current !== 1
+          ? onlineRemoteInputsRef.current[1] || EMPTY_ONLINE_INPUT_STATE
+          : (onlineGameplayActiveRef.current && !souHostOnline()
+              ? onlineRemoteInputsRef.current[onlineHostSlotRef.current] || EMPTY_ONLINE_INPUT_STATE
+              : null);
       if (onlineRemoteP1Input) {
         const remoteAxes = eixosDeInputOnline(onlineRemoteP1Input);
         inputX = remoteAxes.x;
