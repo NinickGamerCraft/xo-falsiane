@@ -1684,7 +1684,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.4.4";
+const SPACE_NEWS_VERSION = "2.4.6";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2383,7 +2383,8 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v244-sync-polish";
+const ASSET_VERSION = "space-news-20260628-v246-host-sync";
+const ACCESSORY_SPRITES_ENABLED = false; // v2.4.6: acessórios antigos ficam desativados até terem sprites bons.
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
 function assetRevisionAtual() {
@@ -4134,6 +4135,34 @@ export default function JogoPage() {
     return [1];
   }
 
+  function jogadoresCoopOnlineVivosAposMorte(): number {
+    if (!onlineTogetherCoordenado()) return 1;
+    const slots = slotsMultiplayerAtivos();
+    let vivos = 0;
+    for (const slot of slots) {
+      const player = playerPorSlotOnline(slot);
+      if (player && player.hp > 0) vivos += 1;
+    }
+    return vivos;
+  }
+
+  function tratarMorteCoopOnline(player: Player, notice: string) {
+    player.invincibleUntil = performance.now() + 999999;
+    resetarReviveLocal();
+    const vivos = jogadoresCoopOnlineVivosAposMorte();
+    // v2.4.6: se todo mundo morreu, não existe revive possível. Vai para game over normal.
+    // Em cliente não-host, o host continua sendo a autoridade; o snapshot oficial confirma o estado.
+    if (vivos <= 0 && (souHostOnline() || !onlineGameplayActiveRef.current)) {
+      iniciarGameOverCutscene();
+      return;
+    }
+    if (vivos <= 0 && !souHostOnline()) {
+      setLocalModeNotice("TODOS CAÍRAM · AGUARDANDO HOST");
+      return;
+    }
+    setLocalModeNotice(notice);
+  }
+
   function runtimePlayerParaSlotVisualOnline(
     slot: PlayerSlot,
     existing: Map<PlayerSlot, PlayerRuntime>,
@@ -4710,7 +4739,7 @@ export default function JogoPage() {
       sentAt,
       seq: tick,
       authoritativeSlot: onlineHostSlotRef.current as PlayerSlot,
-      netModel: "owner-input-host-state-v222",
+      netModel: "owner-input-host-state-v246",
       players: snapshotPlayersOnline(now),
       mode: currentModeRef.current,
       state: gameStateRef.current,
@@ -5679,8 +5708,10 @@ export default function JogoPage() {
     };
     const recolor = itemShopPorId(equipped.recolor);
     if (recolor && recolor.id !== "recolor-classic") drawFull(recolor.id, true);
-    drawFull(equipped.middle);
-    drawFull(equipped.front);
+    if (ACCESSORY_SPRITES_ENABLED) {
+      drawFull(equipped.middle);
+      drawFull(equipped.front);
+    }
 
     const pet = itemShopPorId(equipped.pet);
     if (pet) {
@@ -6613,6 +6644,8 @@ export default function JogoPage() {
         setOnlineHostSlot(hostSlot);
         onlineGameplayActiveRef.current = true;
         onlineServerAuthoritativeRef.current = mode !== "localCoop" && String(msg.netModel || "").includes("server-authoritative");
+        // v2.4.6: Together online volta a ser host-authoritative.
+        // O Worker só repassa o snapshot oficial do host, evitando duas simulações brigando.
         setOnlineGameplayActive(true);
         setOnlineMatchIntroUntil(mode === "localPvp" ? Date.now() + 1800 : 0);
         onlineRemoteInputsRef.current = {};
@@ -6620,7 +6653,7 @@ export default function JogoPage() {
         onlineLatestSnapshotRef.current = null;
         onlineLastAppliedSnapshotTickRef.current = 0;
         onlineLastAppliedSnapshotSeqRef.current = 0;
-        feedbackOnline("success", mode === "localCoop" ? "Together online: usando a engine do coop local com inputs sincronizados." : (onlineServerAuthoritativeRef.current ? "Servidor autoritativo ativo. Sincronizando partida..." : `Iniciando ${labelModoMultiplayer(mode)} online...`));
+        feedbackOnline("success", mode === "localCoop" ? "Together online: host autoritativo ativo. Sincronizando pelo P1/host..." : (onlineServerAuthoritativeRef.current ? "Servidor autoritativo ativo. Sincronizando partida..." : `Iniciando ${labelModoMultiplayer(mode)} online...`));
         window.setTimeout(() => iniciarJogo(mode), 260);
         return;
       }
@@ -9019,8 +9052,7 @@ export default function JogoPage() {
           setLocalModeNotice("");
         }, 900);
       } else if (onlineTogetherCoordenado()) {
-        player.invincibleUntil = performance.now() + 999999;
-        setLocalModeNotice("AGUARDE REVIVE / PRÓXIMA WAVE");
+        tratarMorteCoopOnline(player, "AGUARDE REVIVE / PRÓXIMA WAVE");
       } else if (isLocalWaveMode() && player2Ref.current && player2Ref.current.hp > 0) {
         player.invincibleUntil = performance.now() + 999999;
       } else {
@@ -13101,8 +13133,7 @@ export default function JogoPage() {
 
         const p1Alive = playerRef.current.hp > 0;
         if (onlineTogetherCoordenado()) {
-          player.invincibleUntil = performance.now() + 999999;
-          setLocalModeNotice("P2 AGUARDA REVIVE / PRÓXIMA WAVE");
+          tratarMorteCoopOnline(player, "P2 AGUARDA REVIVE / PRÓXIMA WAVE");
         } else if (!p1Alive) iniciarGameOverCutscene();
       }
     }
@@ -13139,8 +13170,7 @@ export default function JogoPage() {
 
         const p2Alive = Boolean(player2Ref.current && player2Ref.current.hp > 0);
         if (onlineTogetherCoordenado()) {
-          player.invincibleUntil = performance.now() + 999999;
-          setLocalModeNotice("AGUARDE REVIVE / PRÓXIMA WAVE");
+          tratarMorteCoopOnline(player, "AGUARDE REVIVE / PRÓXIMA WAVE");
         } else if (!p2Alive) iniciarGameOverCutscene();
       }
     }
