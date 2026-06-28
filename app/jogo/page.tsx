@@ -1684,7 +1684,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.4.3";
+const SPACE_NEWS_VERSION = "2.4.4";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2383,7 +2383,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v243-asset-flex";
+const ASSET_VERSION = "space-news-20260628-v244-sync-polish";
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
 function assetRevisionAtual() {
@@ -5669,8 +5669,9 @@ export default function JogoPage() {
       ctx.globalAlpha *= alpha;
       ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
       if (options?.superSpark) {
-        ctx.globalCompositeOperation = "screen";
-        ctx.globalAlpha = 0.34;
+        // v2.4.4: source-atop colore só pixels opacos do sprite, não o retângulo transparente inteiro.
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.globalAlpha = 0.38;
         ctx.fillStyle = "#fde047";
         ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
       }
@@ -5779,6 +5780,173 @@ export default function JogoPage() {
     setPetAbilityCooldownUi(Math.ceil(ms / 1000));
   }
 
+
+  function playerPorSlotOnline(slot: PlayerSlot): Player | null {
+    if (onlineTogetherCoordenado()) {
+      if (slot === slotLocalOnline()) return playerRef.current;
+      if (slot === slotVisualPlayer2Online()) return player2Ref.current;
+      return playersRef.current.find((runtime) => runtime.slot === slot)?.runtime ?? null;
+    }
+    if (slot === 1) return playerRef.current;
+    if (slot === 2) return player2Ref.current;
+    return playersRef.current.find((runtime) => runtime.slot === slot)?.runtime ?? null;
+  }
+
+  function aplicarPowerUpPorSlotSincronizado(slot: PlayerSlot, kind: PowerUpKind, powerId?: number) {
+    if (typeof powerId === "number") {
+      const before = powerUpsRef.current.length;
+      powerUpsRef.current = powerUpsRef.current.filter((power) => power.id !== powerId);
+      pararLoopPowerUpTrail(powerId);
+      // Se o id divergir por uma diferença antiga de RNG, remove o primeiro power-up do mesmo tipo.
+      // Isso evita duplicar power-ups na tela remota sem depender de ids perfeitamente iguais.
+      if (before === powerUpsRef.current.length) {
+        let removed = false;
+        powerUpsRef.current = powerUpsRef.current.filter((power) => {
+          if (!removed && power.kind === kind) { removed = true; pararLoopPowerUpTrail(power.id); return false; }
+          return true;
+        });
+      }
+    }
+    if (slot === slotLocalOnline()) {
+      aplicarPowerUp(kind);
+      return;
+    }
+    if (slot === slotVisualPlayer2Online()) {
+      aplicarPowerUpPlayer2(kind);
+      return;
+    }
+    const runtime = playersRef.current.find((item) => item.slot === slot);
+    if (runtime) aplicarPowerUpRuntimeExtra(runtime, kind);
+  }
+
+  function aplicarHabilidadePetCoopSincronizada(slot: PlayerSlot, petId: string, remote = false) {
+    if (!petId || petId === "pet-none") return false;
+    const player = playerPorSlotOnline(slot);
+    if (!player || player.hp <= 0) return false;
+    const now = performance.now();
+    const key = `coop-pet-${slot}-${petId}`;
+    const cooldownMs = cooldownHabilidadePetMs(petId);
+    if (!remote) {
+      if (now < petAbilityCooldownUntilRef.current) {
+        mostrarMensagemPet(`PET: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
+        return false;
+      }
+      definirCooldownPet(cooldownMs);
+      desbloquearConquistaPerfil("pet-power");
+    } else {
+      const readyAt = petSkillReadyAtRef.current[key] || 0;
+      if (now < readyAt) return false;
+      petSkillReadyAtRef.current[key] = now + Math.max(1000, cooldownMs * 0.75);
+    }
+    const cx = player.x + player.w / 2;
+    const cy = player.y + player.h / 2;
+    tocarSom(petId === "pet-blue-comet" ? (CONFIG.sounds.petSuperSpark || CONFIG.sounds.petActivate) : (CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup), remote ? 0.22 : 0.34, "sfx");
+
+    if (petId === "pet-blue-comet") {
+      player.invincibleUntil = Math.max(player.invincibleUntil, now + 10000);
+      player.stretchUntil = now + 420;
+      player.stretchVx = 4.2;
+      player.stretchVy = -1.2;
+      if (slot === slotLocalOnline()) petSuperSparkUntilRef.current = now + 10000;
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 120, life: 240, maxLife: 240 });
+      if (!remote) mostrarMensagemPet("SUPER FAÍSCA: 10s", "#fde047");
+      return true;
+    }
+
+    if (petId === "pet-tundra") {
+      const targets = enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > -20 && enemy.x < CONFIG.canvasWidth + 80 && enemy.y > -20 && enemy.y < CONFIG.canvasHeight + 40).slice(0, 10);
+      for (const enemy of targets) {
+        enemy.vx *= 0.1;
+        enemy.vy *= 0.1;
+        enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 1750);
+        enemy.stretchUntil = now + 260;
+        criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#bfdbfe", 4);
+      }
+      if (!remote) mostrarMensagemPet("TUNDRA: GELO CURTO", "#bfdbfe");
+      return true;
+    }
+
+    if (petId === "pet-red-jumper") {
+      let hit = 0;
+      for (const enemy of enemiesRef.current) {
+        const dist = Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy);
+        if (enemy.hp > 0 && dist < 165 && hit < 6) {
+          enemy.hp -= 3.2;
+          hit += 1;
+          criarParticulasHit(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#f97316", 5);
+        }
+      }
+      criarExplosao(cx, cy, "#f97316", mobileRuntimeRef.current ? 8 : 14);
+      if (!remote) mostrarMensagemPet("SALTADOR RUBRO: PULSO", "#f97316");
+      return true;
+    }
+
+    if (petId === "pet-black-hole") {
+      for (const enemy of enemiesRef.current) {
+        if (enemy.hp <= 0 || enemy.kind === "fragment") continue;
+        const ecx = enemy.x + enemy.w / 2;
+        const ecy = enemy.y + enemy.h / 2;
+        const dx = cx - ecx;
+        const dy = cy - ecy;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        if (dist > 520) continue;
+        const force = (1 - dist / 520) * 2.6;
+        enemy.vx += (dx / dist) * force;
+        enemy.vy += (dy / dist) * force;
+        enemy.stretchUntil = Math.max(enemy.stretchUntil ?? 0, now + 140);
+      }
+      criarExplosao(cx, cy, "#7c3aed", mobileRuntimeRef.current ? 6 : 10);
+      if (!remote) mostrarMensagemPet("BURACO NEGRO: PUXÃO", "#a78bfa");
+      return true;
+    }
+
+    if (petId === "pet-satellite") {
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1300);
+      if (!remote) mostrarMensagemPet("SATÉLITE: RECARGA", "#93c5fd");
+      return true;
+    }
+
+    if (petId === "pet-earth" || petId === "pet-milky-way") {
+      if (enemiesRef.current.length < 18) spawnEnemy(petId === "pet-milky-way" ? "purple" : "red");
+      player.hp = Math.min(vidaMaximaLocal(), player.hp + 1);
+      if (slot === slotLocalOnline()) setPlayerHp(player.hp);
+      else if (slot === slotVisualPlayer2Online()) setPlayer2Hp(player.hp);
+      if (!remote) mostrarMensagemPet(petId === "pet-milky-way" ? "VIA LÁCTEA: RISCO E RECOMPENSA" : "TERRA: REFORÇO", "#86efac");
+      return true;
+    }
+
+    if (petId === "pet-sun") {
+      if (slot === slotLocalOnline()) flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 3000);
+      else if (slot === slotVisualPlayer2Online()) player2FlamesUntilRef.current = Math.max(player2FlamesUntilRef.current, now + 3000);
+      if (!remote) mostrarMensagemPet("SOL: CHAMA ATIVA", "#fb923c");
+      return true;
+    }
+
+    if (petId === "pet-moon") {
+      if (slot === slotLocalOnline()) homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + (player.hp <= 1 ? 5200 : 3200));
+      else if (slot === slotVisualPlayer2Online()) player2HomingShotUntilRef.current = Math.max(player2HomingShotUntilRef.current, now + (player.hp <= 1 ? 5200 : 3200));
+      if (!remote) mostrarMensagemPet("LUA: TIROS GUIADOS", "#ddd6fe");
+      return true;
+    }
+
+    if (petId === "pet-comet") {
+      let cleared = 0;
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => {
+        if (cleared >= 3) return true;
+        const dist = Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy);
+        if (dist < 175) { cleared += 1; return false; }
+        return true;
+      });
+      if (!remote) mostrarMensagemPet("COMETA: LIMPEZA", "#67e8f9");
+      return true;
+    }
+
+    player.strongReadyAt = Math.max(now, player.strongReadyAt - 800);
+    criarParticulasHit(cx, cy, "#facc15", 8);
+    if (!remote) mostrarMensagemPet("PET ATIVO", "#facc15");
+    return true;
+  }
+
   function ativarHabilidadePetManual() {
     if (gameStateRef.current !== "playing") return;
     if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current) {
@@ -5805,6 +5973,12 @@ export default function JogoPage() {
       mostrarMensagemPet(`PET: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
       return;
     }
+    if (onlineTogetherCoordenado()) {
+      const used = aplicarHabilidadePetCoopSincronizada(slotLocalOnline(), pet.id, false);
+      if (used) enviarOnline({ type: "coop_pet_ability", slot: slotLocalOnline(), pet: pet.id, seq: Date.now() });
+      return;
+    }
+
     const player = playerRef.current;
     const cx = player.x + player.w / 2;
     const cy = player.y + player.h / 2;
@@ -6464,6 +6638,38 @@ export default function JogoPage() {
         onlinePausePanelOpenRef.current = false;
         setOnlinePausePanelOpen(false);
         if (gameStateRef.current === "paused") iniciarContagemRetomada();
+        return;
+      }
+
+      if (msg.type === "coop_powerup_collect") {
+        const slot = Number(msg.slot || 0) as PlayerSlot;
+        const kind = String(msg.kind || "") as PowerUpKind;
+        const powerId = typeof msg.powerId === "number" ? Number(msg.powerId) : undefined;
+        if (slot >= 1 && slot <= 4 && kind && slot !== onlineSlotRef.current) {
+          aplicarPowerUpPorSlotSincronizado(slot, kind, powerId);
+        }
+        return;
+      }
+
+      if (msg.type === "coop_pet_ability") {
+        const slot = Number(msg.slot || msg.from || 0) as PlayerSlot;
+        const pet = String(msg.pet || "");
+        if (slot >= 1 && slot <= 4 && pet && slot !== onlineSlotRef.current) {
+          aplicarHabilidadePetCoopSincronizada(slot, pet, true);
+        }
+        return;
+      }
+
+      if (msg.type === "coop_revive") {
+        const slot = Number(msg.slot || 0) as PlayerSlot;
+        const player = playerPorSlotOnline(slot);
+        if (player && player.hp <= 0) {
+          player.hp = 2;
+          player.invincibleUntil = performance.now() + 2200;
+          if (slot === slotLocalOnline()) setPlayerHp(player.hp);
+          else if (slot === slotVisualPlayer2Online()) setPlayer2Hp(player.hp);
+          criarExplosao(player.x + player.w / 2, player.y + player.h / 2, LOCAL_PLAYER_COLORS[(slot - 1) % LOCAL_PLAYER_COLORS.length], 16);
+        }
         return;
       }
 
@@ -11796,6 +12002,9 @@ export default function JogoPage() {
         document.hidden &&
         gameStateRef.current === "playing"
       ) {
+        // v2.4.4: no online, pausar sozinho ao trocar de aba dessincronizava o Together.
+        // A aba pode perder requestAnimationFrame; mantemos a partida viva e só usamos pause votado.
+        if (onlineGameplayActiveRef.current) return;
         tocarSom(CONFIG.sounds.pause, 0.35);
         onlinePausePanelOpenRef.current = false;
         setOnlinePausePanelOpen(false);
@@ -13217,7 +13426,7 @@ export default function JogoPage() {
 
     function resolverPowerUpsExtrasRuntime() {
       if (!isLocalMode() || gameStateRef.current !== "playing") return;
-      const runtimes = playersRef.current.filter((runtime) => runtime.slot >= 3 && runtime.runtime.hp > 0);
+      const runtimes = playersRef.current.filter((runtime) => runtime.slot >= 3 && runtime.runtime.hp > 0 && (!onlineTogetherCoordenado() || runtime.slot === onlineSlotRef.current));
       if (runtimes.length === 0 || powerUpsRef.current.length === 0) return;
       const collected = new Set<number>();
       for (const power of powerUpsRef.current) {
@@ -15202,11 +15411,13 @@ export default function JogoPage() {
       if (gameStateRef.current !== "playing") return;
       if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && !souHostOnline()) return;
       if (tokensRef.current.length === 0) return;
-      const collectors: Array<{ slot: PlayerSlot; player: Player | null }> = [
-        { slot: 1, player: playerRef.current },
-        { slot: 2, player: player2Ref.current },
-        ...playersRef.current.filter((runtime) => runtime.slot >= 3).map((runtime) => ({ slot: runtime.slot, player: runtime.runtime })),
-      ];
+      const collectors: Array<{ slot: PlayerSlot; player: Player | null }> = onlineTogetherCoordenado()
+        ? [{ slot: slotLocalOnline(), player: playerRef.current }]
+        : [
+            { slot: 1, player: playerRef.current },
+            { slot: 2, player: player2Ref.current },
+            ...playersRef.current.filter((runtime) => runtime.slot >= 3).map((runtime) => ({ slot: runtime.slot, player: runtime.runtime })),
+          ];
       const collected = new Set<number>();
       const collectedBySlot = new Map<PlayerSlot, number>();
       for (const token of tokensRef.current) {
@@ -15557,6 +15768,7 @@ export default function JogoPage() {
         criarExplosao(p2.x + p2.w / 2, p2.y + p2.h / 2, LOCAL_PLAYER_COLORS[1], 18);
       }
 
+      if (onlineTogetherCoordenado()) enviarOnline({ type: "coop_revive", slot: target, seq: Date.now() });
       resetarReviveLocal();
       tocarSom(CONFIG.sounds.abilityReady || CONFIG.sounds.powerUpPickup, 0.55, "ability");
     }
@@ -15614,7 +15826,12 @@ export default function JogoPage() {
         if (player.hp > 0 && !p1Blocked && rectsCollide(playerHitbox, pickupBox)) {
           collected.add(power.id);
           pararLoopPowerUpTrail(power.id);
-          aplicarPowerUp(power.kind);
+          if (onlineTogetherCoordenado()) {
+            aplicarPowerUpPorSlotSincronizado(slotLocalOnline(), power.kind, power.id);
+            enviarOnline({ type: "coop_powerup_collect", slot: slotLocalOnline(), kind: power.kind, powerId: power.id, seq: Date.now() });
+          } else {
+            aplicarPowerUp(power.kind);
+          }
           criarParticulasHit(
             power.x + power.w / 2,
             power.y + power.h / 2,
@@ -15630,6 +15847,7 @@ export default function JogoPage() {
           !p2Blocked &&
           p2Hitbox &&
           isLocalMode() &&
+          !onlineTogetherCoordenado() &&
           rectsCollide(p2Hitbox, pickupBox)
         ) {
           collected.add(power.id);
@@ -17329,10 +17547,16 @@ export default function JogoPage() {
         desenharPlayer(renderCtx, elapsedSinceRender);
         desenharPlayer2(renderCtx, elapsedSinceRender);
         desenharPlayersExtrasRuntime(renderCtx, elapsedSinceRender);
-        const labelLocalP1 = deveProjetarOnlinePvpLocal() ? `P${onlineSlotRef.current}` : "P1";
-        const labelLocalP2 = deveProjetarOnlinePvpLocal() ? `P${onlineHostSlotRef.current || 1}` : "P2";
-        desenharIndicadorJogadorLocal(renderCtx, playerRef.current, labelLocalP1, LOCAL_PLAYER_COLORS[0]);
-        desenharIndicadorJogadorLocal(renderCtx, player2Ref.current, labelLocalP2, LOCAL_PLAYER_COLORS[1]);
+        const labelLocalP1 = onlineTogetherCoordenado()
+          ? `P${slotLocalOnline()}`
+          : (deveProjetarOnlinePvpLocal() ? `P${onlineSlotRef.current}` : "P1");
+        const labelLocalP2 = onlineTogetherCoordenado()
+          ? `P${slotVisualPlayer2Online()}`
+          : (deveProjetarOnlinePvpLocal() ? `P${onlineHostSlotRef.current || 1}` : "P2");
+        const colorLocalP1 = onlineTogetherCoordenado() ? (onlineProfileColorBySlotRef.current[slotLocalOnline()] || LOCAL_PLAYER_COLORS[(slotLocalOnline() - 1) % LOCAL_PLAYER_COLORS.length]) : LOCAL_PLAYER_COLORS[0];
+        const colorLocalP2 = onlineTogetherCoordenado() ? (onlineProfileColorBySlotRef.current[slotVisualPlayer2Online()] || LOCAL_PLAYER_COLORS[(slotVisualPlayer2Online() - 1) % LOCAL_PLAYER_COLORS.length]) : LOCAL_PLAYER_COLORS[1];
+        desenharIndicadorJogadorLocal(renderCtx, playerRef.current, labelLocalP1, colorLocalP1);
+        desenharIndicadorJogadorLocal(renderCtx, player2Ref.current, labelLocalP2, colorLocalP2);
         desenharReviveLocal(renderCtx);
       }
 
@@ -18230,7 +18454,7 @@ export default function JogoPage() {
               <b>{player.slot === onlineSlot ? `${onlinePing ?? "--"}ms` : player.connected === false ? "OFF" : "SYNC"}</b>
             </div>
           ))}
-          <small>Host: P{onlineHostSlot || 1} · Tab para ocultar</small>
+          <small>{onlineHostSlot === 0 ? "Servidor P0" : `Host: P${onlineHostSlot || 1}`} · Tab para ocultar</small>
         </div>
       )}
 
