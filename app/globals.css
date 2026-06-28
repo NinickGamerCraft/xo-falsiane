@@ -20292,3 +20292,34 @@ body.reduce-motion .game-pause-card button {
     transform-origin: top left;
   }
 }
+
+/* v2.3.3 online/shop/friends polish */
+.sn-mobile-button.pet {
+  width: 68px !important;
+  height: 68px !important;
+  min-width: 68px !important;
+  min-height: 68px !important;
+  transform: translateY(-82px) !important;
+  z-index: 42 !important;
+  border-radius: 50% !important;
+  border: 3px solid rgba(250, 204, 21, .88) !important;
+  background: radial-gradient(circle at 36% 28%, rgba(250,204,21,.42), rgba(8,12,28,.96) 64%) !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45), 0 0 18px rgba(250,204,21,.24) !important;
+}
+.sn-mobile-button.pet img { width: 82% !important; height: 82% !important; object-fit: contain; image-rendering: pixelated; }
+@media (max-width: 900px) {
+  .sn-mobile-button.pet { width: 62px !important; height: 62px !important; transform: translateY(-74px) !important; }
+}
+.sn-shop-grid-v220 article { cursor: pointer; }
+.sn-shop-grid-v220 article.is-previewing { outline: 3px solid rgba(103,232,249,.75); box-shadow: 0 0 0 1px rgba(255,255,255,.08) inset, 0 0 24px rgba(103,232,249,.22); }
+.sn-shop-grid-v220 article button:disabled { opacity: .45; cursor: not-allowed; }
+.sn-shop-info-v220 p { line-height: 1.35; overflow-wrap: anywhere; }
+.sn-shop-info-v220 em { color: #9fffd0 !important; font-style: normal; display: block; margin-top: 5px; }
+.sn-shop-preview-v220 img { width: 64px !important; height: 64px !important; object-fit: contain; image-rendering: pixelated; }
+.sn-profile-card-v20 h3::after { content: ""; display:block; height:2px; width: 44px; margin-top:8px; background: linear-gradient(90deg,#67e8f9,transparent); opacity:.8; }
+.sn-profile-list-v20 > div { align-items: center; gap: 10px; }
+.sn-profile-list-v20 button { white-space: nowrap; }
+.sn-online-score-list-v232 { max-width: min(330px, 46vw); }
+.sn-online-score-list-v232 li, .sn-online-score-list-v232 div { min-width: 0; }
+.sn-token-counter-v20 { left: 236px !important; top: 16px !important; }
+@media (max-width: 900px) { .sn-token-counter-v20 { left: 188px !important; top: 12px !important; } }

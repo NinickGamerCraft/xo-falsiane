@@ -101,6 +101,9 @@ type ServerToken = {
   value: number; frameOffset: number;
   pattern?: "line" | "zigzag" | "cross" | "triple" | "arc" | "burst";
   patternIndex?: number;
+  targetSlot?: PlayerSlot;
+  magnetDelay?: number;
+  burst?: boolean;
 };
 
 type ServerPowerUp = {
@@ -109,6 +112,37 @@ type ServerPowerUp = {
   x: number; y: number; w: number; h: number;
   vx: number; vy: number;
   age: number; life: number; wavePhase: number; bornAt: number;
+};
+
+
+type ServerEnemy = {
+  id: number;
+  stretchUntil: number;
+  kind: "red" | "black" | "purple" | "alien" | "asteroid" | "fragment";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  vx: number;
+  vy: number;
+  hp: number;
+  maxHp: number;
+  age: number;
+  waveBaseY: number;
+  shotCooldown: number;
+  windUpMs: number;
+  isDashing: boolean;
+  rotation?: number;
+  rotationSpeed?: number;
+  phase?: number;
+  redStartY?: number;
+  redTargetY?: number;
+  redTravelTimeMs?: number;
+  redDirection?: number;
+  redBurstShotsLeft?: number;
+  redBurstTimer?: number;
+  redPauseTimer?: number;
+  redHoldY?: number;
 };
 
 type OnlineVisualEvent = {
@@ -299,10 +333,14 @@ export class GameRoom extends DurableObject<Env> {
   private shots: ServerShot[] = [];
   private tokens: ServerToken[] = [];
   private powerUps: ServerPowerUp[] = [];
+  private enemies: ServerEnemy[] = [];
   private tokenId = 1;
   private powerUpId = 1;
+  private enemyId = 1;
   private nextTokenSpawnAt = 0;
   private nextPowerUpSpawnAt = 0;
+  private nextEnemyWaveAt = 0;
+  private waveNumber = 1;
   private scores = new Map<number, number>();
   private activeVersusSlots: PlayerSlot[] = [];
   private visualEvents: OnlineVisualEvent[] = [];
@@ -679,7 +717,25 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private updatePickups(now: number, step: number) {
-    this.tokens = this.tokens.map((t) => ({ ...t, age: t.age + 16.67 * step, life: t.life - 16.67 * step, x: t.x + t.vx * step, y: t.y + Math.sin((t.age + t.wavePhase * 100) * 0.01) * 0.12 })).filter((t) => t.life > 0 && t.x > -80).slice(-96);
+    this.tokens = this.tokens.map((t) => {
+      let vx = t.vx, vy = t.vy;
+      const age = t.age + 16.67 * step;
+      if (t.targetSlot && age > (t.magnetDelay || 160)) {
+        const target = this.playersState.get(t.targetSlot);
+        if (target?.alive) {
+          const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+          const tx = target.x + target.w / 2, ty = target.y + target.h / 2;
+          const dx = tx - cx, dy = ty - cy;
+          const len = Math.max(1, Math.hypot(dx, dy));
+          vx += (dx / len) * 0.34 * step;
+          vy += (dy / len) * 0.34 * step;
+          const max = 6.2;
+          const sp = Math.hypot(vx, vy);
+          if (sp > max) { vx = (vx / sp) * max; vy = (vy / sp) * max; }
+        }
+      }
+      return { ...t, age, life: t.life - 16.67 * step, vx, vy, x: t.x + vx * step, y: t.y + vy * step + (t.burst ? 0 : Math.sin((t.age + t.wavePhase * 100) * 0.01) * 0.12) };
+    }).filter((t) => t.life > 0 && t.x > -80).slice(this.selectedGameMode === "localPvp" ? -52 : -140);
     this.powerUps = this.powerUps.map((p) => ({ ...p, age: p.age + 16.67 * step, life: p.life - 16.67 * step, x: p.x + p.vx * step })).filter((p) => p.life > 0 && p.x > -80).slice(-8);
   }
 
@@ -868,6 +924,8 @@ export class GameRoom extends DurableObject<Env> {
         p.stretchUntil = now + 170;
         this.addEvent("hit", p.x + p.w / 2, p.y + p.h / 2, "#ffd166", 8, "enemyHit", 0.18, "hit", shot.ownerId);
         this.addEvent("shockwave", p.x + p.w / 2, p.y + p.h / 2, "#fde68a", 7, undefined, 0, "hit", shot.ownerId, shot.type === "strong" ? 92 : 48);
+        if (Math.random() < (shot.type === "strong" ? 0.86 : 0.58)) this.spawnDamageTokenBurst(p.x + p.w / 2, p.y + p.h / 2, shot.ownerId, now, shot.type === "strong");
+        this.maybeDropPvpPowerUp(p.x + p.w / 2, p.y + p.h / 2, now);
         if (p.hp <= 0) {
           p.alive = false;
           p.respawnAt = now + 1600;
@@ -881,6 +939,75 @@ export class GameRoom extends DurableObject<Env> {
       if (!consumed) nextShots.push(shot);
     }
     this.shots = nextShots;
+  }
+
+  private spawnDamageTokenBurst(x: number, y: number, owner: PlayerSlot, now: number, strong = false) {
+    if (this.selectedGameMode !== "localPvp") return;
+    const amount = strong ? 5 : 3;
+    for (let i = 0; i < amount; i++) {
+      const angle = -Math.PI + (i / Math.max(1, amount - 1)) * Math.PI * 0.8 + (Math.random() - 0.5) * 0.35;
+      const speed = strong ? 3.2 : 2.55;
+      this.tokens.push({
+        id: this.tokenId++, x: x - 12 + Math.random() * 24, y: y - 12 + Math.random() * 24,
+        w: 21, h: 21, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 0.35,
+        age: 0, life: 2100, wavePhase: Math.random() * Math.PI * 2, bornAt: now,
+        value: 1, frameOffset: i % 4, pattern: "burst", patternIndex: i, targetSlot: owner, magnetDelay: 180, burst: true,
+      });
+    }
+    this.tokens = this.tokens.slice(-46);
+    this.addEvent("tokenBurst", x, y, "#ffd45a", amount, "tokenBurst", 0.12, "sfx", owner, strong ? 58 : 42);
+  }
+
+  private maybeDropPvpPowerUp(x: number, y: number, now: number) {
+    if (this.selectedGameMode !== "localPvp") return;
+    if (this.powerUps.length >= 2) return;
+    if (Math.random() > 0.16) return;
+    const kinds: ServerPowerUp["kind"][] = ["regen", "shield", "fireRate", "powerShot", "homingShot", "randomBox"];
+    const kind = kinds[Math.floor(Math.random() * kinds.length)] || "regen";
+    this.powerUps.push({ id: this.powerUpId++, kind, x: clamp(x - 20, 80, CANVAS_W - 120), y: clamp(y - 20, 70, CANVAS_H - 90), w: 42, h: 42, vx: 0, vy: 0, age: 0, life: 8500, wavePhase: Math.random() * Math.PI * 2, bornAt: now });
+  }
+
+  private resolveShotHitsEnemies(now: number) {
+    if (this.selectedGameMode !== "localCoop" || this.enemies.length === 0) return;
+    const nextShots: ServerShot[] = [];
+    for (const shot of this.shots) {
+      let hit = false;
+      for (const enemy of this.enemies) {
+        if (!this.overlap(shot, enemy)) continue;
+        hit = true;
+        enemy.hp -= shot.damage;
+        enemy.stretchUntil = now + 160;
+        this.addEvent("hit", enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#ffe18c", 6, "enemyHit", 0.15, "hit", shot.ownerId);
+        if (enemy.hp <= 0) {
+          this.scores.set(shot.ownerId, (this.scores.get(shot.ownerId) || 0) + 1);
+          this.spawnDamageTokenBurst(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, shot.ownerId, now, shot.type === "strong");
+          this.addEvent("explosion", enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#ffcf6e", 10, "enemyDeath", 0.2, "hit", shot.ownerId);
+        }
+        break;
+      }
+      if (!hit) nextShots.push(shot);
+    }
+    this.shots = nextShots;
+    this.enemies = this.enemies.filter((enemy) => enemy.hp > 0);
+  }
+
+  private resolveEnemyContact(now: number) {
+    if (this.selectedGameMode !== "localCoop") return;
+    for (const enemy of this.enemies) {
+      for (const p of this.playersState.values()) {
+        if (!p.alive || now < p.invincibleUntil) continue;
+        if (!this.overlap(enemy, p)) continue;
+        p.hp -= 1;
+        p.invincibleUntil = now + 980;
+        p.vx -= 4.2;
+        p.stretchUntil = now + 180;
+        this.addEvent("hit", p.x + p.w / 2, p.y + p.h / 2, "#ff8a3d", 8, "enemyHit", 0.18, "hit", p.slot);
+        if (p.hp <= 0) {
+          p.hp = 0; p.alive = false; p.respawnAt = now + 1800;
+          this.addEvent("explosion", p.x + p.w / 2, p.y + p.h / 2, "#ffcf6e", 12, "explosion", 0.24, "hit", p.slot);
+        }
+      }
+    }
   }
 
   private rotateVersusAfterElimination(deadSlot: PlayerSlot, killerSlot: PlayerSlot, now: number) {
@@ -920,6 +1047,8 @@ export class GameRoom extends DurableObject<Env> {
   private snapshot() {
     const now = Date.now();
     const players = [...this.playersState.values()].sort((a, b) => a.slot - b.slot);
+    const activeSlots = this.selectedGameMode === "localPvp" ? this.activeVersusSlots : players.map((p) => p.slot);
+    const waitingSlots = players.map((p) => p.slot).filter((slot) => !activeSlots.includes(slot));
     const runtimePlayers = players.map((p) => ({
       id: p.id,
       slot: p.slot,
@@ -947,8 +1076,6 @@ export class GameRoom extends DurableObject<Env> {
     const p1Score = this.scores.get(1) || 0;
     const p2Score = this.scores.get(2) || 0;
     const scoresBySlot = Object.fromEntries([...this.scores.entries()].map(([slot, value]) => [String(slot), value]));
-    const activeSlots = this.selectedGameMode === "localPvp" ? this.activeVersusSlots : players.map((p) => p.slot);
-    const waitingSlots = players.map((p) => p.slot).filter((slot) => !activeSlots.includes(slot));
     return {
       tick: this.serverTick,
       seq: this.serverTick,
@@ -973,9 +1100,9 @@ export class GameRoom extends DurableObject<Env> {
       scoresBySlot,
       activeSlots,
       waitingSlots,
-      wave: { mode: this.selectedGameMode, wave: 1, active: true, bossWave: false, message: this.selectedGameMode === "localCoop" ? "TOGETHER ONLINE" : "VERSUS ONLINE" },
+      wave: { mode: this.selectedGameMode, wave: this.waveNumber, active: true, bossWave: false, message: this.selectedGameMode === "localCoop" ? `WAVE ${this.waveNumber}` : "VERSUS ONLINE" },
       shots: this.shots.map((s) => ({ ...s, life: undefined })),
-      enemies: [],
+      enemies: this.enemies.map((e) => ({ ...e })),
       enemyProjectiles: [],
       bossProjectiles: [],
       powerUps: this.powerUps.map((p) => ({ ...p })),

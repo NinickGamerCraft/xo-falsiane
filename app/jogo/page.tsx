@@ -1682,7 +1682,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.3.2";
+const SPACE_NEWS_VERSION = "2.3.3";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2381,7 +2381,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v232-sprite-refresh";
+const ASSET_VERSION = "space-news-20260628-v233-online-focus";
 
 function assetUrl(src: string) {
   if (src.startsWith("data:")) return src;
@@ -2935,6 +2935,8 @@ const SPACE_NEWS_CREATOR_NAME_RE = /(ninick|nicolas|criador|dev)/i;
 
 const SHOP_ITEMS: ShopItem[] = [
   { id: "recolor-classic", name: "Nave Clássica", slot: "recolor", price: 0, rarity: "basic", description: "Visual padrão da nave Space News.", asset: "/game/shop/recolors/recolor-classic-idle.png", dodgeAsset: "/game/shop/recolors/recolor-classic-dodge.png", moveFrames: ["/game/shop/recolors/recolor-classic-move-1.png", "/game/shop/recolors/recolor-classic-move-2.png", "/game/shop/recolors/recolor-classic-move-3.png", "/game/shop/recolors/recolor-classic-move-4.png"] },
+  { id: "accessory-none", name: "Nenhum Acessório", slot: "front", price: 0, rarity: "basic", description: "Remove os acessórios da nave.", asset: "/game/shop/icons/normal/accessory-none.png" },
+  { id: "pet-none", name: "Nenhum Pet", slot: "pet", price: 0, rarity: "basic", description: "Remove o pet equipado.", asset: "/game/shop/icons/normal/pet-none.png" },
   { id: "recolor-aurora", name: "Recolor Aurora", slot: "recolor", price: 80, rarity: "rare", description: "Pintura fria e brilhante. +tempo de power-ups, -defesa leve.", asset: "/game/shop/recolors/recolor-aurora-idle.png", dodgeAsset: "/game/shop/recolors/recolor-aurora-dodge.png", moveFrames: ["/game/shop/recolors/recolor-aurora-move-1.png", "/game/shop/recolors/recolor-aurora-move-2.png", "/game/shop/recolors/recolor-aurora-move-3.png", "/game/shop/recolors/recolor-aurora-move-4.png"], buffs: { defense: -0.04 } },
   { id: "recolor-circus", name: "Nave do Circo", slot: "recolor", price: 95, rarity: "event", description: "Paleta circense para combinar com acessórios de palhaço.", asset: "/game/shop/recolors/recolor-circus-idle.png", dodgeAsset: "/game/shop/recolors/recolor-circus-dodge.png", moveFrames: ["/game/shop/recolors/recolor-circus-move-1.png", "/game/shop/recolors/recolor-circus-move-2.png", "/game/shop/recolors/recolor-circus-move-3.png", "/game/shop/recolors/recolor-circus-move-4.png"] },
   { id: "front-lunar-hat", name: "Chapéu Lunar", slot: "front", price: 60, rarity: "basic", description: "Chapéu pequeno encaixado na ponta da nave.", asset: "/game/shop/accessories/front/front-lunar-hat.png", dodgeAsset: "/game/shop/accessories/front/front-lunar-hat-dodge.png" },
@@ -2963,7 +2965,7 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "pet-milky-way", name: "Pet Via Láctea", slot: "pet", price: 260, rarity: "legendary", description: "+buff geral sutil. Especial: invoca desafio extra com recompensa.", asset: "/game/shop/pets/pet-milky-way-0.png", frames: ["/game/shop/pets/pet-milky-way-0.png", "/game/shop/pets/pet-milky-way-1.png", "/game/shop/pets/pet-milky-way-2.png", "/game/shop/pets/pet-milky-way-3.png"], buffs: { speed: 0.02, damage: 0.03, maxHp: 1, size: 0.02, extraEnemies: 0.04, tokenBonus: 0.05 } },
 ];
 
-const SHOP_DEFAULT_OWNED = ["recolor-classic"];
+const SHOP_DEFAULT_OWNED = ["recolor-classic", "accessory-none", "pet-none"];
 const SHOP_SLOTS: ShopSlot[] = ["recolor", "front", "pet"];
 const SHOP_SLOT_LABEL: Record<ShopSlot, string> = { recolor: "RECOLOR", front: "ACESSÓRIOS", middle: "ACESSÓRIOS", pet: "PET" };
 
@@ -3639,7 +3641,19 @@ export default function JogoPage() {
   }
 
   function deveProjetarOnlinePvpLocal() {
+    if (onlineServerAuthoritativeRef.current) return false;
     return onlineGameplayActiveRef.current && onlineSlotRef.current > 1 && isLocalPvpMode(currentModeRef.current);
+  }
+
+
+
+  function slotVisualPlayer1Online(): PlayerSlot {
+    return 1;
+  }
+
+  function slotVisualPlayer2Online(): PlayerSlot {
+    const slots = onlinePlayers.map((p) => Number(p.slot)).filter((slot) => slot > 0 && slot <= 4 && slot !== onlineSlotRef.current).sort((a, b) => a - b);
+    return (slots[0] || (onlineSlotRef.current === 1 ? 2 : 1)) as PlayerSlot;
   }
 
   function espelharOnlinePvpVisual() {
@@ -4881,6 +4895,15 @@ export default function JogoPage() {
 
     const projectedPvp = deveProjetarOnlinePvpLocal();
     const localNow = performance.now();
+    if (Array.isArray(snapshot.players)) {
+      for (const remote of snapshot.players) {
+        const slot = Number(remote.slot) as PlayerSlot;
+        if (slot >= 1 && slot <= 4) {
+          if (remote.cosmetics) onlineCosmeticsBySlotRef.current[slot] = remote.cosmetics;
+          if (remote.profileColor) onlineProfileColorBySlotRef.current[slot] = remote.profileColor;
+        }
+      }
+    }
 
     if (projectedPvp) {
       const localPlayer = espelharPlayerOnline(snapshot.p2 || null);
@@ -5345,6 +5368,21 @@ export default function JogoPage() {
   function equiparItemShop(item: ShopItem) {
     const current = localProfileRef.current;
     if (!current.inventory.includes(item.id)) return;
+    if (item.id === "accessory-none") {
+      const nextEquipped = { ...current.equipped };
+      delete nextEquipped.front;
+      delete nextEquipped.middle;
+      salvarPerfilLocal({ ...current, equipped: nextEquipped, updatedAt: Date.now() });
+      mostrarToastPerfil("Acessórios removidos.");
+      return;
+    }
+    if (item.id === "pet-none") {
+      const nextEquipped = { ...current.equipped };
+      delete nextEquipped.pet;
+      salvarPerfilLocal({ ...current, equipped: nextEquipped, updatedAt: Date.now() });
+      mostrarToastPerfil("Pet removido.");
+      return;
+    }
     salvarPerfilLocal({
       ...current,
       equipped: { ...current.equipped, [item.slot]: item.id },
@@ -12235,7 +12273,7 @@ export default function JogoPage() {
         ctx.fillRect(player.w * 0.12, -7, 14, 14);
       }
 
-      desenharCosmeticosNave(ctx, player, { dodge: isDodging, alpha: ghostLocal ? 0.42 : 1, movingFrame: anim.frame, superSpark: performance.now() < petSuperSparkUntilRef.current });
+      desenharCosmeticosNave(ctx, player, { dodge: isDodging, alpha: ghostLocal ? 0.42 : 1, movingFrame: anim.frame, superSpark: onlineSlotRef.current === 1 && performance.now() < petSuperSparkUntilRef.current, equipped: onlineGameplayActiveRef.current && onlineSlotRef.current !== 1 ? onlineCosmeticsBySlotRef.current[1] : undefined });
 
       if (isDodging && !dodgeAsset && Math.floor(now / 70) % 2 === 0) {
         ctx.save();
@@ -12977,7 +13015,7 @@ export default function JogoPage() {
         ctx.closePath();
         ctx.fill();
       }
-      desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.3 : 0.88, movingFrame: anim.frame, equipped: onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[onlineSlotRef.current === 2 ? 1 : 2] : undefined });
+      desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.3 : 0.88, movingFrame: anim.frame, equipped: onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[slotVisualPlayer2Online()] : undefined });
 
       if (shieldVisual) {
         const t = now * 0.006;
@@ -16252,7 +16290,7 @@ export default function JogoPage() {
       }
 
       if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && gameStateRef.current === "playing") {
-        // v2.3.2: servidor é a verdade, mas o player local recebe prediction curta para parecer o jogo base.
+        // v2.3.3: servidor é a verdade, mas o player local recebe prediction curta para parecer o jogo base.
         const snapshotToRender = escolherSnapshotOnlineParaRender();
         if (snapshotToRender) aplicarSnapshotOnline(snapshotToRender);
         aplicarPredicaoOnlineLocal(delta, canvas);
@@ -19437,7 +19475,7 @@ export default function JogoPage() {
                       <small>{request.direction === "sent" ? "pedido enviado" : "pedido recebido"} · {request.code}</small>
                       <div>
                         {request.direction === "received" && <button type="button" onClick={() => aceitarPedidoAmizadeLocal(request.id)}>ACEITAR</button>}
-                        <button type="button" onClick={() => removerAmizadeOuPedidoLocal(request.id)}>REMOVER</button>
+                        <button type="button" onClick={() => mostrarToastPerfil(`${request.name}: ${request.code}`)}>VER</button><button type="button" onClick={() => removerAmizadeOuPedidoLocal(request.id)}>REMOVER</button>
                       </div>
                     </div>
                   ))}
@@ -19446,7 +19484,7 @@ export default function JogoPage() {
                       <span>{friend.name}</span>
                       <small>{friend.code || friend.id}</small>
                       <div>
-                        <button type="button" onClick={() => removerAmizadeOuPedidoLocal(friend.id)}>APAGAR</button>
+                        <button type="button" onClick={() => mostrarToastPerfil(`${friend.name}: ${friend.code || friend.id}`)}>VER PERFIL</button><button type="button" onClick={() => removerAmizadeOuPedidoLocal(friend.id)}>APAGAR</button>
                       </div>
                     </div>
                   ))}
@@ -19800,7 +19838,7 @@ export default function JogoPage() {
                   </div>
                 )}
                 <button className={pauseIndex === 1 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(1)} onFocus={() => setIndicePause(1)} onClick={abrirConfiguracoes}>CONFIGURAÇÕES</button>
-                {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === onlineHostSlotRef.current) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
+                {onlineGameplayActive && <button onClick={() => { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); }}>VOLTAR AO LOBBY ONLINE</button>}
                 <button className={pauseIndex === 2 ? "is-selected" : ""} onMouseEnter={() => setIndicePause(2)} onFocus={() => setIndicePause(2)} onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
               </>
             ) : (
@@ -19860,7 +19898,7 @@ export default function JogoPage() {
                 VER RANKING
               </button>
             )}
-            {onlineGameplayActive && <button onClick={() => { if (onlineSlotRef.current === onlineHostSlotRef.current) { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); } else { feedbackOnline("error", "Peça para o host voltar a sala para o lobby."); } }}>VOLTAR AO LOBBY ONLINE</button>}
+            {onlineGameplayActive && <button onClick={() => { enviarOnline({ type: "lobby_return_request" }); encerrarGameplayOnline(); limparCombate(); setEstado("onlineLobby"); }}>VOLTAR AO LOBBY ONLINE</button>}
             <button onClick={voltarAoMenuPrincipal}>VOLTAR AO MENU</button>
           </div>
         </section>
