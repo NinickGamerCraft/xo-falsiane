@@ -1676,7 +1676,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.2.3";
+const SPACE_NEWS_VERSION = "2.3.0";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -3414,6 +3414,7 @@ export default function JogoPage() {
   const onlineDeviceIndexRef = useRef(0);
   const detectedInputDevicesRef = useRef<InputDeviceChoice[]>(INPUT_DEVICE_CHOICES);
   const onlineGameplayActiveRef = useRef(false);
+  const onlineServerAuthoritativeRef = useRef(false);
   const onlineRemoteInputsRef = useRef<Record<number, OnlineInputState>>({});
   const onlineLastInputSentAtRef = useRef(0);
   const onlineInputSeqRef = useRef(0);
@@ -4715,7 +4716,7 @@ export default function JogoPage() {
       const dx = next.x - old.x;
       const dy = next.y - old.y;
       const dist = Math.hypot(dx, dy);
-      const onlineStrictBlend = onlineGameplayActiveRef.current && !souHostOnline() ? Math.max(blend, 0.62) : blend;
+      const onlineStrictBlend = onlineGameplayActiveRef.current && (onlineServerAuthoritativeRef.current || !souHostOnline()) ? Math.max(blend, 0.72) : blend;
       if (dist > hardSnap) return { ...old, ...next, x: old.x + dx * 0.82, y: old.y + dy * 0.82 } as T;
       return {
         ...old,
@@ -4760,7 +4761,7 @@ export default function JogoPage() {
   }
 
   function emitirFeedbackVisualSnapshotOnline(snapshot: OnlineGameplaySnapshot, projectedPvp: boolean) {
-    if (souHostOnline()) return;
+    if (souHostOnline() && !onlineServerAuthoritativeRef.current) return;
     const incomingShots = Array.isArray(snapshot.shots) ? snapshot.shots : [];
     const incomingEnemies = Array.isArray(snapshot.enemies) ? snapshot.enemies : [];
     const incomingTokens = Array.isArray(snapshot.tokens) ? snapshot.tokens : [];
@@ -4808,7 +4809,9 @@ export default function JogoPage() {
   }
 
   function aplicarSnapshotOnline(snapshot: OnlineGameplaySnapshot) {
-    if (!onlineGameplayActiveRef.current || !snapshot || souHostOnline()) return;
+    if (!onlineGameplayActiveRef.current || !snapshot) return;
+    const serverAuthoritative = String(snapshot.netModel || "").includes("server-authoritative") || onlineServerAuthoritativeRef.current;
+    if (souHostOnline() && !serverAuthoritative) return;
 
     snapshot = normalizarSnapshotOnline(snapshot);
     const incomingTick = Number(snapshot.tick ?? snapshot.seq ?? 0);
@@ -5018,15 +5021,17 @@ export default function JogoPage() {
     if (!["playing", "paused", "gameOver", "gameOverCutscene"].includes(state)) return;
     const now = performance.now();
 
-    if (souHostOnline()) {
-      // Snapshots menores em ~20 Hz com eventos visuais dedicados evitam fila no WebSocket e queda forte de FPS.
+    if (onlineServerAuthoritativeRef.current) {
+      // v2.3.0: o Worker é a autoridade. Nenhum cliente envia snapshot de gameplay.
+    } else if (souHostOnline()) {
+      // Fallback legado caso o Worker antigo ainda esteja rodando.
       if (now - onlineLastSyncSentAtRef.current < 45) return;
       onlineLastSyncSentAtRef.current = now;
       enviarOnline({ type: "sync", snapshot: criarSnapshotOnline() });
       return;
     }
 
-    // O snapshot do guest é aplicado dentro de atualizar(), antes da extrapolação/prediction.
+    // O snapshot do cliente é aplicado dentro de atualizar(), antes da extrapolação/prediction.
     // Aplicar de novo aqui causava dois pequenos encaixes por frame.
 
     if (onlineLastSyncReceivedAtRef.current && now - onlineLastSyncReceivedAtRef.current > 2600) {
@@ -5038,6 +5043,7 @@ export default function JogoPage() {
 
   function encerrarGameplayOnline() {
     onlineGameplayActiveRef.current = false;
+    onlineServerAuthoritativeRef.current = false;
     setOnlineGameplayActive(false);
     onlineRemoteInputsRef.current = {};
     onlineLatestSnapshotRef.current = null;
@@ -5880,7 +5886,7 @@ export default function JogoPage() {
 
   function aplicarEstadoSalaOnline(msg: any) {
     const players = Array.isArray(msg.players) ? msg.players : [];
-    const hostSlot = Number(msg.hostSlot || 1) || 1;
+    const hostSlot = Number(msg.hostSlot ?? 1);
     onlineHostSlotRef.current = hostSlot;
     setOnlineHostSlot(hostSlot);
     setOnlinePlayers(players);
@@ -5986,30 +5992,31 @@ export default function JogoPage() {
       }
 
       if (msg.type === "host_changed" || msg.type === "host_migrated") {
-        const hostSlot = Number(msg.hostSlot || 1) || 1;
+        const hostSlot = Number(msg.hostSlot ?? 1);
         onlineHostSlotRef.current = hostSlot;
         setOnlineHostSlot(hostSlot);
         const migrated = Boolean(msg.migrated || msg.type === "host_migrated");
-        feedbackOnline("success", hostSlot === onlineSlotRef.current ? (migrated ? "Host saiu. Você assumiu a sala." : "Você virou o host da sala.") : `P${hostSlot} virou host da sala.`);
-        setOnlineStatus(hostSlot === onlineSlotRef.current ? "Você é o host: seu jogo agora envia o quadro principal." : `Host atual: P${hostSlot}. Sincronizando pelo quadro dele.`);
+        feedbackOnline("success", hostSlot === 0 ? "Servidor assumiu a partida." : (hostSlot === onlineSlotRef.current ? (migrated ? "Host saiu. Você assumiu a sala." : "Você virou o host da sala.") : `P${hostSlot} virou host da sala.`));
+        setOnlineStatus(hostSlot === 0 ? "Servidor autoritativo ativo: todos recebem o mesmo estado." : (hostSlot === onlineSlotRef.current ? "Você é o host: seu jogo agora envia o quadro principal." : `Host atual: P${hostSlot}. Sincronizando pelo quadro dele.`));
         return;
       }
 
       if (msg.type === "game_start") {
         const mode = (msg.mode || onlineSelectedModeRef.current || "localPvp") as GameMode;
-        const hostSlot = Number(msg.hostSlot || onlineHostSlotRef.current || 1) || 1;
+        const hostSlot = Number(msg.hostSlot ?? onlineHostSlotRef.current ?? 1);
         onlineHostSlotRef.current = hostSlot;
         setOnlineHostSlot(hostSlot);
         onlineGameplayActiveRef.current = true;
+        onlineServerAuthoritativeRef.current = String(msg.netModel || "").includes("server-authoritative");
         setOnlineGameplayActive(true);
-        setOnlineMatchIntroUntil(mode === "localPvp" ? Date.now() + 2600 : 0);
+        setOnlineMatchIntroUntil(mode === "localPvp" ? Date.now() + 1800 : 0);
         onlineRemoteInputsRef.current = {};
         onlineSnapshotBufferRef.current = [];
         onlineLatestSnapshotRef.current = null;
         onlineLastAppliedSnapshotTickRef.current = 0;
         onlineLastAppliedSnapshotSeqRef.current = 0;
-        feedbackOnline("success", `Iniciando ${labelModoMultiplayer(mode)} online...`);
-        window.setTimeout(() => iniciarJogo(mode), 520);
+        feedbackOnline("success", onlineServerAuthoritativeRef.current ? "Servidor autoritativo ativo. Sincronizando partida..." : `Iniciando ${labelModoMultiplayer(mode)} online...`);
+        window.setTimeout(() => iniciarJogo(mode), 260);
         return;
       }
 
@@ -6025,9 +6032,12 @@ export default function JogoPage() {
 
       if (msg.type === "sync") {
         const from = Number(msg.from || 0);
-        if (from === onlineHostSlotRef.current && !souHostOnline() && msg.snapshot) {
+        const rawSnapshot = msg.snapshot as OnlineGameplaySnapshot | undefined;
+        const serverAuthoritative = Boolean(rawSnapshot && String(rawSnapshot.netModel || msg.netModel || "").includes("server-authoritative"));
+        if (serverAuthoritative) onlineServerAuthoritativeRef.current = true;
+        if (rawSnapshot && (serverAuthoritative || (from === onlineHostSlotRef.current && !souHostOnline()))) {
           const snapshot = {
-            ...(msg.snapshot as OnlineGameplaySnapshot),
+            ...rawSnapshot,
             serverTime: Number(msg.serverTime || msg.t || Date.now()),
           } as OnlineGameplaySnapshot;
           onlineLastSyncReceivedAtRef.current = performance.now();
@@ -16188,6 +16198,21 @@ export default function JogoPage() {
         }
 
         atualizarParticulas(delta);
+        atualizarPowerUpUi();
+        setIsLowHp(false);
+        return;
+      }
+
+      if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && gameStateRef.current === "playing") {
+        // v2.3.0: online autoritativo. Todos os clientes renderizam o estado oficial do Worker.
+        const snapshotToRender = escolherSnapshotOnlineParaRender();
+        if (snapshotToRender) aplicarSnapshotOnline(snapshotToRender);
+        // Extrapola só tiros/objetos para suavizar entre snapshots; players ficam oficiais para evitar borracha.
+        shotsRef.current = shotsRef.current
+          .map((shot) => ({ ...shot, x: shot.x + (shot.vx ?? shot.speed) * (delta / 16.67), y: shot.y + (shot.vy ?? 0) * (delta / 16.67) }))
+          .filter((shot) => shot.x + shot.w > -80 && shot.x < canvas.width + 80 && shot.y + shot.h > -80 && shot.y < canvas.height + 80);
+        atualizarParticulas(delta);
+        atualizarShockwaves(delta);
         atualizarPowerUpUi();
         setIsLowHp(false);
         return;
