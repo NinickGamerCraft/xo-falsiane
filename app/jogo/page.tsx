@@ -1684,7 +1684,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.4.0";
+const SPACE_NEWS_VERSION = "2.4.3";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2383,7 +2383,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260628-v241-asset-flex";
+const ASSET_VERSION = "space-news-20260628-v243-asset-flex";
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
 function assetRevisionAtual() {
@@ -2677,8 +2677,34 @@ function getPlayerHitbox(player: Player) {
   };
 }
 
+let spaceNewsRandomOverride: (() => number) | null = null;
+
+function criarRngDeterministico(seed: number) {
+  let state = Math.max(1, Math.floor(seed) >>> 0);
+  return () => {
+    state += 0x6D2B79F5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashDeterministico(value: string) {
+  let h = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function randomFloat() {
+  return spaceNewsRandomOverride ? spaceNewsRandomOverride() : Math.random();
+}
+
 function rand(min: number, max: number) {
-  return Math.random() * (max - min) + min;
+  return randomFloat() * (max - min) + min;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -3023,12 +3049,12 @@ function criarIdPerfilLocal() {
   } catch {
     // fallback abaixo
   }
-  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `local-${Date.now().toString(36)}-${randomFloat().toString(36).slice(2, 8)}`;
 }
 
 function criarCodigoAmizadeLocal(id = "") {
   const base = String(id || criarIdPerfilLocal()).replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase();
-  return `SN-${base || Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  return `SN-${base || randomFloat().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
 function criarStatsPerfilPadrao(): LocalProfileStats {
@@ -3450,6 +3476,7 @@ export default function JogoPage() {
   const onlinePingTimerRef = useRef<number | null>(null);
   const onlinePingStartedAtRef = useRef(0);
   const onlineSlotRef = useRef(0);
+  const onlineMatchSeedRef = useRef(0);
   const onlineHostSlotRef = useRef(1);
   const onlineMenuIndexRef = useRef(0);
   const onlineFlowRef = useRef<OnlineFlow>("choose");
@@ -3741,6 +3768,39 @@ export default function JogoPage() {
     return onlineGameplayActiveRef.current && currentModeRef.current === "localCoop" && onlineHostSlotRef.current === 0 && !onlineServerAuthoritativeRef.current;
   }
 
+  function posicaoCoopPorSlot(slot: PlayerSlot) {
+    const lanes: Record<PlayerSlot, { x: number; y: number }> = {
+      1: { x: 112, y: CONFIG.canvasHeight / 2 - 112 },
+      2: { x: 112, y: CONFIG.canvasHeight / 2 + 42 },
+      3: { x: 178, y: CONFIG.canvasHeight / 2 - 196 },
+      4: { x: 178, y: CONFIG.canvasHeight / 2 + 126 },
+    };
+    return lanes[slot] || lanes[1];
+  }
+
+  function aplicarPosicaoCoopPorSlot(player: Player, slot: PlayerSlot) {
+    const pos = posicaoCoopPorSlot(slot);
+    player.x = clamp(pos.x, 0, CONFIG.canvasWidth - player.w);
+    player.y = clamp(pos.y, 0, CONFIG.canvasHeight - player.h);
+    player.vx = 0;
+    player.vy = 0;
+  }
+
+  function ativarRngDeterministicoOnlineTogether(salt: string) {
+    if (!onlineTogetherCoordenado()) return () => {};
+    const previous = spaceNewsRandomOverride;
+    const seed = hashDeterministico(`${onlineMatchSeedRef.current || 1}:${salt}`);
+    spaceNewsRandomOverride = criarRngDeterministico(seed);
+    return () => { spaceNewsRandomOverride = previous; };
+  }
+
+  function petEquipadoPorSlot(slot: PlayerSlot) {
+    const equipped = slot === slotLocalOnline()
+      ? localProfileRef.current.equipped
+      : onlineCosmeticsBySlotRef.current[slot];
+    return itemShopPorId(equipped?.pet);
+  }
+
   function hpPvpVisual(slot: 1 | 2) {
     if (deveProjetarOnlinePvpLocal()) return slot === 1 ? playerHp : player2Hp;
     if (onlineGameplayActive && onlineSlot === 2) return slot === 1 ? player2Hp : playerHp;
@@ -3824,7 +3884,7 @@ export default function JogoPage() {
       "homingShot",
       "randomBox",
     ];
-    return table[Math.floor(Math.random() * table.length)];
+    return table[Math.floor(randomFloat() * table.length)];
   }
 
   function spawnPowerUpPvp(
@@ -3938,7 +3998,9 @@ export default function JogoPage() {
 
   function criarPlayerRuntime(slot: PlayerSlot, runtime?: Player | null): PlayerRuntime {
     const player = runtime ?? createInitialPlayer();
-    if (slot === 2 && !runtime) {
+    if (onlineTogetherCoordenado() && !runtime) {
+      aplicarPosicaoCoopPorSlot(player, slot);
+    } else if (slot === 2 && !runtime) {
       player.x = CONFIG.canvasWidth - player.w - 150;
       player.y = CONFIG.canvasHeight / 2 - player.h / 2;
     } else if (slot >= 3 && !runtime) {
@@ -4191,6 +4253,10 @@ export default function JogoPage() {
     const p2 = player2Ref.current ?? criarPlayer2Inicial();
     p2.x = isLocalPvpMode() ? CONFIG.canvasWidth - p2.w - 150 : 112;
     p2.y = isLocalPvpMode() ? CONFIG.canvasHeight / 2 - p2.h / 2 : CONFIG.canvasHeight / 2 + 42;
+    if (onlineTogetherCoordenado()) {
+      aplicarPosicaoCoopPorSlot(p1, slotLocalOnline());
+      aplicarPosicaoCoopPorSlot(p2, slotVisualPlayer2Online());
+    }
     p2.vx = 0;
     p2.vy = 0;
     p2.hp = vidaMaximaLocal();
@@ -5669,7 +5735,7 @@ export default function JogoPage() {
     const chance = Number(pet?.buffs?.waveSkipChance || 0);
     if (!pet || pet.id !== "pet-satellite" || chance <= 0) return false;
     if (!habilidadePetPronta("pet-satellite-wave-skip", 98000)) return false;
-    if (Math.random() > chance) return false;
+    if (randomFloat() > chance) return false;
     mostrarMensagemPet("SATÉLITE: ROTA CURTA", "#93c5fd");
     adicionarPontuacao(175);
     window.setTimeout(() => iniciarWaveInfinita(waveNumber + 1), 60);
@@ -5730,10 +5796,8 @@ export default function JogoPage() {
       desbloquearConquistaPerfil("pet-power");
       return;
     }
-    if (onlineGameplayActiveRef.current && !souHostOnline()) {
-      mostrarMensagemPet("PET SINCRONIZA PELO HOST", "#93c5fd");
-      return;
-    }
+    // v2.4.3: Together online não tem host de gameplay. A habilidade do pet roda localmente
+    // na mesma engine do coop local; só o Versus autoritativo envia input ao Worker.
     const pet = petEquipadoAtual();
     if (!pet) return;
     const now = performance.now();
@@ -5883,11 +5947,11 @@ export default function JogoPage() {
   function executarHabilidadesPetAvancadas(delta: number, canvas: HTMLCanvasElement) {
     if (gameStateRef.current !== "playing") return;
     if (isLocalPvpMode()) return;
-    if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+    if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && !souHostOnline()) return;
     const now = performance.now();
     if (petSuperSparkUntilRef.current > now) {
       const player = playerRef.current;
-      if (Math.random() < 0.38) criarParticulasHit(player.x + rand(0, player.w), player.y + rand(0, player.h), "#fde047", mobileRuntimeRef.current ? 1 : 2);
+      if (randomFloat() < 0.38) criarParticulasHit(player.x + rand(0, player.w), player.y + rand(0, player.h), "#fde047", mobileRuntimeRef.current ? 1 : 2);
       player.invincibleUntil = Math.max(player.invincibleUntil, now + 120);
     }
     puxarInimigosBuracoNegro(delta);
@@ -6270,6 +6334,7 @@ export default function JogoPage() {
         const mode = (msg.mode || onlineSelectedModeRef.current || "localPvp") as GameMode;
         const hostSlot = Number(msg.hostSlot ?? onlineHostSlotRef.current ?? 1);
         onlineHostSlotRef.current = hostSlot;
+        onlineMatchSeedRef.current = Math.max(1, Math.floor(Number(msg.seed || Date.now())));
         setOnlineHostSlot(hostSlot);
         onlineGameplayActiveRef.current = true;
         onlineServerAuthoritativeRef.current = mode !== "localCoop" && String(msg.netModel || "").includes("server-authoritative");
@@ -7541,7 +7606,7 @@ export default function JogoPage() {
 
     setRecordError("");
     const entry: LeaderboardEntry = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: `${Date.now()}-${randomFloat().toString(36).slice(2, 7)}`,
       name: cleanName,
       score: scoreRef.current,
       wave: Math.max(1, gameOverWave),
@@ -7957,7 +8022,7 @@ export default function JogoPage() {
     try {
       audio.pause();
       audio.currentTime = 0;
-      audio.playbackRate = 0.98 + Math.random() * 0.04;
+      audio.playbackRate = 0.98 + randomFloat() * 0.04;
       audio.volume = finalVolume;
       audio.play().catch(() => {});
     } catch {}
@@ -8151,7 +8216,7 @@ export default function JogoPage() {
       CONFIG.sounds.chocadoHitThree,
       CONFIG.sounds.chocadoHit,
     ].filter(Boolean);
-    tocarSom(opcoes[Math.floor(Math.random() * opcoes.length)], 0.18, "hit");
+    tocarSom(opcoes[Math.floor(randomFloat() * opcoes.length)], 0.18, "hit");
   }
 
   function pararMusicaChocado(reset = true) {
@@ -8493,7 +8558,7 @@ export default function JogoPage() {
 
     setGameOverWave(waveDied);
     setGameOverTaunt(
-      GAME_OVER_TAUNTS[Math.floor(Math.random() * GAME_OVER_TAUNTS.length)],
+      GAME_OVER_TAUNTS[Math.floor(randomFloat() * GAME_OVER_TAUNTS.length)],
     );
 
     setGameOverFlashOrigin({
@@ -9326,7 +9391,7 @@ export default function JogoPage() {
         2,
         Math.ceil(sizeTier * cfg.fragmentsPerTier),
       );
-      const rotationDirection = Math.random() > 0.5 ? 1 : -1;
+      const rotationDirection = randomFloat() > 0.5 ? 1 : -1;
 
       enemiesRef.current.push({
         id,
@@ -9530,7 +9595,7 @@ export default function JogoPage() {
         size: rand(4, 10),
         life: rand(160, 320),
         maxLife: 320,
-        color: Math.random() > 0.45 ? "#a7ff83" : "#5dff7a",
+        color: randomFloat() > 0.45 ? "#a7ff83" : "#5dff7a",
       });
     }
   }
@@ -9554,7 +9619,7 @@ export default function JogoPage() {
     // Se o impacto vier quase horizontal, damos um leve impulso vertical aleatório
     // para deixar a gameplay mais viva e menos presa só no eixo X.
     const verticalDir =
-      Math.abs(dirY) < 0.22 ? (Math.random() > 0.5 ? 0.62 : -0.62) : dirY;
+      Math.abs(dirY) < 0.22 ? (randomFloat() > 0.5 ? 0.62 : -0.62) : dirY;
 
     // No espaço: o knockback vira velocidade constante.
     // Isso deixa o impacto mais divertido e evita inimigos presos fora da tela.
@@ -9567,7 +9632,7 @@ export default function JogoPage() {
     enemy.rotationSpeed =
       spinStrength *
       (verticalDir >= 0 ? 1 : -1) *
-      (0.85 + Math.random() * 0.55);
+      (0.85 + randomFloat() * 0.55);
     enemy.stretchUntil =
       performance.now() + CONFIG.gameplay.dynamicStretch.enemyPulseMs;
   }
@@ -9942,7 +10007,7 @@ export default function JogoPage() {
         delta * (2.25 + Math.sin(p * Math.PI) * 1.15);
       if (
         CONFIG.settings.enableParticles &&
-        Math.random() <
+        randomFloat() <
           (window.matchMedia("(pointer: coarse)").matches ? 0.12 : 0.32)
       ) {
         particlesRef.current.push({
@@ -9954,7 +10019,7 @@ export default function JogoPage() {
           size: rand(3, 7),
           life: 360,
           maxLife: 360,
-          color: Math.random() < 0.5 ? "#ff4fd8" : "#60eaff",
+          color: randomFloat() < 0.5 ? "#ff4fd8" : "#60eaff",
         });
       }
     } else if (stage === "throw") {
@@ -10078,6 +10143,8 @@ export default function JogoPage() {
   }
 
   function criarPlanoWaveInfinita(waveNumber: number): WaveSpawnEvent[] {
+    const __finishDeterministicRng = ativarRngDeterministicoOnlineTogether(`infinite-plan-${waveNumber}`);
+    try {
     const cfg = CONFIG.gameplay.infiniteWaves;
     const events: WaveSpawnEvent[] = [];
     const bossWave = waveNumber > 0 && waveNumber % cfg.bossEvery === 0;
@@ -10091,7 +10158,7 @@ export default function JogoPage() {
 
     // Lanes mais espaçadas: evita que os inimigos nasçam grudados e lotem a tela.
     const lanes = [86, 190, 300, 410, 520, 620];
-    const shuffled = [...lanes].sort(() => Math.random() - 0.5);
+    const shuffled = [...lanes].sort(() => randomFloat() - 0.5);
     const mirrorLane = (lane: number) =>
       clamp(CONFIG.canvasHeight - lane - 70, 62, CONFIG.canvasHeight - 132);
     const pickLane = (i: number) => shuffled[i % shuffled.length];
@@ -10101,7 +10168,7 @@ export default function JogoPage() {
     for (let i = 0; i < groupCount; i++) {
       const lane = pickLane(i);
       const mirror = mirrorLane(lane);
-      const roll = Math.random();
+      const roll = randomFloat();
       const earlyWave = waveNumber <= 3;
       const evolutionTier = Math.min(
         6,
@@ -10130,7 +10197,7 @@ export default function JogoPage() {
       } else if (earlyWave) {
         if (roll < 0.68) {
           events.push({ at: time, kind: "purple", y: lane });
-          if (Math.random() < 0.28) {
+          if (randomFloat() < 0.28) {
             events.push({ at: time + 430, kind: "purple", y: mirror });
           }
         } else if (roll < 0.86) {
@@ -10152,13 +10219,13 @@ export default function JogoPage() {
       } else if (roll < 0.72 && waveNumber >= cfg.alienFromWave) {
         // Alien quase sempre sozinho; apoio só quando houver espaço.
         events.push({ at: time, kind: "alien", y: lane });
-        if (Math.random() < 0.24) {
+        if (randomFloat() < 0.24) {
           events.push({ at: time + 680, kind: "purple", y: mirror });
         }
       } else {
         // Formação mista com atraso maior entre inimigos.
         events.push({ at: time, kind: "purple", y: lane });
-        if (waveNumber >= cfg.blackFromWave && Math.random() < 0.22) {
+        if (waveNumber >= cfg.blackFromWave && randomFloat() < 0.22) {
           events.push({ at: time + 700, kind: "black", y: mirror });
         } else {
           events.push({ at: time + 620, kind: "purple", y: mirror });
@@ -10170,7 +10237,7 @@ export default function JogoPage() {
       if (
         waveNumber >= cfg.asteroidFromWave &&
         i % 4 === 2 &&
-        Math.random() < 0.42
+        randomFloat() < 0.42
       ) {
         events.push({ at: time + 720, kind: "asteroid", y: mirror });
       }
@@ -10182,9 +10249,14 @@ export default function JogoPage() {
     }
 
     return events.sort((a, b) => a.at - b.at);
+    } finally {
+      __finishDeterministicRng();
+    }
   }
 
   function criarPlanoWaveHistoria(waveNumber: number): WaveSpawnEvent[] {
+    const __finishDeterministicRng = ativarRngDeterministicoOnlineTogether(`story-plan-${waveNumber}`);
+    try {
     const cfg = CONFIG.gameplay.storyWaves;
     const events: WaveSpawnEvent[] = [];
 
@@ -10196,7 +10268,7 @@ export default function JogoPage() {
     );
 
     const lanes = [92, 178, 264, 352, 440, 532, 616];
-    const shuffled = [...lanes].sort(() => Math.random() - 0.5);
+    const shuffled = [...lanes].sort(() => randomFloat() - 0.5);
     const mirrorLane = (lane: number) =>
       clamp(CONFIG.canvasHeight - lane - 78, 70, CONFIG.canvasHeight - 138);
     const pickLane = (i: number) => shuffled[i % shuffled.length];
@@ -10206,7 +10278,7 @@ export default function JogoPage() {
     for (let i = 0; i < groupCount; i++) {
       const lane = pickLane(i);
       const mirror = mirrorLane(lane);
-      const roll = Math.random();
+      const roll = randomFloat();
 
       if (waveNumber <= 2) {
         events.push({ at: time, kind: "purple", y: lane });
@@ -10249,7 +10321,7 @@ export default function JogoPage() {
       if (
         waveNumber >= cfg.asteroidFromWave &&
         i % 4 === 2 &&
-        Math.random() < 0.3
+        randomFloat() < 0.3
       ) {
         events.push({ at: time + 880, kind: "asteroid", y: mirror });
       }
@@ -10263,6 +10335,9 @@ export default function JogoPage() {
     }
 
     return events.sort((a, b) => a.at - b.at);
+    } finally {
+      __finishDeterministicRng();
+    }
   }
 
   function iniciarWaveHistoria(waveNumber: number, fromStoryReveal = false) {
@@ -10309,7 +10384,7 @@ export default function JogoPage() {
   }
 
   function gerarCodigoFakeNews() {
-    return String(Math.floor(1000000 + Math.random() * 9000000));
+    return String(Math.floor(1000000 + randomFloat() * 9000000));
   }
 
   function montarFakeNewsTransmitida(fake: string, code: string) {
@@ -10320,7 +10395,7 @@ export default function JogoPage() {
     const current = victoryFakeNews;
     const pool = CHOCADO_FINAL_FAKE_NEWS.filter((item) => item !== current);
     const selected =
-      pool[Math.floor(Math.random() * pool.length)] ??
+      pool[Math.floor(randomFloat() * pool.length)] ??
       CHOCADO_FINAL_FAKE_NEWS[0];
     const newCode = gerarCodigoFakeNews();
     setVictoryFakeNews(selected);
@@ -10450,8 +10525,13 @@ export default function JogoPage() {
 
   function spawnWaveEnemy(kind: EnemyKind, difficulty: number, y?: number) {
     const before = enemiesRef.current.length;
-    spawnEnemy(kind, y);
-    aplicarDificuldadeWave(before, difficulty);
+    const __finishDeterministicRng = ativarRngDeterministicoOnlineTogether(`spawn-${waveStateRef.current.wave}-${kind}-${Math.round(y ?? -1)}-${before}`);
+    try {
+      spawnEnemy(kind, y);
+      aplicarDificuldadeWave(before, difficulty);
+    } finally {
+      __finishDeterministicRng();
+    }
   }
 
   function iniciarWaveInfinita(waveNumber: number) {
@@ -10751,8 +10831,8 @@ export default function JogoPage() {
         },
       ];
 
-      for (const option of options.sort(() => Math.random() - 0.5)) {
-        if (Math.random() < option.chance) return option.kind;
+      for (const option of options.sort(() => randomFloat() - 0.5)) {
+        if (randomFloat() < option.chance) return option.kind;
       }
 
       return null;
@@ -10762,10 +10842,10 @@ export default function JogoPage() {
       const tripleChance = boss
         ? cfg.tripleRegenChanceOnBossDamage
         : cfg.tripleRegenChanceLowHp;
-      if (player.hp <= 2 && Math.random() < tripleChance) return "tripleRegen";
+      if (player.hp <= 2 && randomFloat() < tripleChance) return "tripleRegen";
       if (
         player.hp < CONFIG.gameplay.player.maxHp &&
-        Math.random() <
+        randomFloat() <
           (boss ? cfg.regenChanceOnBossDamage : cfg.regenChanceOnKill)
       )
         return "regen";
@@ -10773,20 +10853,20 @@ export default function JogoPage() {
         player.hp >= CONFIG.gameplay.player.maxHp && player.goldenHp <= 0;
       if (
         canSpawnGoldenHeart &&
-        Math.random() <
+        randomFloat() <
           (boss
             ? cfg.goldenHeartChanceOnBossDamage
             : cfg.goldenHeartChanceOnKill)
       )
         return "goldenHeart";
       if (
-        Math.random() <
+        randomFloat() <
         (boss ? cfg.randomBoxChanceOnBossDamage : cfg.randomBoxChanceOnKill)
       )
         return "randomBox";
       if (
         !shieldActiveRef.current &&
-        Math.random() <
+        randomFloat() <
           (boss ? cfg.shieldChanceOnBossDamage : cfg.shieldChanceOnKill)
       )
         return "shield";
@@ -10909,7 +10989,7 @@ export default function JogoPage() {
 
   function aplicarPowerUpAleatorio() {
     const cfg = CONFIG.gameplay.powerups;
-    const roll = Math.random();
+    const roll = randomFloat();
 
     tocarSom(
       CONFIG.sounds.randomPowerUp || CONFIG.sounds.powerUpPickup,
@@ -10920,18 +11000,18 @@ export default function JogoPage() {
     if (roll < cfg.randomComboChance) {
       aplicarPowerUp("fireRate");
       aplicarPowerUp(
-        Math.random() < 0.34
+        randomFloat() < 0.34
           ? "powerShot"
-          : Math.random() < 0.5
+          : randomFloat() < 0.5
             ? "homingShot"
             : "flames",
       );
-      if (Math.random() < 0.25) aplicarPowerUp("shield");
+      if (randomFloat() < 0.25) aplicarPowerUp("shield");
       return;
     }
 
     if (roll < cfg.randomComboChance + cfg.randomBadChance) {
-      const badRoll = Math.random();
+      const badRoll = randomFloat();
 
       tocarSom(
         CONFIG.sounds.badPowerUp || CONFIG.sounds.playerDamage,
@@ -10987,12 +11067,12 @@ export default function JogoPage() {
       playerRef.current.goldenHp <= 0
     ) {
       // MUITO raro até dentro do random.
-      if (Math.random() < 0.035) {
+      if (randomFloat() < 0.035) {
         goodOptions.push("goldenHeart");
       }
     }
 
-    aplicarPowerUp(goodOptions[Math.floor(Math.random() * goodOptions.length)]);
+    aplicarPowerUp(goodOptions[Math.floor(randomFloat() * goodOptions.length)]);
   }
 
   function aplicarPowerUp(kind: PowerUpKind) {
@@ -12002,17 +12082,17 @@ export default function JogoPage() {
         "#facc15",
       ];
       for (let i = 0; i < particleAmount; i += 1) {
-        const progress = Math.pow(Math.random(), 0.62);
+        const progress = Math.pow(randomFloat(), 0.62);
         const dist = 18 + progress * range;
         const widthAtPoint = cone * (0.12 + 0.78 * progress);
         const spread = rand(-widthAtPoint, widthAtPoint);
         const jitter = rand(-5, 5);
         const px = baseX + dir.x * dist + -dir.y * spread + dir.x * jitter;
         const py = baseY + dir.y * dist + dir.x * spread + dir.y * jitter;
-        const core = Math.random() < 0.36;
-        const ember = Math.random() < 0.18;
+        const core = randomFloat() < 0.36;
+        const ember = randomFloat() < 0.18;
         const color =
-          flameColors[Math.floor(Math.random() * flameColors.length)];
+          flameColors[Math.floor(randomFloat() * flameColors.length)];
 
         particlesRef.current.push({
           id: enemyIdRef.current++,
@@ -12521,6 +12601,8 @@ export default function JogoPage() {
           "5": sourceInput.boost,
           "3": sourceInput.dodge,
           "4": sourceInput.dodge,
+          "10": sourceInput.pet,
+          "pet": sourceInput.pet,
         };
         const pressed: Record<string, boolean> = {};
         for (const key of Object.keys(buttons)) pressed[key] = buttons[key] && !previousButtons[key];
@@ -12698,7 +12780,7 @@ export default function JogoPage() {
       if (isLocalPvpMode()) {
         atualizarStatsPerfilLocal((stats) => ({ ...stats, pvpDamage: stats.pvpDamage + danoAplicado }));
         spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 1, 5, 0.9);
-        if (Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
+        if (randomFloat() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 2);
       }
 
       if (player.hp <= 0) {
@@ -12736,7 +12818,7 @@ export default function JogoPage() {
       if (isLocalPvpMode()) {
         atualizarStatsPerfilLocal((stats) => ({ ...stats, pvpDamage: stats.pvpDamage + danoAplicado }));
         spawnTokenBurst(player.x + player.w / 2, player.y + player.h / 2, 2, 5, 0.9);
-        if (Math.random() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
+        if (randomFloat() < 0.095) spawnPowerUpPvp(false, { x: player.x + player.w / 2, y: player.y + player.h / 2 }, 1);
       }
 
       if (player.hp <= 0) {
@@ -12750,6 +12832,38 @@ export default function JogoPage() {
           player.invincibleUntil = performance.now() + 999999;
           setLocalModeNotice("AGUARDE REVIVE / PRÓXIMA WAVE");
         } else if (!p2Alive) iniciarGameOverCutscene();
+      }
+    }
+
+    function ativarHabilidadePetPlayer2(slot: PlayerSlot) {
+      const player = player2Ref.current;
+      if (!player || player.hp <= 0 || isLocalPvpMode()) return;
+      const pet = petEquipadoPorSlot(slot);
+      if (!pet || pet.id === "pet-none") return;
+      const now = performance.now();
+      const key = `slot-${slot}-${pet.id}`;
+      const readyAt = petSkillReadyAtRef.current[key] || 0;
+      if (now < readyAt) return;
+      petSkillReadyAtRef.current[key] = now + cooldownHabilidadePetMs(pet.id);
+      tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, 0.22, "sfx");
+      criarExplosao(player.x + player.w / 2, player.y + player.h / 2, "#93c5fd", 10);
+      if (pet.id === "pet-blue-comet") {
+        player.invincibleUntil = Math.max(player.invincibleUntil, now + 4200);
+        player.stretchUntil = now + 360;
+        player.stretchVx = 3.4;
+        player.stretchVy = -0.8;
+      } else if (pet.id === "pet-red-jumper") {
+        shockwavesRef.current.push({ id: enemyIdRef.current++, x: player.x + player.w / 2, y: player.y + player.h / 2, radius: 92, life: 180, maxLife: 180 });
+      } else if (pet.id === "pet-black-hole") {
+        shockwavesRef.current.push({ id: enemyIdRef.current++, x: player.x + player.w / 2, y: player.y + player.h / 2, radius: 120, life: 220, maxLife: 220 });
+      } else if (pet.id === "pet-tundra") {
+        for (const enemy of enemiesRef.current) {
+          enemy.vx *= 0.72;
+          enemy.vy *= 0.72;
+          enemy.stretchUntil = Math.max(enemy.stretchUntil ?? 0, now + 180);
+        }
+      } else {
+        player.invincibleUntil = Math.max(player.invincibleUntil, now + 1400);
       }
     }
 
@@ -12810,6 +12924,7 @@ export default function JogoPage() {
           if (keyboardStrong || p2Segurando("2", "6")) atirarFortePlayer2();
           if (keyboardBoost || p2Segurando("0", "5")) boostPlayer2();
           if (keyboardDodge || p2Acionado("3", "4")) esquivaPlayer2();
+          if (p2Acionado("10", "pet")) ativarHabilidadePetPlayer2(slotVisualPlayer2Online());
         }
       }
     }
@@ -12853,7 +12968,7 @@ export default function JogoPage() {
         const p2Hitbox = getPlayerHitbox(player);
         const nowPvp = performance.now();
 
-        if (p1.hp > 0 && player.hp > 0 && rectsCollide(p1Hitbox, p2Hitbox)) {
+        if (isLocalPvpMode() && p1.hp > 0 && player.hp > 0 && rectsCollide(p1Hitbox, p2Hitbox)) {
           const p1cx = p1.x + p1.w / 2;
           const p1cy = p1.y + p1.h / 2;
           const p2cx = player.x + player.w / 2;
@@ -12954,7 +13069,7 @@ export default function JogoPage() {
       const player = runtime.runtime;
       if (kind === "randomBox") {
         const options: PowerUpKind[] = ["regen", "fireRate", "shield", "powerShot", "homingShot"];
-        aplicarPowerUpRuntimeExtra(runtime, options[Math.floor(Math.random() * options.length)]);
+        aplicarPowerUpRuntimeExtra(runtime, options[Math.floor(randomFloat() * options.length)]);
         return;
       }
       if (kind === "regen" || kind === "tripleRegen") {
@@ -13056,7 +13171,7 @@ export default function JogoPage() {
       for (const runtime of runtimes) {
         const player = runtime.runtime;
         const predictedLocal = onlineGameplayActiveRef.current && runtime.slot === onlineSlotRef.current;
-        if (onlineGameplayActiveRef.current && !souHostOnline() && !predictedLocal) continue;
+        if (onlineGameplayActiveRef.current && !onlineTogetherCoordenado() && !souHostOnline() && !predictedLocal) continue;
         const input = inputParaSlotExtra(runtime.slot);
         runtime.input = input;
         const axes = eixosDeInputOnline(input);
@@ -13991,7 +14106,7 @@ export default function JogoPage() {
 
     function spawnBossEnragedCombo() {
       // Um padrão complexo por vez: visualmente rico sem empilhar dano impossível.
-      const pick = Math.floor(Math.random() * 4);
+      const pick = Math.floor(randomFloat() * 4);
       if (pick === 0) spawnBossPrismSweep(true);
       else if (pick === 1) spawnBossCorePulse(true);
       else if (pick === 2) spawnBossMineField(true);
@@ -14016,7 +14131,7 @@ export default function JogoPage() {
         possible.length > 0
           ? possible
           : pool.filter((attackId) => attackId !== boss.attackIndex);
-      const attack = usable[Math.floor(Math.random() * usable.length)];
+      const attack = usable[Math.floor(randomFloat() * usable.length)];
 
       if (attack === 0) {
         const evenCount = Math.max(
@@ -14028,7 +14143,7 @@ export default function JogoPage() {
         );
         boss.nextAttackAt = now + rand(3500, 4500);
       } else if (attack === 1) {
-        spawnBossLaser(Math.random() < 0.5 ? "x" : "triple");
+        spawnBossLaser(randomFloat() < 0.5 ? "x" : "triple");
         boss.nextAttackAt =
           now + cfg.laserTelegraphMs + cfg.laserActiveMs + rand(1350, 1850);
       } else if (attack === 2) {
@@ -14096,7 +14211,7 @@ export default function JogoPage() {
         criarExplosao(
           boss.x + rand(boss.w * 0.12, boss.w * 0.84),
           boss.y + rand(boss.h * 0.08, boss.h * 0.92),
-          colors[Math.floor(Math.random() * colors.length)],
+          colors[Math.floor(randomFloat() * colors.length)],
           stage === "collapse" ? 62 : 42,
         );
         if (CONFIG.settings.enableScreenShake) {
@@ -14892,8 +15007,8 @@ export default function JogoPage() {
 
     function spawnTokenBurst(x: number, y: number, targetSlot: PlayerSlot = 1, maxAmount = 6, dropChance = isLocalPvpMode() ? 0.74 : 0.66) {
       if (gameStateRef.current === "tutorial") return;
-      if (onlineGameplayActiveRef.current && !souHostOnline()) return;
-      if (Math.random() > dropChance) return;
+      if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && !souHostOnline()) return;
+      if (randomFloat() > dropChance) return;
       const safeMax = mobileRuntimeRef.current ? Math.min(maxAmount, isLocalPvpMode() ? 2 : 3) : Math.min(maxAmount, isLocalPvpMode() ? 3 : 5);
       const amount = Math.max(1, Math.min(safeMax, Math.floor(rand(1, safeMax + 1))));
       const now = performance.now();
@@ -15085,7 +15200,7 @@ export default function JogoPage() {
 
     function resolverTokens() {
       if (gameStateRef.current !== "playing") return;
-      if (onlineGameplayActiveRef.current && !souHostOnline()) return;
+      if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && !souHostOnline()) return;
       if (tokensRef.current.length === 0) return;
       const collectors: Array<{ slot: PlayerSlot; player: Player | null }> = [
         { slot: 1, player: playerRef.current },
@@ -15360,7 +15475,7 @@ export default function JogoPage() {
         player2FireRateUntilRef.current = now + Math.max(2800, CONFIG.gameplay.powerups.fireRateDurationMs * 0.55);
         player.strongReadyAt = 0;
       } else if (kind === "randomBox") {
-        if (Math.random() < 0.68) {
+        if (randomFloat() < 0.68) {
           player.hp = Math.min(CONFIG.gameplay.player.maxHp, player.hp + 1);
         } else {
           player2ShieldUntilRef.current = now + 4200;
@@ -17174,8 +17289,8 @@ export default function JogoPage() {
       renderCtx.save();
 
       if (shaking) {
-        const x = (Math.random() - 0.5) * shake.intensity;
-        const y = (Math.random() - 0.5) * shake.intensity;
+        const x = (randomFloat() - 0.5) * shake.intensity;
+        const y = (randomFloat() - 0.5) * shake.intensity;
         renderCtx.translate(x, y);
       }
 

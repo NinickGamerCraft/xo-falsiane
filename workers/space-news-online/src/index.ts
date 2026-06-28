@@ -285,7 +285,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.4.2-together-polish", netModel: "server-authoritative-v242" });
+      return json({ ok: true, service: "Space News Online", version: "2.4.3-together-sync", netModel: "server-authoritative-v243" });
     }
 
     if (url.pathname === "/create") {
@@ -408,7 +408,7 @@ export class GameRoom extends DurableObject<Env> {
     server.serializeAttachment(placeholder);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, placeholder);
-    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v242" }));
+    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "server-authoritative-v243" }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -436,7 +436,7 @@ export class GameRoom extends DurableObject<Env> {
       this.sessions.set(ws, session);
       this.ensureHost();
       this.syncSessionToState(session);
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v242" }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "server-authoritative-v243" }));
       this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
@@ -479,7 +479,7 @@ export class GameRoom extends DurableObject<Env> {
       if (!canStart) { ws.send(JSON.stringify({ type: "error", error: "Aguarde todos ficarem READY." })); return; }
       this.selectedGameMode = cleanMode(msg.mode || this.selectedMode());
       this.startMatch(this.selectedGameMode);
-      const netModel = this.selectedGameMode === "localCoop" ? "server-coordinated-together-v242" : "server-authoritative-v242";
+      const netModel = this.selectedGameMode === "localCoop" ? "server-coordinated-together-v243" : "server-authoritative-v243";
       this.broadcast({ type: "game_start", room: this.roomCode, mode: this.selectedGameMode, hostSlot: 0, t: Date.now(), netModel, seed: this.matchSeed });
       this.broadcastState();
       return;
@@ -508,7 +508,7 @@ export class GameRoom extends DurableObject<Env> {
           profileColor: session.profileColor,
           t: Date.now(),
           serverTick: this.serverTick,
-          netModel: "server-coordinated-together-v242",
+          netModel: "server-coordinated-together-v243",
         }, ws);
       }
       return;
@@ -671,7 +671,7 @@ export class GameRoom extends DurableObject<Env> {
       // v2.4.0: Together online não simula gameplay paralelo no Worker.
       // O cliente roda a MESMA engine do multiplayer local; o servidor só coordena inputs/perfil.
       if (this.serverTick % 18 === 0) {
-        this.broadcast({ type: "heartbeat", room: this.roomCode, serverTick: this.serverTick, t: now, netModel: "server-coordinated-together-v242" });
+        this.broadcast({ type: "heartbeat", room: this.roomCode, serverTick: this.serverTick, t: now, netModel: "server-coordinated-together-v243" });
       }
       return;
     }
@@ -1173,7 +1173,7 @@ export class GameRoom extends DurableObject<Env> {
       serverTime: now,
       sentAt: now,
       authoritativeSlot: 0,
-      netModel: "server-authoritative-v242",
+      netModel: "server-authoritative-v243",
       mode: this.selectedGameMode,
       state: this.gameActive ? "playing" : "mainMenu",
       players: runtimePlayers,
@@ -1224,7 +1224,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcastSnapshot() {
-    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v242" });
+    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "server-authoritative-v243" });
   }
 
   private clearPendingDisconnect(slot: number) {
@@ -1298,7 +1298,7 @@ export class GameRoom extends DurableObject<Env> {
   private broadcastState() {
     const players = this.players();
     const selectedMode = this.selectedMode();
-    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: selectedMode === "localCoop" ? "server-coordinated-together-v242" : "server-authoritative-v242", version: "2.4.2-together-polish", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
+    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: 0, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: selectedMode === "localCoop" ? "server-coordinated-together-v243" : "server-authoritative-v243", version: "2.4.3-together-sync", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
   }
 
   private broadcastPauseState() {

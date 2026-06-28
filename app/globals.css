@@ -20414,3 +20414,32 @@ body.reduce-motion .game-pause-card button {
   .game-fullscreen-page .sn-token-counter-v20 { left: 204px !important; top: 14px !important; }
   .sn-pet-cooldown-hud-v234 { top: 194px !important; left: 12px !important; transform: scale(.86); transform-origin: top left; }
 }
+
+
+/* v2.4.3: HUD de pet sem ficar embaixo dos power-ups/HUD do Together */
+.game-fullscreen-page .sn-pet-cooldown-hud-v234 {
+  top: 96px !important;
+  right: 18px !important;
+  left: auto !important;
+  z-index: 90 !important;
+  width: 62px !important;
+  height: 62px !important;
+  padding: 6px !important;
+  border-radius: 16px !important;
+}
+.game-fullscreen-page .sn-pet-cooldown-hud-v234 img { width: 40px !important; height: 40px !important; }
+.game-fullscreen-page .sn-pet-cooldown-hud-v234 strong {
+  position: absolute !important;
+  right: -7px !important;
+  bottom: -7px !important;
+  min-width: 26px !important;
+  height: 26px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 999px !important;
+  background: rgba(6, 9, 24, .96) !important;
+  border: 2px solid rgba(255,255,255,.72) !important;
+}
+@media (max-width: 900px) {
+  .game-fullscreen-page .sn-pet-cooldown-hud-v234 { top: 78px !important; right: 12px !important; left: auto !important; transform: none !important; }
+}
