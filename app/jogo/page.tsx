@@ -507,6 +507,8 @@ type LocalFriend = {
   status?: "pending" | "accepted" | "blocked";
   lastRoom?: string;
   lastSeenAt: number;
+  profileId?: string;
+  color?: string;
 };
 
 type LocalFriendRequest = {
@@ -515,6 +517,9 @@ type LocalFriendRequest = {
   name: string;
   direction: "sent" | "received";
   createdAt: number;
+  profileId?: string;
+  color?: string;
+  slot?: number;
 };
 
 type LocalProfileStats = {
@@ -610,6 +615,19 @@ type LocalProfile = {
   equipped: EquippedCosmetics;
   createdAt: number;
   updatedAt: number;
+};
+
+
+type LocalProfileRegistryEntry = {
+  id: string;
+  name: string;
+  color: string;
+  friendCode: string;
+  updatedAt: number;
+  achievementsUnlocked: number;
+  achievementsTotal: number;
+  equipped: EquippedCosmetics;
+  stats: Partial<LocalProfileStats>;
 };
 
 type OnlineEventOverlayState = {
@@ -1733,7 +1751,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.6";
+const SPACE_NEWS_VERSION = "2.5.7";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2432,7 +2450,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260629-v256-accessory-rework";
+const ASSET_VERSION = "space-news-20260629-v257-accessory-profile-friends";
 const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
@@ -3037,6 +3055,7 @@ function drawShotFallbackSprite(
 const SPACE_NEWS_PROFILE_KEY = "spaceNews.localProfile.v2";
 const SPACE_NEWS_OLD_PROFILE_KEY = "spaceNews.localProfile.v1";
 const SPACE_NEWS_NAME_REGISTRY_KEY = "spaceNews.profileNameRegistry.v1";
+const SPACE_NEWS_PROFILE_REGISTRY_KEY = "spaceNews.profileRegistry.v1";
 
 const PROFILE_COLOR_OPTIONS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9", "#facc15", "#67e8f9"];
 const SPACE_NEWS_CREATOR_NAME_RE = /^NINICK$/i;
@@ -3233,6 +3252,9 @@ function carregarPerfilLocalInicial(): LocalProfile {
               name: String(item.name || item.code || "Pedido").slice(0, 24),
               direction: item.direction === "sent" ? "sent" : "received",
               createdAt: Number(item.createdAt || Date.now()),
+              profileId: item.profileId ? String(item.profileId) : undefined,
+              color: item.color ? String(item.color).slice(0, 24) : undefined,
+              slot: item.slot ? Number(item.slot) : undefined,
             };
           }) as LocalFriendRequest[]
         : [],
@@ -3265,6 +3287,44 @@ function carregarPerfilLocalInicial(): LocalProfile {
   } catch {
     return criarPerfilLocalPadrao();
   }
+}
+
+function criarRegistroPerfilResumo(profile: LocalProfile): LocalProfileRegistryEntry {
+  const achievements = normalizarConquistasPerfil(profile.achievements);
+  return {
+    id: profile.id,
+    name: (String(profile.name || "Player").replace(/[^\p{L}\p{N} _-]/gu, "").trim() || "Player").slice(0, 16),
+    color: profile.color,
+    friendCode: formatarCodigoAmizadeInput(profile.friendCode),
+    updatedAt: Number(profile.updatedAt || Date.now()),
+    achievementsUnlocked: achievements.filter((item) => item.unlockedAt).length,
+    achievementsTotal: achievements.length,
+    equipped: { ...(profile.equipped || {}) },
+    stats: { ...(profile.stats || {}) },
+  };
+}
+
+function carregarRegistroPerfisLocais(): Record<string, LocalProfileRegistryEntry> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SPACE_NEWS_PROFILE_REGISTRY_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed as Record<string, LocalProfileRegistryEntry> : {};
+  } catch {
+    return {};
+  }
+}
+
+function salvarRegistroPerfisLocais(registry: Record<string, LocalProfileRegistryEntry>) {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.setItem(SPACE_NEWS_PROFILE_REGISTRY_KEY, JSON.stringify(registry)); } catch {}
+}
+
+function registrarPerfilLocalNoIndice(profile: LocalProfile) {
+  if (typeof window === "undefined") return;
+  const entry = criarRegistroPerfilResumo(profile);
+  const registry = carregarRegistroPerfisLocais();
+  registry[entry.friendCode] = entry;
+  salvarRegistroPerfisLocais(registry);
 }
 
 export default function JogoPage() {
@@ -3648,6 +3708,9 @@ export default function JogoPage() {
   const tokenIdRef = useRef(0);
   const nextTokenSpawnAtRef = useRef(0);
   const localProfileRef = useRef<LocalProfile>(localProfile);
+  useEffect(() => {
+    registrarPerfilLocalNoIndice(localProfile);
+  }, [localProfile]);
   const tokensVisibleUntilRef = useRef(0);
   const tokenSpriteRef = useRef<HTMLImageElement | null>(null);
   const tokenSpriteReadyRef = useRef(false);
@@ -5524,6 +5587,7 @@ export default function JogoPage() {
     setLocalProfile(next);
     try {
       window.localStorage.setItem(SPACE_NEWS_PROFILE_KEY, JSON.stringify(next));
+      registrarPerfilLocalNoIndice(next);
     } catch {
       // sem storage disponível
     }
@@ -5682,6 +5746,83 @@ export default function JogoPage() {
     window.setTimeout(() => setProfileToast((current) => current === message ? "" : current), 2200);
   }
 
+  function resumoPerfilPorCodigoAmizade(codeRaw: string): (OnlineProfileSummary & { onlineSlot?: number }) | null {
+    const code = formatarCodigoAmizadeInput(codeRaw);
+    if (!code) return null;
+    const onlinePlayer = onlinePlayers.find((player) => formatarCodigoAmizadeInput(player.profileSummary?.friendCode || "") === code);
+    if (onlinePlayer) {
+      return {
+        ...(onlinePlayer.profileSummary || {}),
+        id: onlinePlayer.profileSummary?.id || onlinePlayer.id,
+        name: onlinePlayer.profileSummary?.name || onlinePlayer.name,
+        color: onlinePlayer.profileSummary?.color || onlinePlayer.profileColor,
+        friendCode: code,
+        onlineSlot: onlinePlayer.slot,
+      };
+    }
+    const registry = carregarRegistroPerfisLocais();
+    const local = registry[code];
+    if (!local) return null;
+    return {
+      id: local.id,
+      name: local.name,
+      color: local.color,
+      friendCode: local.friendCode,
+      achievementsUnlocked: local.achievementsUnlocked,
+      achievementsTotal: local.achievementsTotal,
+      equipped: local.equipped,
+      stats: local.stats,
+      updatedAt: local.updatedAt,
+    };
+  }
+
+  function adicionarAmigoLocal(friend: LocalFriend) {
+    const current = localProfileRef.current;
+    const normalized: LocalFriend = {
+      id: friend.profileId || friend.id || friend.code || criarIdPerfilLocal(),
+      code: formatarCodigoAmizadeInput(friend.code || friend.id || ""),
+      name: String(friend.name || friend.code || "Amigo").slice(0, 24),
+      status: "accepted",
+      lastRoom: friend.lastRoom,
+      lastSeenAt: Date.now(),
+      profileId: friend.profileId || friend.id,
+      color: friend.color,
+    };
+    const nextFriends = [normalized, ...current.friends.filter((item) => item.code !== normalized.code && item.id !== normalized.id)].slice(0, 60);
+    const nextRequests = current.friendRequests.filter((item) => item.code !== normalized.code && item.profileId !== normalized.profileId);
+    salvarPerfilLocal({ ...current, friends: nextFriends, friendRequests: nextRequests, updatedAt: Date.now() });
+  }
+
+  function enviarPedidoAmizadeOnline(slot: number, summary: OnlineProfileSummary) {
+    if (!onlineConnected || slot <= 0 || slot === onlineSlotRef.current) return false;
+    enviarOnline({
+      type: "friend_request",
+      toSlot: slot,
+      fromCode: localProfileRef.current.friendCode,
+      fromName: nomePerfilVisivel(localProfileRef.current),
+      fromProfileId: localProfileRef.current.id,
+      fromColor: localProfileRef.current.color,
+      fromSummary: criarResumoPerfilOnline(),
+    } as any);
+    return true;
+  }
+
+  function enviarAceiteAmizadeOnline(slot: number, code: string, profileId?: string) {
+    if (!onlineConnected || slot <= 0 || slot === onlineSlotRef.current) return false;
+    enviarOnline({
+      type: "friend_accept",
+      toSlot: slot,
+      fromCode: localProfileRef.current.friendCode,
+      fromName: nomePerfilVisivel(localProfileRef.current),
+      fromProfileId: localProfileRef.current.id,
+      targetCode: formatarCodigoAmizadeInput(code),
+      targetProfileId: profileId,
+      fromColor: localProfileRef.current.color,
+      fromSummary: criarResumoPerfilOnline(),
+    } as any);
+    return true;
+  }
+
   function mostrarPopupConquista(achievement: LocalAchievement) {
     setAchievementPopup(achievement);
     if (achievementPopupTimerRef.current !== null) window.clearTimeout(achievementPopupTimerRef.current);
@@ -5740,30 +5881,48 @@ export default function JogoPage() {
       mostrarToastPerfil("Esse código já está na sua lista.");
       return;
     }
+    const found = resumoPerfilPorCodigoAmizade(code);
+    if (!found) {
+      mostrarToastPerfil("Perfil não encontrado para esse código.");
+      adicionarNotificacaoPerfil("system", "Perfil não encontrado", `Nenhum perfil registrado foi encontrado para ${code}.`, "friends");
+      return;
+    }
     const request: LocalFriendRequest = {
       id: criarIdPerfilLocal(),
       code,
-      name: `Pedido ${code}`,
+      name: String(found.name || code).slice(0, 24),
       direction: "sent",
       createdAt: Date.now(),
+      profileId: found.id,
+      color: found.color,
+      slot: found.onlineSlot,
     };
     salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
     setProfileFriendCodeInput("");
-    adicionarNotificacaoPerfil("friend", "Pedido de amizade", `Pedido salvo para ${code}.`, "friends");
-    mostrarToastPerfil("Pedido de amizade salvo localmente.");
+    if (found.onlineSlot && enviarPedidoAmizadeOnline(found.onlineSlot, found)) {
+      adicionarNotificacaoPerfil("friend", "Pedido enviado", `Pedido enviado para ${request.name}.`, "friends");
+      mostrarToastPerfil(`Pedido enviado para ${request.name}.`);
+    } else {
+      adicionarNotificacaoPerfil("friend", "Pedido salvo", `Perfil ${request.name} encontrado. Pedido salvo localmente.`, "friends");
+      mostrarToastPerfil(`Perfil encontrado: ${request.name}.`);
+    }
   }
 
   function aceitarPedidoAmizadeLocal(requestId: string) {
     const current = localProfileRef.current;
     const request = current.friendRequests.find((item) => item.id === requestId);
     if (!request) return;
-    const friend: LocalFriend = { id: request.code, code: request.code, name: request.name || request.code, status: "accepted", lastSeenAt: Date.now() };
-    salvarPerfilLocal({
-      ...current,
-      friends: [friend, ...current.friends.filter((item) => item.code !== request.code)].slice(0, 60),
-      friendRequests: current.friendRequests.filter((item) => item.id !== requestId),
-      updatedAt: Date.now(),
-    });
+    const friend: LocalFriend = {
+      id: request.profileId || request.code,
+      code: request.code,
+      name: request.name || request.code,
+      status: "accepted",
+      lastSeenAt: Date.now(),
+      profileId: request.profileId,
+      color: request.color,
+    };
+    adicionarAmigoLocal(friend);
+    if (request.direction === "received" && request.slot) enviarAceiteAmizadeOnline(request.slot, request.code, request.profileId);
     adicionarNotificacaoPerfil("friend", "Amigo adicionado", `${friend.name} agora está na sua tripulação.`, "friends");
     desbloquearConquistaPerfil("friend-one");
     if (localProfileRef.current.friends.length >= 5) desbloquearConquistaPerfil("friend-five");
@@ -7102,17 +7261,16 @@ export default function JogoPage() {
     }, ms + 80);
   }
 
-  function salvarAmigosDaSalaOnline() {
-    const current = localProfileRef.current;
-    const existing = new Set([...current.friends.map((friend) => friend.id), ...current.friendRequests.map((request) => request.code)]);
-    const nextRequests = [...current.friendRequests];
-    for (const player of onlinePlayers) {
-      if (!player.id || player.slot === onlineSlotRef.current || existing.has(player.id)) continue;
-      nextRequests.push({ id: criarIdPerfilLocal(), code: player.id, name: player.name || `P${player.slot}`, direction: "sent", createdAt: Date.now() });
-      existing.add(player.id);
+  function salvarAmigosDaSalaOnline(targetSlot?: number) {
+    const candidates = typeof targetSlot === "number" ? onlinePlayers.filter((player) => player.slot === targetSlot) : onlinePlayers.filter((player) => player.slot !== onlineSlotRef.current);
+    let sent = 0;
+    for (const player of candidates) {
+      const code = formatarCodigoAmizadeInput(player.profileSummary?.friendCode || "");
+      if (!code) continue;
+      adicionarPedidoAmizadeLocal(code);
+      sent += 1;
     }
-    salvarPerfilLocal({ ...current, friendRequests: nextRequests.slice(0, 40), updatedAt: Date.now() });
-    feedbackOnline("success", "Pedidos salvos. Para amizade real entre dispositivos, envie seu código ou convite ao outro jogador.");
+    if (sent > 0) feedbackOnline("success", sent === 1 ? "Pedido de amizade enviado." : `${sent} pedidos de amizade enviados.`);
   }
 
   function conviteOnlineAtual() {
@@ -7643,6 +7801,41 @@ export default function JogoPage() {
       if (msg.type === "coop_world_resync") {
         const from = Number(msg.from || msg.slot || 0);
         if (from !== onlineSlotRef.current) aplicarResyncMundoCoop(msg.world as Partial<OnlineGameplaySnapshot>);
+        return;
+      }
+
+      if (msg.type === "friend_request") {
+        const code = formatarCodigoAmizadeInput(String(msg.fromCode || ""));
+        const name = String(msg.fromName || code || "Player").slice(0, 24);
+        if (!code || code === localProfileRef.current.friendCode) return;
+        const current = localProfileRef.current;
+        const alreadyFriend = current.friends.some((friend) => friend.code === code || friend.profileId === msg.fromProfileId);
+        const alreadyRequest = current.friendRequests.some((request) => request.code === code && request.direction === "received");
+        if (!alreadyFriend && !alreadyRequest) {
+          const request: LocalFriendRequest = {
+            id: criarIdPerfilLocal(),
+            code,
+            name,
+            direction: "received",
+            createdAt: Date.now(),
+            profileId: msg.fromProfileId ? String(msg.fromProfileId) : undefined,
+            color: msg.fromColor ? String(msg.fromColor) : undefined,
+            slot: Number(msg.fromSlot || 0) || undefined,
+          };
+          salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
+          adicionarNotificacaoPerfil("friend", "Novo pedido de amizade", `${name} enviou um pedido de amizade.`, "friends");
+          mostrarToastPerfil(`Novo pedido: ${name}`);
+        }
+        return;
+      }
+
+      if (msg.type === "friend_accept") {
+        const code = formatarCodigoAmizadeInput(String(msg.fromCode || ""));
+        const name = String(msg.fromName || code || "Player").slice(0, 24);
+        if (!code) return;
+        adicionarAmigoLocal({ id: String(msg.fromProfileId || code), profileId: msg.fromProfileId ? String(msg.fromProfileId) : undefined, code, name, color: msg.fromColor ? String(msg.fromColor) : undefined, status: "accepted", lastSeenAt: Date.now() });
+        adicionarNotificacaoPerfil("friend", "Pedido aceito", `${name} aceitou sua amizade.`, "friends");
+        mostrarToastPerfil(`${name} aceitou sua amizade.`);
         return;
       }
 
@@ -21262,6 +21455,7 @@ export default function JogoPage() {
                   <span>PERFIL DO PLAYER</span>
                   <h2>{summary?.name || player.name || `P${player.slot}`}</h2>
                   <p>P{player.slot} · {player.device || "dispositivo"} {onlineHostSlot === player.slot ? "· HOST" : ""}</p>
+                  <p>Código: <strong>{summary?.friendCode || "sem código"}</strong></p>
                 </div>
                 <button type="button" onClick={() => setSelectedOnlineProfileSlot(null)} aria-label="Fechar perfil online">×</button>
               </header>
@@ -21276,10 +21470,12 @@ export default function JogoPage() {
                   <span><b>{summary?.friendsCount ?? "--"}</b><small>amigos</small></span>
                   <span><b>{summary?.achievementsUnlocked ?? "--"}/{summary?.achievementsTotal ?? "--"}</b><small>conquistas</small></span>
                   <span><b>{summary?.stats?.bestInfiniteWave ?? "--"}</b><small>recorde wave</small></span>
+                  <span><b>{summary?.stats?.bestInfiniteScore ?? "--"}</b><small>recorde score</small></span>
+                  <span><b>{summary?.stats?.enemiesKilled ?? "--"}</b><small>inimigos abatidos</small></span>
                 </div>
               </div>
               <footer>
-                <button type="button" onClick={() => { salvarAmigosDaSalaOnline(); setSelectedOnlineProfileSlot(null); }}>SALVAR COMO AMIGO</button>
+                <button type="button" onClick={() => { salvarAmigosDaSalaOnline(player.slot); setSelectedOnlineProfileSlot(null); }}>ENVIAR PEDIDO</button>
                 <button type="button" onClick={() => setSelectedOnlineProfileSlot(null)}>FECHAR</button>
               </footer>
             </section>

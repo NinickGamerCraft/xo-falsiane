@@ -21400,3 +21400,80 @@ button.sn-hud-resource-chip-v250.is-cooling { opacity: .8; filter: grayscale(.25
     min-width: 620px !important;
   }
 }
+
+/* Space News v2.5.7 — mobile profile rescue */
+@media (max-width: 860px), (max-height: 540px) {
+  .sn-profile-backdrop-v250 {
+    align-items: flex-start !important;
+    justify-content: center !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: max(8px, env(safe-area-inset-top)) 6px max(10px, env(safe-area-inset-bottom)) !important;
+  }
+  .sn-profile-manager-v250 {
+    width: min(1120px, calc(100vw - 12px)) !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    display: block !important;
+    overflow: visible !important;
+  }
+  .sn-profile-header-v250 {
+    grid-template-columns: auto minmax(0,1fr) auto !important;
+    align-items: center !important;
+  }
+  .sn-profile-header-stats-v250 {
+    display: none !important;
+  }
+  .sn-profile-tabs-v250 {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 10px 12px !important;
+  }
+  .sn-profile-tabs-v250 button {
+    flex: 0 0 auto !important;
+  }
+  .sn-profile-body-v250 {
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 10px !important;
+  }
+  .sn-profile-overview-v250 {
+    grid-template-columns: 1fr !important;
+    min-width: 0 !important;
+    gap: 10px !important;
+  }
+  .sn-profile-card-v250,
+  .sn-online-profile-card-v250 {
+    min-width: 0 !important;
+  }
+  .sn-profile-loadout-grid-v250,
+  .sn-online-profile-body-v250 {
+    grid-template-columns: 1fr !important;
+  }
+  .sn-profile-ship-preview-v250 {
+    min-height: 140px !important;
+  }
+  .sn-profile-stat-grid-v250,
+  .sn-profile-stat-grid-v250.is-large,
+  .sn-achievements-v250,
+  .sn-profile-list-v250,
+  .sn-profile-notifications-v250 {
+    grid-template-columns: 1fr !important;
+  }
+  .sn-profile-friend-add-v250 {
+    grid-template-columns: 1fr !important;
+  }
+  .sn-profile-list-v250 div > div {
+    flex-wrap: wrap !important;
+  }
+  .sn-profile-footer-v250 {
+    position: relative !important;
+    bottom: auto !important;
+    padding: 10px 12px !important;
+  }
+  .sn-online-profile-card-v250 {
+    width: min(620px, calc(100vw - 12px)) !important;
+  }
+}
