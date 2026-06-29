@@ -1775,7 +1775,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.9";
+const SPACE_NEWS_VERSION = "2.5.9e";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -12338,7 +12338,7 @@ export default function JogoPage() {
       : CONFIG.gameplay.storyWaves;
 
     if (!wave.active) {
-      if (isStory && (bossRef.current.defeated || gameStateRef.current === "victory") && wave.wave >= CONFIG.gameplay.storyWaves.bossWave) {
+      if (isStory && bossRef.current.defeated && wave.wave >= CONFIG.gameplay.storyWaves.bossWave) {
         return;
       }
       if (wave.nextWaveAt > 0 && now >= wave.nextWaveAt) {
