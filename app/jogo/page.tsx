@@ -640,6 +640,20 @@ type PetFocusState = {
   until: number;
 };
 
+type PetVisualFx = {
+  id: number;
+  kind: "slash" | "burst" | "freeze" | "cards" | "portal" | "confusion" | "flare";
+  x: number;
+  y: number;
+  x2?: number;
+  y2?: number;
+  color: string;
+  until: number;
+  createdAt: number;
+  size?: number;
+  label?: string;
+};
+
 type OnlineEventOverlayState = {
   id: number;
   title: string;
@@ -1761,7 +1775,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.8";
+const SPACE_NEWS_VERSION = "2.5.9";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2963,6 +2977,8 @@ function drawVelocityStretchedImage(
   stretchMultiplier = 1.35,
   stretchPulse = 0,
   flipSpriteByVelocity = false,
+  overlayTint?: string,
+  overlayAlpha = 0,
 ) {
   ctx.save();
   ctx.translate(x + w / 2, y + h / 2);
@@ -2971,7 +2987,24 @@ function drawVelocityStretchedImage(
   if (flipSpriteByVelocity && vx < -0.05) ctx.scale(-1, 1);
 
   if (CONFIG.useSprites && img) {
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    if (overlayTint && overlayAlpha > 0) {
+      const temp = document.createElement("canvas");
+      temp.width = Math.max(1, Math.ceil(w));
+      temp.height = Math.max(1, Math.ceil(h));
+      const tempCtx = temp.getContext("2d");
+      if (tempCtx) {
+        tempCtx.drawImage(img, 0, 0, temp.width, temp.height);
+        tempCtx.globalCompositeOperation = "source-atop";
+        tempCtx.globalAlpha = overlayAlpha;
+        tempCtx.fillStyle = overlayTint;
+        tempCtx.fillRect(0, 0, temp.width, temp.height);
+        ctx.drawImage(temp, -w / 2, -h / 2, w, h);
+      } else {
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      }
+    } else {
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    }
   } else {
     ctx.fillStyle = fallbackColor;
     ctx.fillRect(-w / 2, -h / 2, w, h);
@@ -3075,7 +3108,9 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "accessory-none", name: "Nenhum Acessório", slot: "front", price: 0, rarity: "basic", description: "Remove os acessórios da nave.", asset: "/game/shop/icons/normal/accessory-none.png" },
   { id: "pet-none", name: "Nenhum Pet", slot: "pet", price: 0, rarity: "basic", description: "Remove o pet equipado.", asset: "/game/shop/icons/normal/pet-none.png" },
   { id: "recolor-aurora", name: "Recolor Aurora", slot: "recolor", price: 80, rarity: "rare", description: "Pintura fria e brilhante. +tempo de power-ups, -defesa leve.", asset: "/game/shop/recolors/recolor-aurora-idle.png", dodgeAsset: "/game/shop/recolors/recolor-aurora-dodge.png", moveFrames: ["/game/shop/recolors/recolor-aurora-move-1.png", "/game/shop/recolors/recolor-aurora-move-2.png", "/game/shop/recolors/recolor-aurora-move-3.png", "/game/shop/recolors/recolor-aurora-move-4.png"], buffs: { defense: -0.04 } },
-  { id: "recolor-circus", name: "Nave do Circo", slot: "recolor", price: 95, rarity: "event", description: "Paleta circense para combinar com acessórios de palhaço.", asset: "/game/shop/recolors/recolor-circus-idle.png", dodgeAsset: "/game/shop/recolors/recolor-circus-dodge.png", moveFrames: ["/game/shop/recolors/recolor-circus-move-1.png", "/game/shop/recolors/recolor-circus-move-2.png", "/game/shop/recolors/recolor-circus-move-3.png", "/game/shop/recolors/recolor-circus-move-4.png"] },
+  { id: "recolor-circus", name: "Nave do Circo", slot: "recolor", price: 120, rarity: "event", description: "Paleta circense com blocos fortes, nariz vibrante e cara de show itinerante.", asset: "/game/shop/recolors/recolor-circus-idle.png", dodgeAsset: "/game/shop/recolors/recolor-circus-dodge.png", moveFrames: ["/game/shop/recolors/recolor-circus-move-1.png", "/game/shop/recolors/recolor-circus-move-2.png", "/game/shop/recolors/recolor-circus-move-3.png", "/game/shop/recolors/recolor-circus-move-4.png"] },
+  { id: "recolor-brasil", name: "Nave Brasil", slot: "recolor", price: 550, rarity: "event", description: "Casco com faixas verde-amarelas e decalque inspirado na bandeira do Brasil.", asset: "/game/shop/recolors/recolor-brasil-idle.png", dodgeAsset: "/game/shop/recolors/recolor-brasil-dodge.png", moveFrames: ["/game/shop/recolors/recolor-brasil-move-1.png", "/game/shop/recolors/recolor-brasil-move-2.png", "/game/shop/recolors/recolor-brasil-move-3.png", "/game/shop/recolors/recolor-brasil-move-4.png"], buffs: { speed: 0.03, defense: 0.02 } },
+  { id: "recolor-midas", name: "Nave MIDAS", slot: "recolor", price: 10000, rarity: "legendary", description: "Casco dourado absoluto para quem já dominou a transmissão espacial.", asset: "/game/shop/recolors/recolor-midas-idle.png", dodgeAsset: "/game/shop/recolors/recolor-midas-dodge.png", moveFrames: ["/game/shop/recolors/recolor-midas-move-1.png", "/game/shop/recolors/recolor-midas-move-2.png", "/game/shop/recolors/recolor-midas-move-3.png", "/game/shop/recolors/recolor-midas-move-4.png"], buffs: { damage: 0.08, speed: -0.03, defense: 0.04 } },
   { id: "front-lunar-hat", name: "Chapéu Lunar", slot: "front", price: 60, rarity: "basic", description: "Chapéu pequeno encaixado na ponta da nave.", asset: "/game/shop/accessories/front/front-lunar-hat.png", dodgeAsset: "/game/shop/accessories/front/front-lunar-hat-dodge.png" },
   { id: "front-space-horn", name: "Chifre Espacial", slot: "front", price: 90, rarity: "rare", description: "Bico agressivo de visual espacial. Cosmético puro.", asset: "/game/shop/accessories/front/front-space-horn.png", dodgeAsset: "/game/shop/accessories/front/front-space-horn-dodge.png", buffs: { damage: 0.06, speed: -0.02 } },
   { id: "front-rinaldo-horn", name: "Chifre Colorido", slot: "front", price: 120, rarity: "epic", description: "Chifre RGB com interior escuro e contorno colorido. Cosmético puro.", asset: "/game/shop/accessories/front/front-rinaldo-horn.png", dodgeAsset: "/game/shop/accessories/front/front-rinaldo-horn-dodge.png", buffs: { damage: 0.09, size: 0.03 } },
@@ -3125,26 +3160,42 @@ const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
   { id: "first-token", title: "Primeiro Token", description: "Coletou sua primeira moeda de transmissão." },
   { id: "ten-tokens", title: "Colecionador", description: "Acumulou 10 tokens no perfil." },
   { id: "hundred-tokens", title: "Cofre Cósmico", description: "Acumulou 100 tokens no perfil." },
+  { id: "tokens-250", title: "Banco Lunar", description: "Acumulou 250 tokens no perfil." },
+  { id: "tokens-500", title: "Conta Premium", description: "Acumulou 500 tokens no perfil." },
+  { id: "tokens-1000", title: "Tesouro Intergaláctico", description: "Acumulou 1.000 tokens no perfil." },
   { id: "first-kill", title: "Refutador Júnior", description: "Derrubou o primeiro inimigo." },
   { id: "hundred-kills", title: "Faxina Espacial", description: "Derrubou 100 inimigos." },
+  { id: "kills-250", title: "Repórter de Guerra", description: "Derrubou 250 inimigos." },
+  { id: "kills-500", title: "Tempestade Editorial", description: "Derrubou 500 inimigos." },
   { id: "first-chocado", title: "Chocado? Nem tanto", description: "Derrotou o Chocado pela primeira vez." },
+  { id: "chocado-3", title: "Caçador de Choques", description: "Derrotou o Chocado 3 vezes." },
   { id: "infinite-10", title: "Sinal Forte", description: "Chegou na wave 10 do modo infinito." },
   { id: "infinite-25", title: "Antena Lendária", description: "Chegou na wave 25 do modo infinito." },
-  { id: "pvp-win", title: "Arena News", description: "Venceu uma partida Versus." },
+  { id: "infinite-50", title: "Canal Impossível", description: "Chegou na wave 50 do modo infinito." },
+  { id: "best-score-5000", title: "Transmissão de Ouro", description: "Fez 5.000 pontos no modo Infinito." },
+  { id: "best-score-10000", title: "Audiência Massiva", description: "Fez 10.000 pontos no modo Infinito." },
   { id: "long-play", title: "Plantão Espacial", description: "Jogou por 30 minutos no total." },
+  { id: "marathon-1h", title: "Turno Dobrado", description: "Jogou por 1 hora no total." },
+  { id: "pvp-win", title: "Arena News", description: "Venceu uma partida Versus." },
   { id: "creator-match", title: "Joguei com o Criador", description: "Entrou em uma sala online com o criador do Space News." },
   { id: "pet-power", title: "Parceiro Cósmico", description: "Usou uma habilidade especial de pet." },
+  { id: "pet-tundra", title: "Frio na Notícia", description: "Usou o especial do Tundra." },
+  { id: "pet-jester", title: "Caos no Estúdio", description: "Usou o especial do Bobo Caótico." },
+  { id: "pet-super-spark", title: "Ultra Faísca", description: "Ativou o Super Faísca." },
   { id: "shop-first", title: "Primeira Compra", description: "Comprou seu primeiro cosmético na loja." },
   { id: "full-style", title: "Nave Montada", description: "Equipou recolor, frente, meio e pet ao mesmo tempo." },
   { id: "inventory-5", title: "Cabide Orbital", description: "Guardou 5 itens diferentes no inventário." },
   { id: "inventory-12", title: "Coleção de Hangar", description: "Guardou 12 itens diferentes no inventário." },
-  { id: "tokens-250", title: "Banco Lunar", description: "Acumulou 250 tokens no perfil." },
-  { id: "best-score-5000", title: "Transmissão de Ouro", description: "Fez 5.000 pontos no modo Infinito." },
+  { id: "inventory-24", title: "Museu Espacial", description: "Guardou 24 itens diferentes no inventário." },
   { id: "friend-one", title: "Sinal de Amizade", description: "Salvou o primeiro amigo no perfil." },
   { id: "friend-five", title: "Tripulação Formada", description: "Salvou 5 amigos no perfil." },
+  { id: "friend-ten", title: "Rede de Contatos", description: "Salvou 10 amigos no perfil." },
   { id: "pet-equipped", title: "Mascote a Bordo", description: "Equipou um pet na nave." },
   { id: "first-online-room", title: "Link Aberto", description: "Entrou em uma sala online." },
   { id: "together-ready", title: "Dupla Confirmada", description: "Ficou READY em uma sala Together." },
+  { id: "story-clear", title: "Edição Encerrada", description: "Concluiu o modo História." },
+  { id: "midas-owner", title: "Toque de Ouro", description: "Comprou a nave MIDAS." },
+  { id: "brasil-owner", title: "Orgulho Nacional", description: "Comprou a nave BRASIL." },
 ];
 
 function criarIdPerfilLocal() {
@@ -3339,6 +3390,25 @@ function registrarPerfilLocalNoIndice(profile: LocalProfile) {
   const entry = criarRegistroPerfilResumo(profile);
   const registry = carregarRegistroPerfisLocais();
   registry[entry.friendCode] = entry;
+  salvarRegistroPerfisLocais(registry);
+}
+
+function registrarResumoPerfilNoIndice(summary?: Partial<OnlineProfileSummary> | null) {
+  if (typeof window === "undefined" || !summary) return;
+  const friendCode = formatarCodigoAmizadeInput(String(summary.friendCode || ""));
+  if (!friendCode) return;
+  const registry = carregarRegistroPerfisLocais();
+  registry[friendCode] = {
+    id: String(summary.id || friendCode),
+    name: String(summary.name || friendCode).slice(0, 24),
+    color: String(summary.color || "#60a5fa"),
+    friendCode,
+    updatedAt: Date.now(),
+    achievementsUnlocked: Math.max(0, Number(summary.achievementsUnlocked || 0)),
+    achievementsTotal: Math.max(0, Number(summary.achievementsTotal || 0)),
+    equipped: summary.equipped || {},
+    stats: summary.stats || {},
+  };
   salvarRegistroPerfisLocais(registry);
 }
 
@@ -3719,6 +3789,7 @@ export default function JogoPage() {
   const particlesRef = useRef<Particle[]>([]);
   const damageNumbersRef = useRef<DamageNumber[]>([]);
   const shockwavesRef = useRef<Shockwave[]>([]);
+  const petVisualFxRef = useRef<PetVisualFx[]>([]);
   const bossProjectilesRef = useRef<BossProjectile[]>([]);
   const powerUpsRef = useRef<PowerUp[]>([]);
   const powerUpIdRef = useRef(0);
@@ -5863,6 +5934,7 @@ export default function JogoPage() {
   }
 
   function desbloquearConquistaPerfil(id: string) {
+    if (debugUsedRef.current) return;
     const current = localProfileRef.current;
     const now = Date.now();
     const achievements = normalizarConquistasPerfil(current.achievements);
@@ -5881,6 +5953,7 @@ export default function JogoPage() {
     const now = Date.now();
     let achievements = normalizarConquistasPerfil(current.achievements);
     function unlock(id: string) {
+      if (debugUsedRef.current) return;
       const achievementIndex = achievements.findIndex((achievement) => achievement.id === id && !achievement.unlockedAt);
       if (achievementIndex < 0) return;
       const unlockedNow: LocalAchievement = { ...achievements[achievementIndex], unlockedAt: now };
@@ -5892,14 +5965,22 @@ export default function JogoPage() {
     if (current.tokens >= 10 || nextStats.tokensCollected >= 10) unlock("ten-tokens");
     if (current.tokens >= 100 || nextStats.tokensCollected >= 100) unlock("hundred-tokens");
     if (current.tokens >= 250 || nextStats.tokensCollected >= 250) unlock("tokens-250");
+    if (current.tokens >= 500 || nextStats.tokensCollected >= 500) unlock("tokens-500");
+    if (current.tokens >= 1000 || nextStats.tokensCollected >= 1000) unlock("tokens-1000");
     if (nextStats.enemiesKilled >= 1) unlock("first-kill");
     if (nextStats.enemiesKilled >= 100) unlock("hundred-kills");
+    if (nextStats.enemiesKilled >= 250) unlock("kills-250");
+    if (nextStats.enemiesKilled >= 500) unlock("kills-500");
     if (nextStats.chocadosKilled >= 1) unlock("first-chocado");
+    if (nextStats.chocadosKilled >= 3) unlock("chocado-3");
     if (nextStats.bestInfiniteWave >= 10) unlock("infinite-10");
     if (nextStats.bestInfiniteWave >= 25) unlock("infinite-25");
+    if (nextStats.bestInfiniteWave >= 50) unlock("infinite-50");
     if (nextStats.bestInfiniteScore >= 5000) unlock("best-score-5000");
+    if (nextStats.bestInfiniteScore >= 10000) unlock("best-score-10000");
     if (nextStats.pvpWins >= 1) unlock("pvp-win");
     if (nextStats.playTimeMs >= 30 * 60 * 1000) unlock("long-play");
+    if (nextStats.playTimeMs >= 60 * 60 * 1000) unlock("marathon-1h");
     salvarPerfilLocal({ ...current, stats: nextStats, achievements, updatedAt: now });
   }
 
@@ -5925,11 +6006,26 @@ export default function JogoPage() {
       mostrarToastPerfil(`Pedido mútuo aceito: ${received.name}`);
       return;
     }
-    if (current.friendRequests.some((request) => request.code === code)) {
-      mostrarToastPerfil("Pedido já enviado para esse código.");
+    const sameRequest = current.friendRequests.find((request) => request.code === code);
+    if (sameRequest) {
+      if (sameRequest.direction === "received") {
+        aceitarPedidoAmizadeLocal(sameRequest.id);
+        mostrarToastPerfil(`Pedido mútuo aceito: ${sameRequest.name}`);
+      } else if (sameRequest.slot && onlineConnected) {
+        const foundOnline = resumoPerfilPorCodigoAmizade(code);
+        if (foundOnline?.onlineSlot) {
+          enviarPedidoAmizadeOnline(foundOnline.onlineSlot, foundOnline);
+          mostrarToastPerfil(`Pedido reenviado para ${foundOnline.name || code}.`);
+        } else {
+          mostrarToastPerfil("Pedido já enviado para esse código.");
+        }
+      } else {
+        mostrarToastPerfil("Pedido já enviado para esse código.");
+      }
       return;
     }
     const found = resumoPerfilPorCodigoAmizade(code);
+    if (found) registrarResumoPerfilNoIndice(found);
     if (!found) {
       mostrarToastPerfil("Perfil não encontrado para esse código.");
       adicionarNotificacaoPerfil("system", "Perfil não encontrado", `Nenhum perfil registrado foi encontrado para ${code}.`, "friends");
@@ -5974,6 +6070,7 @@ export default function JogoPage() {
     adicionarNotificacaoPerfil("friend", "Amigo adicionado", `${friend.name} agora está na sua tripulação.`, "friends");
     desbloquearConquistaPerfil("friend-one");
     if (localProfileRef.current.friends.length >= 5) desbloquearConquistaPerfil("friend-five");
+    if (localProfileRef.current.friends.length >= 10) desbloquearConquistaPerfil("friend-ten");
     mostrarToastPerfil("Amigo aceito.");
   }
 
@@ -6095,19 +6192,24 @@ export default function JogoPage() {
       mostrarToastPerfil(`Faltam ${item.price - current.tokens} tokens.`);
       return;
     }
+    const nextInventory = [...current.inventory, item.id];
+    const nextEquipped = { ...current.equipped, [item.slot]: item.id };
     salvarPerfilLocal({
       ...current,
       tokens: current.tokens - item.price,
-      inventory: [...current.inventory, item.id],
-      equipped: { ...current.equipped, [item.slot]: item.id },
+      inventory: nextInventory,
+      equipped: nextEquipped,
       updatedAt: Date.now(),
     });
     adicionarNotificacaoPerfil("shop", "Compra concluída", `${item.name} entrou no seu inventário.`, "shop");
     desbloquearConquistaPerfil("shop-first");
-    if (localProfileRef.current.inventory.length >= 5) desbloquearConquistaPerfil("inventory-5");
-    if (localProfileRef.current.inventory.length >= 12) desbloquearConquistaPerfil("inventory-12");
+    if (nextInventory.length >= 5) desbloquearConquistaPerfil("inventory-5");
+    if (nextInventory.length >= 12) desbloquearConquistaPerfil("inventory-12");
+    if (nextInventory.length >= 24) desbloquearConquistaPerfil("inventory-24");
     if (item.slot === "pet") desbloquearConquistaPerfil("pet-equipped");
-    if (localProfileRef.current.equipped.recolor && localProfileRef.current.equipped.front && localProfileRef.current.equipped.middle && localProfileRef.current.equipped.pet) desbloquearConquistaPerfil("full-style");
+    if (item.id === "recolor-midas") desbloquearConquistaPerfil("midas-owner");
+    if (item.id === "recolor-brasil") desbloquearConquistaPerfil("brasil-owner");
+    if (nextEquipped.recolor && nextEquipped.front && nextEquipped.middle && nextEquipped.pet) desbloquearConquistaPerfil("full-style");
     mostrarToastPerfil(`${item.name} comprado e equipado.`);
     tocarSom(CONFIG.sounds.tokenCollect || CONFIG.sounds.menuConfirm, 0.32, "menu");
   }
@@ -6185,13 +6287,23 @@ export default function JogoPage() {
       if (!img) return;
       ctx.save();
       ctx.globalAlpha *= alpha;
-      ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
       if (options?.superSpark) {
-        // v2.4.4: source-atop colore só pixels opacos do sprite, não o retângulo transparente inteiro.
-        ctx.globalCompositeOperation = "source-atop";
-        ctx.globalAlpha = 0.38;
-        ctx.fillStyle = "#fde047";
-        ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
+        const temp = document.createElement("canvas");
+        temp.width = Math.max(1, Math.ceil(player.w));
+        temp.height = Math.max(1, Math.ceil(player.h));
+        const tempCtx = temp.getContext("2d");
+        if (tempCtx) {
+          tempCtx.drawImage(img, 0, 0, temp.width, temp.height);
+          tempCtx.globalCompositeOperation = "source-atop";
+          tempCtx.globalAlpha = 0.38;
+          tempCtx.fillStyle = "#fde047";
+          tempCtx.fillRect(0, 0, temp.width, temp.height);
+          ctx.drawImage(temp, -player.w / 2, -player.h / 2, player.w, player.h);
+        } else {
+          ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
+        }
+      } else {
+        ctx.drawImage(img, -player.w / 2, -player.h / 2, player.w, player.h);
       }
       ctx.restore();
     };
@@ -6256,15 +6368,107 @@ export default function JogoPage() {
       label,
       asset,
       color,
-      until: performance.now() + 1350,
+      until: performance.now() + 980,
     };
     setPetFocus(focus);
     window.setTimeout(() => {
       setPetFocus((current) => current?.id === focus.id ? null : current);
-    }, 1420);
+    }, 1040);
   }
 
+  function adicionarVfxPet(kind: PetVisualFx["kind"], x: number, y: number, color = "#facc15", extra?: Partial<PetVisualFx>) {
+    petVisualFxRef.current.push({
+      id: enemyIdRef.current++,
+      kind,
+      x,
+      y,
+      color,
+      until: performance.now() + (extra?.until ? Math.max(80, extra.until - performance.now()) : 520),
+      createdAt: performance.now(),
+      size: extra?.size,
+      label: extra?.label,
+      x2: extra?.x2,
+      y2: extra?.y2,
+    });
+    const cap = mobileRuntimeRef.current ? 18 : 34;
+    if (petVisualFxRef.current.length > cap) petVisualFxRef.current = petVisualFxRef.current.slice(-cap);
+  }
 
+  function limparVfxPet() {
+    const now = performance.now();
+    petVisualFxRef.current = petVisualFxRef.current.filter((fx) => fx.until > now);
+  }
+
+  function desenharVfxPets(ctx: CanvasRenderingContext2D) {
+    const now = performance.now();
+    if (petVisualFxRef.current.length === 0) return;
+    ctx.save();
+    for (const fx of petVisualFxRef.current) {
+      const life = Math.max(1, fx.until - fx.createdAt);
+      const t = clamp((now - fx.createdAt) / life, 0, 1);
+      const fade = 1 - t;
+      ctx.globalAlpha = fade;
+      ctx.strokeStyle = fx.color;
+      ctx.fillStyle = fx.color;
+      ctx.lineWidth = 4;
+      ctx.shadowColor = fx.color;
+      ctx.shadowBlur = 16;
+      const size = fx.size ?? 48;
+      if (fx.kind === "burst" || fx.kind === "freeze" || fx.kind === "portal" || fx.kind === "flare" || fx.kind === "confusion") {
+        ctx.beginPath();
+        ctx.arc(fx.x, fx.y, size * (0.35 + t), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (fx.kind === "freeze") {
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI * 2 * i) / 6 + t * 0.3;
+          const r1 = size * 0.18;
+          const r2 = size * (0.55 + t * 0.18);
+          ctx.beginPath();
+          ctx.moveTo(fx.x + Math.cos(a) * r1, fx.y + Math.sin(a) * r1);
+          ctx.lineTo(fx.x + Math.cos(a) * r2, fx.y + Math.sin(a) * r2);
+          ctx.stroke();
+        }
+      }
+      if (fx.kind === "slash") {
+        const x2 = fx.x2 ?? fx.x + size;
+        const y2 = fx.y2 ?? fx.y;
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(fx.x, fx.y);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.moveTo(fx.x + 2, fx.y - 2);
+        ctx.lineTo(x2 + 2, y2 - 2);
+        ctx.stroke();
+      }
+      if (fx.kind === "cards") {
+        for (let i = 0; i < 3; i++) {
+          const ox = (i - 1) * 18;
+          const oy = Math.sin(t * Math.PI * 2 + i) * 6;
+          ctx.fillRect(fx.x + ox - 6, fx.y + oy - 9, 12, 18);
+        }
+      }
+      if (fx.kind === "confusion") {
+        for (let i = 0; i < 8; i++) {
+          const a = (Math.PI * 2 * i) / 8 + t * 3.5;
+          ctx.fillRect(fx.x + Math.cos(a) * size * 0.56 - 2, fx.y + Math.sin(a) * size * 0.42 - 2, 4, 4);
+        }
+      }
+      if (fx.label) {
+        ctx.globalAlpha = fade * 0.9;
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = "#fff8d6";
+        ctx.font = `bold ${mobileRuntimeRef.current ? 12 : 14}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.fillText(fx.label, fx.x, fx.y - size * 0.75);
+      }
+    }
+    ctx.restore();
+  }
 
   function criarNumeroDano(x: number, y: number, value: number, color = "#fff1a8", crit = false) {
     if (!Number.isFinite(value) || value <= 0) return;
@@ -6384,30 +6588,33 @@ export default function JogoPage() {
       .slice(0, mobileRuntimeRef.current ? 8 : 12);
     const hits = [2, 2, 4];
     const bossHits = [15, 15, 30];
-    const delays = [0, 520, 1040];
+    const delays = [0, 560, 1160];
     const colors = ["#dbeafe", "#93c5fd", "#67e8f9"];
+    adicionarVfxPet("freeze", cx, cy, "#93c5fd", { size: 120, label: "CONGELAR" });
     for (const enemy of targets) {
-      enemy.frozenUntil = now + 1550;
+      enemy.frozenUntil = now + 1750;
       enemy.vx = 0;
       enemy.vy = 0;
       enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 2600);
-      enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 1550);
+      enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 1750);
       enemy.redHoldY = enemy.y;
       enemy.stretchUntil = now + 620;
       const ex = enemy.x + enemy.w / 2;
       const ey = enemy.y + enemy.h / 2;
       shockwavesRef.current.push({ id: enemyIdRef.current++, x: ex, y: ey, radius: 34, life: 760, maxLife: 760 });
       criarParticulasHit(ex, ey, "#dbeafe", mobileRuntimeRef.current ? 4 : 9);
+      adicionarVfxPet("freeze", ex, ey, "#bfdbfe", { size: 42 });
       hits.forEach((damage, hitIndex) => {
         window.setTimeout(() => {
           if (enemy.hp <= 0) return;
-          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, performance.now() + 430);
+          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, performance.now() + 530);
           enemy.vx = 0;
           enemy.vy = 0;
-          enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 430);
+          enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 530);
           enemy.redHoldY = enemy.y;
           shockwavesRef.current.push({ id: enemyIdRef.current++, x: ex, y: ey, radius: 54 + hitIndex * 22, life: 190, maxLife: 190 });
           criarParticulasHit(ex, ey, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 5 : 10);
+          adicionarVfxPet("freeze", ex, ey, colors[hitIndex] || "#bfdbfe", { size: 52 + hitIndex * 10, label: hitIndex === 2 ? "4" : "2" });
           aplicarDanoInimigoEspecial(enemy, damage, colors[hitIndex] || "#bfdbfe", hitIndex === 2);
           tocarSom(CONFIG.sounds.playerDamage, hitIndex === 2 ? 0.22 : 0.14, "hit");
         }, delays[hitIndex]);
@@ -6420,11 +6627,12 @@ export default function JogoPage() {
         window.setTimeout(() => {
           shockwavesRef.current.push({ id: enemyIdRef.current++, x: bx, y: by, radius: 86 + hitIndex * 32, life: 220, maxLife: 220 });
           criarParticulasHit(bx, by, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 6 : 12);
+          adicionarVfxPet("freeze", bx, by, colors[hitIndex] || "#bfdbfe", { size: 84 + hitIndex * 18, label: String(bossHits[hitIndex]) });
           aplicarDanoBossEspecial(damage, colors[hitIndex] || "#bfdbfe", hitIndex === 2);
         }, delays[hitIndex]);
       });
     }
-    window.setTimeout(limparInimigosMortosEspecial, 1480);
+    window.setTimeout(limparInimigosMortosEspecial, 1600);
     shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 190, life: 420, maxLife: 420 });
     criarExplosao(cx, cy, "#bfdbfe", mobileRuntimeRef.current ? 8 : 18);
     tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, remote ? 0.22 : 0.36, "sfx");
@@ -6436,32 +6644,35 @@ export default function JogoPage() {
     const player = playerPorSlotOnline(slot) || playerRef.current;
     const cx = player.x + player.w / 2;
     const cy = player.y + player.h / 2;
-    const pulses = [0, 140, 300];
+    const pulses = [0, 180, 380];
     pulses.forEach((delay, pulseIndex) => {
       window.setTimeout(() => {
-        const radius = 120 + pulseIndex * 44;
+        const radius = 118 + pulseIndex * 54;
         let hit = 0;
-        for (const enemy of enemiesRef.current) {
+        adicionarVfxPet("burst", cx, cy - 6, pulseIndex === 2 ? "#f97316" : "#fdba74", { size: radius * 0.42, label: pulseIndex === 2 ? "PISÃO" : undefined });
+        adicionarVfxPet("flare", cx + 22 + pulseIndex * 18, cy - 12, "#fb923c", { size: 42 + pulseIndex * 12 });
+        adicionarVfxPet("slash", cx + 24, cy - 24, "#e5e7eb", { x2: cx + 320, y2: cy + 24, size: 320, label: "CORTE" });
+    for (const enemy of enemiesRef.current) {
           const dist = Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy);
           if (enemy.hp > 0 && dist < radius && hit < 10) {
-            aplicarDanoInimigoEspecial(enemy, pulseIndex === 2 ? 7 : 4, pulseIndex === 2 ? "#fb923c" : "#fdba74", pulseIndex === 2);
-            enemy.vx += 0.9 + pulseIndex * 0.35;
-            enemy.vy += pulseIndex === 1 ? -0.22 : 0;
+            aplicarDanoInimigoEspecial(enemy, pulseIndex === 2 ? 8 : 4.5, pulseIndex === 2 ? "#fb923c" : "#fdba74", pulseIndex === 2);
+            enemy.vx += 1.05 + pulseIndex * 0.35;
+            enemy.vy += pulseIndex === 1 ? -0.34 : -0.08;
             hit += 1;
           }
         }
         if (bossRef.current.active && bossRef.current.hp > 0 && Math.abs((bossRef.current.x + bossRef.current.w / 2) - cx) < 560) {
-          aplicarDanoBossEspecial(pulseIndex === 2 ? 16 : 9, "#f97316", pulseIndex === 2);
+          aplicarDanoBossEspecial(pulseIndex === 2 ? 18 : 10, "#f97316", pulseIndex === 2);
         }
         shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius, life: 150, maxLife: 150 });
         criarParticulasHit(cx, cy - 8, pulseIndex === 2 ? "#f97316" : "#fdba74", mobileRuntimeRef.current ? 3 : 6);
       }, delay);
     });
-    limparInimigosMortosEspecial();
+    window.setTimeout(limparInimigosMortosEspecial, 620);
     criarExplosao(cx, cy, "#f97316", mobileRuntimeRef.current ? 7 : 14);
     spawnTokenPatternPetEspecial(slot, mobileRuntimeRef.current ? 11 : 15, "#f59e0b");
     tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.petActivate, remote ? 0.2 : 0.34, "sfx");
-    if (!remote) mostrarMensagemPet("SALTADOR RUBRO: 3 QUICADAS", "#f97316");
+    if (!remote) mostrarMensagemPet("SALTADOR RUBRO: TRIPLO PISÃO", "#f97316");
     return true;
   }
 
@@ -6491,6 +6702,7 @@ export default function JogoPage() {
         if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(pulseIndex === 2 ? 12 : 7, pulseIndex === 2 ? "#d8b4fe" : "#c084fc");
         shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius, life: 180, maxLife: 180 });
         criarParticulasHit(cx, cy, pulseIndex === 2 ? "#d8b4fe" : "#c084fc", mobileRuntimeRef.current ? 3 : 7);
+        adicionarVfxPet("portal", cx, cy, pulseIndex === 2 ? "#d8b4fe" : "#c084fc", { size: radius * 0.35, label: pulseIndex === 0 ? "PORTAL" : undefined });
       }, delay);
     });
     limparInimigosMortosEspecial();
@@ -6528,19 +6740,27 @@ export default function JogoPage() {
       label = "BOBO CAÓTICO: CARTAS";
       color = "#f472b6";
       const targets = enemiesRef.current.filter((enemy) => enemy.hp > 0).sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)).slice(0, 10);
-      targets.forEach((enemy, i) => window.setTimeout(() => aplicarDanoInimigoEspecial(enemy, i % 3 === 2 ? 9 : 5, i % 2 ? "#f472b6" : "#facc15", i % 3 === 2), i * 45));
-      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(24, "#f472b6", true);
+      targets.forEach((enemy, i) => window.setTimeout(() => {
+        adicionarVfxPet("cards", enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, i % 2 ? "#f472b6" : "#facc15", { size: 34 });
+        aplicarDanoInimigoEspecial(enemy, i % 3 === 2 ? 9 : 5, i % 2 ? "#f472b6" : "#facc15", i % 3 === 2);
+      }, i * 70));
+      if (bossRef.current.active && bossRef.current.hp > 0) {
+        adicionarVfxPet("cards", bossRef.current.x + bossRef.current.w * 0.4, bossRef.current.y + bossRef.current.h * 0.45, "#f472b6", { size: 70, label: "CARTAS" });
+        aplicarDanoBossEspecial(24, "#f472b6", true);
+      }
     } else if (roll < 0.52) {
       label = "BOBO CAÓTICO: PRESENTE";
       color = "#facc15";
       player.hp = Math.min(vidaMaximaLocal(), player.hp + 1);
       if (slot === slotLocalOnline()) setPlayerHp(player.hp);
       else if (slot === slotVisualPlayer2Online()) setPlayer2Hp(player.hp);
+      adicionarVfxPet("burst", cx, cy, "#facc15", { size: 74, label: "+1 HP" });
       spawnTokenPatternPetEspecial(slot, mobileRuntimeRef.current ? 9 : 13, "#facc15");
       if (randomFloat() < 0.65) spawnPowerUp(randomFloat() < 0.5 ? "fireRate" : "randomBox", Math.min(CONFIG.canvasWidth - 110, cx + 80), clamp(cy - 18, 80, CONFIG.canvasHeight - 92), false);
     } else if (roll < 0.78) {
       label = "BOBO CAÓTICO: CONFUSÃO";
       color = "#a78bfa";
+      adicionarVfxPet("confusion", cx + 80, cy, "#a78bfa", { size: 112, label: "CONFUSÃO" });
       for (const enemy of enemiesRef.current) {
         if (enemy.hp <= 0) continue;
         const dist = Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy);
@@ -6558,8 +6778,10 @@ export default function JogoPage() {
       player.hp = Math.max(1, player.hp - 1);
       if (slot === slotLocalOnline()) setPlayerHp(player.hp);
       else if (slot === slotVisualPlayer2Online()) setPlayer2Hp(player.hp);
+      adicionarVfxPet("burst", cx, cy, "#fb7185", { size: 80, label: "AZAR" });
       spawnTokenPatternPetEspecial(slot, mobileRuntimeRef.current ? 12 : 16, "#fb7185");
       for (const enemy of enemiesRef.current.slice(0, mobileRuntimeRef.current ? 5 : 8)) {
+        adicionarVfxPet("burst", enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, "#fb7185", { size: 42 });
         aplicarDanoInimigoEspecial(enemy, 6, "#fb7185", true);
       }
       if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(18, "#fb7185", true);
@@ -7008,6 +7230,9 @@ export default function JogoPage() {
       }
       definirCooldownPet(cooldownMs);
       desbloquearConquistaPerfil("pet-power");
+    if (petId === "pet-tundra") desbloquearConquistaPerfil("pet-tundra");
+    if (petId === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
+    if (petId === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
     } else {
       const readyAt = petSkillReadyAtRef.current[key] || 0;
       if (now < readyAt) return false;
@@ -7119,6 +7344,9 @@ export default function JogoPage() {
       window.setTimeout(() => { mobilePetPressedRef.current = false; enviarInputOnlineAtual(true); }, 180);
       mostrarMensagemPet("ESPECIAL ENVIADO", "#93c5fd");
       desbloquearConquistaPerfil("pet-power");
+    if (petId === "pet-tundra") desbloquearConquistaPerfil("pet-tundra");
+    if (petId === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
+    if (petId === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
       return;
     }
     // v2.4.3: Together online não tem host de gameplay. A habilidade do pet roda localmente
@@ -7141,6 +7369,9 @@ export default function JogoPage() {
     const cy = player.y + player.h / 2;
     definirCooldownPet(cooldownHabilidadePetMs(pet.id));
     desbloquearConquistaPerfil("pet-power");
+    if (petId === "pet-tundra") desbloquearConquistaPerfil("pet-tundra");
+    if (petId === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
+    if (petId === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
     tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, 0.28, "sfx");
     destacarEspecialPet(pet.id, pet.name.replace(/^Pet\s+/i, ""), pet.id === "pet-tundra" ? "#bfdbfe" : pet.id === "pet-blue-comet" ? "#fde047" : pet.id === "pet-red-jumper" ? "#f97316" : pet.id === "pet-milky-way" ? "#c084fc" : pet.id === "pet-chaos-jester" ? "#f472b6" : "#facc15");
 
@@ -7547,9 +7778,19 @@ export default function JogoPage() {
         if (player.profileSummary?.equipped) onlineCosmeticsBySlotRef.current[player.slot as PlayerSlot] = player.profileSummary.equipped;
         if (player.profileColor || player.profileSummary?.color) onlineProfileColorBySlotRef.current[player.slot as PlayerSlot] = player.profileColor || player.profileSummary?.color || "";
       }
+      if (player.profileSummary) registrarResumoPerfilNoIndice(player.profileSummary);
+      else if (player.id || player.name) {
+        registrarResumoPerfilNoIndice({
+          id: player.id,
+          name: player.name,
+          color: player.profileColor,
+          friendCode: player.profileSummary?.friendCode,
+          equipped: player.cosmetics,
+        });
+      }
     });
     if (onlineConnectedRef.current) desbloquearConquistaPerfil("first-online-room");
-    if (players.length >= 2 && players.some((player: OnlinePlayer) => SPACE_NEWS_CREATOR_NAME_RE.test(player.name || ""))) {
+    if (players.length >= 2 && players.some((player: OnlinePlayer) => /^NINICK$/i.test(player.name || player.profileSummary?.name || ""))) {
       desbloquearConquistaPerfil("creator-match");
     }
     setOnlineCanStart(Boolean(msg.canStart));
@@ -9781,6 +10022,7 @@ export default function JogoPage() {
     particlesRef.current = [];
     damageNumbersRef.current = [];
     shockwavesRef.current = [];
+    petVisualFxRef.current = [];
     bossProjectilesRef.current = [];
     powerUpsRef.current = [];
     pararTodosPowerUpTrails();
@@ -11951,6 +12193,7 @@ export default function JogoPage() {
       bossWave: false,
       message: "SINAL HOSTIL ELIMINADO",
     });
+    desbloquearConquistaPerfil("story-clear");
     prepararFakeNewsFinal();
     tocarSom(
       CONFIG.sounds.fakeNewsIntercepted ||
@@ -12091,6 +12334,9 @@ export default function JogoPage() {
       : CONFIG.gameplay.storyWaves;
 
     if (!wave.active) {
+      if (isStory && (bossRef.current.defeated || gameStateRef.current === "victory") && wave.wave >= CONFIG.gameplay.storyWaves.bossWave) {
+        return;
+      }
       if (wave.nextWaveAt > 0 && now >= wave.nextWaveAt) {
         if (onlineTogetherCoordenado() && !souAutoridadeMundoOnlineTogether()) return;
         if (isStory) {
@@ -13558,12 +13804,15 @@ export default function JogoPage() {
           const applied = Math.min(damage, Math.max(0, boss.hp));
           boss.hp -= damage;
           carregarBoostPorDano(applied);
+          const hitFxX = baseX + dir.x * Math.min(range, bestForward);
+          const hitFxY = baseY + dir.y * Math.min(range, bestForward);
           criarParticulasHit(
-            baseX + dir.x * Math.min(range, bestForward),
-            baseY + dir.y * Math.min(range, bestForward),
+            hitFxX,
+            hitFxY,
             powerActive ? "#ffb703" : "#ff7a18",
             4,
           );
+          criarNumeroDano(hitFxX, hitFxY, applied, powerActive ? "#ffcf57" : "#ffb36a", powerActive);
           if (boss.hp <= 0) boss.hp = 0;
         }
       }
@@ -15010,6 +15259,9 @@ export default function JogoPage() {
         fallbackColor,
         getStretchSettings("enemy").multiplier,
         getStretchPulse(enemy.stretchUntil, "enemy"),
+        false,
+        (enemy.frozenUntil ?? 0) > performance.now() ? "#9adfff" : undefined,
+        (enemy.frozenUntil ?? 0) > performance.now() ? 0.32 : 0,
       );
 
       if (enemy.kind !== "fragment") {
@@ -16049,12 +16301,15 @@ export default function JogoPage() {
               const dano = CONFIG.gameplay.boss.chocado.servoReturnDamage;
               bossRef.current.hp = Math.max(0, bossRef.current.hp - dano);
               carregarBoostPorDano(dano);
+              const servoHitX = projectile.x + projectile.w / 2;
+              const servoHitY = projectile.y + projectile.h / 2;
               criarExplosao(
-                projectile.x + projectile.w / 2,
-                projectile.y + projectile.h / 2,
+                servoHitX,
+                servoHitY,
                 "#ffb703",
                 14,
               );
+              criarNumeroDano(servoHitX, servoHitY, dano, "#ffe18c", true);
               tocarSom(CONFIG.sounds.enemyHit, 0.35, "hit");
               return false;
             }
@@ -17876,6 +18131,7 @@ export default function JogoPage() {
             tentarSpawnPowerUp(hitX, hitY, true);
             shotsToRemove.add(shot.id);
             criarParticulasHit(hitX, hitY, "#ffe18c", 10);
+            criarNumeroDano(hitX, hitY, danoAplicadoBoss, shot.type === "strong" ? "#ffd36b" : "#fff1a8", shot.type === "strong");
             tocarSom(CONFIG.sounds.enemyHit, 0.25, "hit");
             if (shot.type === "strong") {
               aplicarShockwaveDeTiroForte(hitX, hitY);
@@ -17906,6 +18162,7 @@ export default function JogoPage() {
           carregarBoostPorDano(danoBoostBoss);
           tentarSpawnPowerUp(bossHitbox.x, hitCenterY, true);
           criarExplosao(bossHitbox.x, hitCenterY, "#fb8500", 18);
+          criarNumeroDano(bossHitbox.x + bossHitbox.w * 0.2, hitCenterY, danoBoostBoss, "#ffb86b", true);
           tocarSom(CONFIG.sounds.boostHit, 0.45, "hit");
           aplicarShockwaveDeTiroForte(bossHitbox.x, hitCenterY);
         }
@@ -18150,6 +18407,7 @@ export default function JogoPage() {
         atualizarCutsceneChocado(delta);
         atualizarParticulas(delta);
         atualizarShockwaves(delta);
+      limparVfxPet();
         atualizarPowerUpUi();
         setIsLowHp(false);
         return;
@@ -18193,6 +18451,7 @@ export default function JogoPage() {
         tokensRef.current = tokensRef.current.map((t) => ({ ...t, age: t.age + delta, x: t.x + t.vx * sf, y: t.y + Math.sin((t.age + delta) * 0.01 + t.wavePhase) * 0.14 })).filter((t) => t.x > -70 && t.life > 0);
         atualizarParticulas(delta);
         atualizarShockwaves(delta);
+      limparVfxPet();
         atualizarPowerUpUi();
         setIsLowHp(false);
         return;
@@ -18228,6 +18487,7 @@ export default function JogoPage() {
         atualizarParticulas(delta);
         atualizarPowerUpUi();
         atualizarShockwaves(delta);
+      limparVfxPet();
         setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing");
         return;
       }
@@ -18669,6 +18929,7 @@ export default function JogoPage() {
       atualizarParticulas(delta);
       atualizarPowerUpUi();
       atualizarShockwaves(delta);
+      limparVfxPet();
       setIsLowHp(player.hp <= 1 && gameStateRef.current === "playing" && !isLocalMode());
     }
 
@@ -18900,6 +19161,7 @@ export default function JogoPage() {
       }
       if (!reducedNow || CONFIG.settings.enableParticles)
         desenharShockwaves(renderCtx);
+      desenharVfxPets(renderCtx);
       desenharIndicadorMira(renderCtx);
       if (CONFIG.settings.enableParticles || !reducedNow)
         desenharParticulas(renderCtx);
@@ -21625,11 +21887,7 @@ export default function JogoPage() {
 
       {petFocus && (
         <div className="sn-pet-focus-v258" style={{ "--pet-focus-color": petFocus.color } as CSSProperties}>
-          <div>
-            <img src={assetUrl(petFocus.asset)} alt="" draggable={false} />
-            <strong>{petFocus.label}</strong>
-            <span>ESPECIAL ATIVADO</span>
-          </div>
+          <img src={assetUrl(petFocus.asset)} alt="" draggable={false} />
         </div>
       )}
 
