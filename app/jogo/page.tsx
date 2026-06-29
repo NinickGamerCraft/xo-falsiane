@@ -1751,7 +1751,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.7";
+const SPACE_NEWS_VERSION = "2.5.7c";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -20566,7 +20566,7 @@ export default function JogoPage() {
                     <button
                       type="button"
                       className="sn-squish-ui"
-                      onClick={salvarAmigosDaSalaOnline}
+                      onClick={() => salvarAmigosDaSalaOnline()}
                     >
                       + AMIGOS
                     </button>
