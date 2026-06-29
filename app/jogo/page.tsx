@@ -7778,15 +7778,19 @@ export default function JogoPage() {
         if (player.profileSummary?.equipped) onlineCosmeticsBySlotRef.current[player.slot as PlayerSlot] = player.profileSummary.equipped;
         if (player.profileColor || player.profileSummary?.color) onlineProfileColorBySlotRef.current[player.slot as PlayerSlot] = player.profileColor || player.profileSummary?.color || "";
       }
-      if (player.profileSummary) registrarResumoPerfilNoIndice(player.profileSummary);
-      else if (player.id || player.name) {
-        registrarResumoPerfilNoIndice({
-          id: player.id,
-          name: player.name,
-          color: player.profileColor,
-          friendCode: player.profileSummary?.friendCode,
-          equipped: player.cosmetics,
-        });
+      if (player.profileSummary) {
+        registrarResumoPerfilNoIndice(player.profileSummary);
+      } else if (player.id || player.name) {
+        const fallbackCode = formatarCodigoAmizadeInput(player.id || "") || formatarCodigoAmizadeInput(player.name || "");
+        if (fallbackCode) {
+          registrarResumoPerfilNoIndice({
+            id: player.id,
+            name: player.name,
+            color: player.profileColor,
+            friendCode: fallbackCode,
+            equipped: player.cosmetics,
+          });
+        }
       }
     });
     if (onlineConnectedRef.current) desbloquearConquistaPerfil("first-online-room");
