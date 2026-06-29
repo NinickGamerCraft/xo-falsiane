@@ -1718,7 +1718,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.1";
+const SPACE_NEWS_VERSION = "2.5.2";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -5593,16 +5593,12 @@ export default function JogoPage() {
   function desbloquearConquistaPerfil(id: string) {
     const current = localProfileRef.current;
     const now = Date.now();
-    let unlockedNow: LocalAchievement | null = null;
-    const achievements = normalizarConquistasPerfil(current.achievements).map((achievement) => {
-      if (achievement.id === id && !achievement.unlockedAt) {
-        unlockedNow = { ...achievement, unlockedAt: now };
-        return unlockedNow;
-      }
-      return achievement;
-    });
-    if (!unlockedNow) return;
-    salvarPerfilLocal({ ...current, achievements, updatedAt: now });
+    const achievements = normalizarConquistasPerfil(current.achievements);
+    const achievementIndex = achievements.findIndex((achievement) => achievement.id === id && !achievement.unlockedAt);
+    if (achievementIndex < 0) return;
+    const unlockedNow: LocalAchievement = { ...achievements[achievementIndex], unlockedAt: now };
+    const nextAchievements = achievements.map((achievement, index) => index === achievementIndex ? unlockedNow : achievement);
+    salvarPerfilLocal({ ...current, achievements: nextAchievements, updatedAt: now });
     mostrarPopupConquista(unlockedNow);
     adicionarNotificacaoPerfil("achievement", unlockedNow.title, unlockedNow.description, "achievements");
   }
@@ -5613,18 +5609,12 @@ export default function JogoPage() {
     const now = Date.now();
     let achievements = normalizarConquistasPerfil(current.achievements);
     function unlock(id: string) {
-      let unlockedNow: LocalAchievement | null = null;
-      achievements = achievements.map((achievement) => {
-        if (achievement.id === id && !achievement.unlockedAt) {
-          unlockedNow = { ...achievement, unlockedAt: now };
-          return unlockedNow;
-        }
-        return achievement;
-      });
-      if (unlockedNow) {
-        mostrarPopupConquista(unlockedNow);
-        adicionarNotificacaoPerfil("achievement", unlockedNow.title, unlockedNow.description, "achievements");
-      }
+      const achievementIndex = achievements.findIndex((achievement) => achievement.id === id && !achievement.unlockedAt);
+      if (achievementIndex < 0) return;
+      const unlockedNow: LocalAchievement = { ...achievements[achievementIndex], unlockedAt: now };
+      achievements = achievements.map((achievement, index) => index === achievementIndex ? unlockedNow : achievement);
+      mostrarPopupConquista(unlockedNow);
+      adicionarNotificacaoPerfil("achievement", unlockedNow.title, unlockedNow.description, "achievements");
     }
     if (current.tokens > 0 || nextStats.tokensCollected > 0) unlock("first-token");
     if (current.tokens >= 10 || nextStats.tokensCollected >= 10) unlock("ten-tokens");
@@ -6695,15 +6685,11 @@ export default function JogoPage() {
     };
     let achievements = normalizarConquistasPerfil(current.achievements);
     function unlockTokenAchievement(id: string) {
-      let unlockedNow: LocalAchievement | null = null;
-      achievements = achievements.map((item) => {
-        if (item.id === id && !item.unlockedAt) {
-          unlockedNow = { ...item, unlockedAt: now };
-          return unlockedNow;
-        }
-        return item;
-      });
-      if (unlockedNow) mostrarPopupConquista(unlockedNow);
+      const achievementIndex = achievements.findIndex((item) => item.id === id && !item.unlockedAt);
+      if (achievementIndex < 0) return;
+      const unlockedNow: LocalAchievement = { ...achievements[achievementIndex], unlockedAt: now };
+      achievements = achievements.map((item, index) => index === achievementIndex ? unlockedNow : item);
+      mostrarPopupConquista(unlockedNow);
     }
     if (nextTokens > 0 || nextStats.tokensCollected > 0) unlockTokenAchievement("first-token");
     if (nextTokens >= 10 || nextStats.tokensCollected >= 10) unlockTokenAchievement("ten-tokens");
