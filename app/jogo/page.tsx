@@ -7344,9 +7344,9 @@ export default function JogoPage() {
       window.setTimeout(() => { mobilePetPressedRef.current = false; enviarInputOnlineAtual(true); }, 180);
       mostrarMensagemPet("ESPECIAL ENVIADO", "#93c5fd");
       desbloquearConquistaPerfil("pet-power");
-    if (petId === "pet-tundra") desbloquearConquistaPerfil("pet-tundra");
-    if (petId === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
-    if (petId === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
+      if (pet.id === "pet-tundra") desbloquearConquistaPerfil("pet-tundra");
+      if (pet.id === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
+      if (pet.id === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
       return;
     }
     // v2.4.3: Together online não tem host de gameplay. A habilidade do pet roda localmente
@@ -7369,9 +7369,9 @@ export default function JogoPage() {
     const cy = player.y + player.h / 2;
     definirCooldownPet(cooldownHabilidadePetMs(pet.id));
     desbloquearConquistaPerfil("pet-power");
-    if (petId === "pet-tundra") desbloquearConquistaPerfil("pet-tundra");
-    if (petId === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
-    if (petId === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
+    if (pet.id === "pet-tundra") desbloquearConquistaPerfil("pet-tundra");
+    if (pet.id === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
+    if (pet.id === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
     tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, 0.28, "sfx");
     destacarEspecialPet(pet.id, pet.name.replace(/^Pet\s+/i, ""), pet.id === "pet-tundra" ? "#bfdbfe" : pet.id === "pet-blue-comet" ? "#fde047" : pet.id === "pet-red-jumper" ? "#f97316" : pet.id === "pet-milky-way" ? "#c084fc" : pet.id === "pet-chaos-jester" ? "#f472b6" : "#facc15");
 
