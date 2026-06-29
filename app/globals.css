@@ -20969,3 +20969,434 @@ button.sn-hud-resource-chip-v250.is-cooling { opacity: .8; filter: grayscale(.25
     backdrop-filter: blur(8px);
   }
 }
+
+/* Space News v2.5.5 — mobile shop/profile parity fix
+   Mantém o mesmo visual do PC em telas pequenas: modal centralizado,
+   preview visível, cards verticais e scroll interno controlado. */
+@media (max-width: 860px), (max-height: 540px) {
+  .sn-shop-backdrop-v250,
+  .sn-profile-backdrop-v250,
+  .sn-online-profile-backdrop-v250 {
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    padding: max(8px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)) !important;
+  }
+
+  .sn-shop-manager-v250,
+  .sn-profile-manager-v250 {
+    width: min(1180px, calc(100vw - 12px)) !important;
+    height: min(92dvh, 760px) !important;
+    min-height: 0 !important;
+    max-height: min(92dvh, 760px) !important;
+    overflow: hidden !important;
+    border-radius: clamp(16px, 3vw, 24px) !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+  }
+
+  .sn-shop-header-v250,
+  .sn-profile-header-v250 {
+    position: relative !important;
+    top: auto !important;
+    z-index: 2 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto auto !important;
+    gap: 8px !important;
+    align-items: center !important;
+    padding: 10px 11px !important;
+    backdrop-filter: none !important;
+  }
+
+  .sn-profile-header-v250 {
+    grid-template-columns: auto minmax(0, 1fr) auto auto !important;
+  }
+
+  .sn-shop-brand-v250 h2,
+  .sn-profile-header-v250 h2 {
+    font-size: clamp(17px, 5vw, 28px) !important;
+    line-height: 1 !important;
+  }
+
+  .sn-shop-brand-v250 p,
+  .sn-profile-header-v250 p {
+    max-width: none !important;
+    font-size: 10px !important;
+    line-height: 1.22 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+  }
+
+  .sn-shop-wallet-v250,
+  .sn-profile-header-stats-v250 {
+    display: flex !important;
+  }
+
+  .sn-shop-wallet-v250 {
+    min-width: 76px !important;
+    padding: 7px 8px !important;
+    border-radius: 14px !important;
+  }
+
+  .sn-shop-wallet-v250 strong {
+    font-size: 17px !important;
+    line-height: 1 !important;
+  }
+
+  .sn-shop-wallet-v250 small {
+    font-size: 7px !important;
+  }
+
+  .sn-shop-close-v250,
+  .sn-profile-header-v250 > button,
+  .sn-online-profile-card-v250 > header > button {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 12px !important;
+    font-size: 22px !important;
+  }
+
+  .sn-shop-layout-v250 {
+    display: grid !important;
+    grid-template-columns: minmax(118px, 34%) minmax(0, 1fr) !important;
+    gap: 10px !important;
+    padding: 10px !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    max-height: none !important;
+  }
+
+  .sn-shop-preview-panel-v250 {
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    padding: 10px !important;
+    overflow: hidden !important;
+  }
+
+  .sn-shop-orbit-stage-v250 {
+    min-height: clamp(112px, 27dvh, 180px) !important;
+    border-radius: 16px !important;
+  }
+
+  .sn-shop-orbit-ring-v250 {
+    width: clamp(96px, 24vw, 160px) !important;
+    height: clamp(96px, 24vw, 160px) !important;
+  }
+
+  .sn-shop-ship-preview-v250,
+  .sn-profile-ship-preview-v250 {
+    width: clamp(116px, 26vw, 180px) !important;
+    height: clamp(84px, 19vw, 130px) !important;
+    transform: none !important;
+  }
+
+  .sn-shop-preview-pet-v250 {
+    width: clamp(34px, 8vw, 52px) !important;
+    height: clamp(34px, 8vw, 52px) !important;
+    left: -16px !important;
+    bottom: 1px !important;
+  }
+
+  .sn-shop-preview-copy-v250 {
+    margin-top: 9px !important;
+  }
+
+  .sn-shop-preview-copy-v250 strong {
+    font-size: clamp(12px, 3vw, 16px) !important;
+    line-height: 1.15 !important;
+  }
+
+  .sn-shop-preview-copy-v250 small {
+    font-size: 9px !important;
+    line-height: 1.25 !important;
+  }
+
+  .sn-shop-stat-grid-v250 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    margin-top: 9px !important;
+  }
+
+  .sn-shop-stat-grid-v250 span {
+    padding: 7px 5px !important;
+    border-radius: 11px !important;
+  }
+
+  .sn-shop-stat-grid-v250 b {
+    font-size: 13px !important;
+  }
+
+  .sn-shop-stat-grid-v250 small {
+    font-size: 7px !important;
+  }
+
+  .sn-shop-equipped-v250 {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+    margin-top: 9px !important;
+    min-height: 0 !important;
+    overflow: auto !important;
+    padding-right: 2px !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .sn-shop-equipped-v250 article {
+    padding: 7px !important;
+    border-radius: 11px !important;
+  }
+
+  .sn-shop-equipped-v250 span {
+    font-size: 8px !important;
+  }
+
+  .sn-shop-equipped-v250 strong {
+    font-size: 10px !important;
+    line-height: 1.1 !important;
+  }
+
+  .sn-shop-equipped-v250 button {
+    padding: 4px 7px !important;
+    font-size: 10px !important;
+  }
+
+  .sn-shop-store-panel-v250 {
+    display: grid !important;
+    grid-template-rows: auto auto minmax(0, 1fr) !important;
+    gap: 8px !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    padding: 10px !important;
+  }
+
+  .sn-shop-toolbar-v250,
+  .sn-shop-tabs-v250 {
+    position: relative !important;
+    top: auto !important;
+    z-index: 1 !important;
+    background: transparent !important;
+    border-radius: 0 !important;
+  }
+
+  .sn-shop-toolbar-v250 {
+    display: grid !important;
+    grid-template-columns: auto minmax(86px, 1fr) minmax(86px, 120px) !important;
+    gap: 7px !important;
+    align-items: end !important;
+  }
+
+  .sn-shop-mode-tabs-v250,
+  .sn-shop-tabs-v250 {
+    gap: 5px !important;
+    flex-wrap: wrap !important;
+  }
+
+  .sn-shop-mode-tabs-v250 button,
+  .sn-shop-tabs-v250 button {
+    padding: 7px 8px !important;
+    border-radius: 11px !important;
+    font-size: 10px !important;
+    min-width: 0 !important;
+  }
+
+  .sn-shop-search-v250,
+  .sn-shop-filter-v250 {
+    gap: 3px !important;
+    font-size: 7px !important;
+  }
+
+  .sn-shop-search-v250 input,
+  .sn-shop-filter-v250 select {
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 8px 8px !important;
+    border-radius: 11px !important;
+    font-size: 10px !important;
+  }
+
+  .sn-shop-tabs-v250 {
+    margin: 0 !important;
+    padding-bottom: 1px !important;
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .sn-shop-tabs-v250 button {
+    flex: 0 0 auto !important;
+    min-width: 84px !important;
+    grid-template-columns: 1fr auto !important;
+  }
+
+  .sn-shop-grid-v250 {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)) !important;
+    gap: 8px !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding-right: 3px !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .sn-shop-card-v250 {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: clamp(66px, 15dvh, 88px) minmax(0, 1fr) auto !important;
+    gap: 7px !important;
+    padding: 8px !important;
+    border-radius: 14px !important;
+    align-items: stretch !important;
+  }
+
+  .sn-shop-card-v250 > button {
+    grid-column: auto !important;
+    padding: 8px 7px !important;
+    border-radius: 10px !important;
+    font-size: 9px !important;
+  }
+
+  .sn-shop-card-art-v250 {
+    min-height: 0 !important;
+    border-radius: 11px !important;
+  }
+
+  .sn-shop-card-art-v250 img {
+    max-width: 70px !important;
+    max-height: 60px !important;
+  }
+
+  .sn-shop-card-art-v250 i,
+  .sn-shop-card-art-v250 b {
+    top: 5px !important;
+    padding: 2px 5px !important;
+    font-size: 6px !important;
+  }
+
+  .sn-shop-card-info-v250 strong {
+    font-size: 12px !important;
+    line-height: 1.12 !important;
+  }
+
+  .sn-shop-card-info-v250 p {
+    min-height: 0 !important;
+    margin: 4px 0 !important;
+    font-size: 9px !important;
+    line-height: 1.22 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 3 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+  }
+
+  .sn-shop-card-info-v250 em {
+    font-size: 8px !important;
+    line-height: 1.2 !important;
+  }
+
+  .sn-shop-pet-info-v253 {
+    gap: 4px !important;
+    margin-top: 5px !important;
+  }
+
+  .sn-shop-pet-info-v253 span {
+    padding: 5px !important;
+    border-radius: 8px !important;
+    font-size: 8px !important;
+    line-height: 1.15 !important;
+  }
+
+  .sn-shop-pet-info-v253 b {
+    font-size: 7px !important;
+  }
+
+  .sn-profile-body-v250 {
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: auto !important;
+    padding: 10px !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .sn-profile-overview-v250 {
+    display: grid !important;
+    grid-template-columns: minmax(130px, .85fr) minmax(160px, 1.15fr) minmax(130px, .9fr) !important;
+    gap: 8px !important;
+    min-width: min(680px, calc(100vw - 32px)) !important;
+  }
+
+  .sn-profile-card-v250 {
+    padding: 10px !important;
+    border-radius: 16px !important;
+    min-width: 0 !important;
+  }
+
+  .sn-profile-card-v250.is-wide {
+    min-height: 0 !important;
+  }
+
+  .sn-profile-card-v250 h3 {
+    margin-bottom: 8px !important;
+    font-size: 11px !important;
+  }
+
+  .sn-profile-loadout-grid-v250 {
+    display: grid !important;
+    grid-template-columns: minmax(96px, 150px) minmax(0, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .sn-achievements-v250,
+  .sn-profile-list-v250,
+  .sn-profile-notifications-v250 {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .sn-profile-friend-add-v250 {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+  }
+
+  .sn-profile-footer-v250 {
+    position: relative !important;
+    bottom: auto !important;
+    z-index: 2 !important;
+    padding: 9px 11px !important;
+    background: rgba(7, 6, 10, .96) !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (max-width: 430px) and (orientation: portrait) {
+  .sn-shop-layout-v250 {
+    grid-template-columns: minmax(104px, 32%) minmax(0, 1fr) !important;
+    gap: 7px !important;
+    padding: 7px !important;
+  }
+
+  .sn-shop-toolbar-v250 {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sn-shop-grid-v250 {
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)) !important;
+  }
+
+  .sn-shop-card-info-v250 p {
+    -webkit-line-clamp: 2 !important;
+  }
+
+  .sn-profile-header-stats-v250 {
+    display: none !important;
+  }
+
+  .sn-profile-overview-v250 {
+    min-width: 620px !important;
+  }
+}
