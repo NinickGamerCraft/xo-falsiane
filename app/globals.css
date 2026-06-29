@@ -16294,7 +16294,6 @@ body.reduce-motion .game-pause-card button {
 .sn-device-picker strong { white-space: nowrap; }
 .sn-online-player-card-v3 em { color: rgba(224,242,254,.72); font-size: .66rem; }
 .sn-online-player-card-v3.is-you { box-shadow: 0 0 0 2px rgba(255,255,255,.5), 0 0 1.3rem var(--player-color, #60a5fa); }
-.sn-online-player-card-v3 em:contains("HOST") { color: #fde68a; }
 
 .sn-online-pause-toast {
   position: fixed;

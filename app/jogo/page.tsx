@@ -1718,7 +1718,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.0";
+const SPACE_NEWS_VERSION = "2.5.1";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
