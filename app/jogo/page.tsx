@@ -403,6 +403,7 @@ type Enemy = {
   alienTrailTimer?: number;
   alienBeamWidth?: number;
   alienBeamHeight?: number;
+  frozenUntil?: number;
   tilt?: number;
   knockedBack?: boolean;
   knockedAt?: number;
@@ -628,6 +629,15 @@ type LocalProfileRegistryEntry = {
   achievementsTotal: number;
   equipped: EquippedCosmetics;
   stats: Partial<LocalProfileStats>;
+};
+
+type PetFocusState = {
+  id: number;
+  petId: string;
+  label: string;
+  asset: string;
+  color: string;
+  until: number;
 };
 
 type OnlineEventOverlayState = {
@@ -1751,7 +1761,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.7c";
+const SPACE_NEWS_VERSION = "2.5.8";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2450,7 +2460,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260629-v257-accessory-profile-friends";
+const ASSET_VERSION = "space-news-20260629-v258-pet-friends-story-accessories";
 const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
@@ -3152,10 +3162,15 @@ function criarCodigoAmizadeLocal(id = "") {
 }
 
 function formatarCodigoAmizadeInput(value: string) {
-  const raw = String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  const raw = String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!raw) return "";
   const clean = raw.startsWith("SN") ? raw.slice(2) : raw;
-  return `SN-${clean.slice(0, 6)}`;
+  const compact = clean.replace(/^0+/, "").slice(0, 10);
+  return compact ? `SN-${compact}` : "";
+}
+
+function codigoAmizadeValido(value: string) {
+  return /^SN-[A-Z0-9]{3,10}$/.test(formatarCodigoAmizadeInput(value));
 }
 
 function criarStatsPerfilPadrao(): LocalProfileStats {
@@ -3240,7 +3255,7 @@ function carregarPerfilLocalInicial(): LocalProfile {
       id,
       name: String(parsed.name || fallback.name).slice(0, 16),
       color: PROFILE_COLOR_OPTIONS.includes(String(parsed.color)) ? String(parsed.color) : fallback.color,
-      friendCode: String(parsed.friendCode || criarCodigoAmizadeLocal(id)).slice(0, 16),
+      friendCode: formatarCodigoAmizadeInput(String(parsed.friendCode || criarCodigoAmizadeLocal(id))),
       tokens: Math.max(0, Math.floor(Number(parsed.tokens ?? 0))),
       friends: Array.isArray(parsed.friends) ? parsed.friends.slice(0, 60).map((friend) => ({ ...friend, status: friend.status || "accepted" })) as LocalFriend[] : [],
       friendRequests: Array.isArray(parsed.friendRequests)
@@ -3505,6 +3520,7 @@ export default function JogoPage() {
   const [profileManagerOpen, setProfileManagerOpen] = useState(false);
   const [profileActiveTab, setProfileActiveTab] = useState<ProfileTab>("overview");
   const [selectedOnlineProfileSlot, setSelectedOnlineProfileSlot] = useState<number | null>(null);
+  const [selectedFriendProfile, setSelectedFriendProfile] = useState<OnlineProfileSummary | null>(null);
   const [shopManagerOpen, setShopManagerOpen] = useState(false);
   const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
   const [shopTab, setShopTab] = useState<ShopSlot>("front");
@@ -3513,6 +3529,8 @@ export default function JogoPage() {
   const [shopRarityFilter, setShopRarityFilter] = useState<ShopRarityFilter>("all");
   const [shopPreviewItemId, setShopPreviewItemId] = useState<string>("");
   const [petAbilityCooldownUi, setPetAbilityCooldownUi] = useState(0);
+  const [petFocus, setPetFocus] = useState<PetFocusState | null>(null);
+  const petFocusIdRef = useRef(0);
   const [pingBoardOpen, setPingBoardOpen] = useState(false);
   const [profileToast, setProfileToast] = useState("");
   const [achievementPopup, setAchievementPopup] = useState<LocalAchievement | null>(null);
@@ -5749,7 +5767,7 @@ export default function JogoPage() {
   function resumoPerfilPorCodigoAmizade(codeRaw: string): (OnlineProfileSummary & { onlineSlot?: number }) | null {
     const code = formatarCodigoAmizadeInput(codeRaw);
     if (!code) return null;
-    const onlinePlayer = onlinePlayers.find((player) => formatarCodigoAmizadeInput(player.profileSummary?.friendCode || "") === code);
+    const onlinePlayer = onlinePlayers.find((player) => formatarCodigoAmizadeInput(player.profileSummary?.friendCode || "") === code || formatarCodigoAmizadeInput(player.id || "") === code);
     if (onlinePlayer) {
       return {
         ...(onlinePlayer.profileSummary || {}),
@@ -5823,6 +5841,21 @@ export default function JogoPage() {
     return true;
   }
 
+  function abrirPerfilAmigo(friend: LocalFriend) {
+    const code = formatarCodigoAmizadeInput(friend.code || friend.id || "");
+    const summary = resumoPerfilPorCodigoAmizade(code) || {
+      id: friend.profileId || friend.id,
+      name: friend.name,
+      color: friend.color || "#60a5fa",
+      friendCode: code || friend.code || friend.id,
+      friendsCount: 0,
+      achievementsUnlocked: 0,
+      achievementsTotal: normalizarConquistasPerfil(localProfileRef.current.achievements).length,
+      stats: {},
+    };
+    setSelectedFriendProfile(summary);
+  }
+
   function mostrarPopupConquista(achievement: LocalAchievement) {
     setAchievementPopup(achievement);
     if (achievementPopupTimerRef.current !== null) window.clearTimeout(achievementPopupTimerRef.current);
@@ -5872,13 +5905,28 @@ export default function JogoPage() {
 
   function adicionarPedidoAmizadeLocal(codeRaw: string) {
     const code = formatarCodigoAmizadeInput(codeRaw);
-    if (!code || code === localProfileRef.current.friendCode) {
-      mostrarToastPerfil("Código inválido.");
+    const myCode = formatarCodigoAmizadeInput(localProfileRef.current.friendCode);
+    if (!codigoAmizadeValido(code)) {
+      mostrarToastPerfil("Código inválido. Use algo tipo SN-ABC123.");
+      return;
+    }
+    if (code === myCode) {
+      mostrarToastPerfil("Esse é o seu próprio código.");
       return;
     }
     const current = localProfileRef.current;
-    if (current.friends.some((friend) => friend.code === code || friend.id === code) || current.friendRequests.some((request) => request.code === code)) {
+    if (current.friends.some((friend) => friend.code === code || friend.id === code)) {
       mostrarToastPerfil("Esse código já está na sua lista.");
+      return;
+    }
+    const received = current.friendRequests.find((request) => request.code === code && request.direction === "received");
+    if (received) {
+      aceitarPedidoAmizadeLocal(received.id);
+      mostrarToastPerfil(`Pedido mútuo aceito: ${received.name}`);
+      return;
+    }
+    if (current.friendRequests.some((request) => request.code === code)) {
+      mostrarToastPerfil("Pedido já enviado para esse código.");
       return;
     }
     const found = resumoPerfilPorCodigoAmizade(code);
@@ -6199,6 +6247,23 @@ export default function JogoPage() {
     criarParticulasHit(playerRef.current.x + playerRef.current.w / 2, playerRef.current.y + playerRef.current.h / 2, color, 8);
   }
 
+  function destacarEspecialPet(petId: string, label: string, color = "#facc15") {
+    const pet = itemShopPorId(petId);
+    const asset = pet?.asset || CONFIG.uiImages.mobilePet;
+    const focus: PetFocusState = {
+      id: ++petFocusIdRef.current,
+      petId,
+      label,
+      asset,
+      color,
+      until: performance.now() + 1350,
+    };
+    setPetFocus(focus);
+    window.setTimeout(() => {
+      setPetFocus((current) => current?.id === focus.id ? null : current);
+    }, 1420);
+  }
+
 
 
   function criarNumeroDano(x: number, y: number, value: number, color = "#fff1a8", crit = false) {
@@ -6312,44 +6377,58 @@ export default function JogoPage() {
     const player = playerPorSlotOnline(slot) || playerRef.current;
     const cx = player.x + player.w / 2;
     const cy = player.y + player.h / 2;
+    const now = performance.now();
     const targets = enemiesRef.current
-      .filter((enemy) => enemy.hp > 0 && enemy.x > -40 && enemy.x < CONFIG.canvasWidth + 110 && enemy.y > -40 && enemy.y < CONFIG.canvasHeight + 70)
+      .filter((enemy) => enemy.hp > 0 && enemy.x > -60 && enemy.x < CONFIG.canvasWidth + 140 && enemy.y > -60 && enemy.y < CONFIG.canvasHeight + 90)
       .sort((a, b) => Math.hypot(a.x + a.w / 2 - cx, a.y + a.h / 2 - cy) - Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy))
       .slice(0, mobileRuntimeRef.current ? 8 : 12);
     const hits = [2, 2, 4];
     const bossHits = [15, 15, 30];
+    const delays = [0, 520, 1040];
     const colors = ["#dbeafe", "#93c5fd", "#67e8f9"];
-    targets.forEach((enemy, index) => {
-      enemy.vx *= 0.04;
-      enemy.vy *= 0.04;
-      enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 2300);
-      enemy.stretchUntil = performance.now() + 460;
+    for (const enemy of targets) {
+      enemy.frozenUntil = now + 1550;
+      enemy.vx = 0;
+      enemy.vy = 0;
+      enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 2600);
+      enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 1550);
+      enemy.redHoldY = enemy.y;
+      enemy.stretchUntil = now + 620;
       const ex = enemy.x + enemy.w / 2;
       const ey = enemy.y + enemy.h / 2;
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: ex, y: ey, radius: 34, life: 760, maxLife: 760 });
+      criarParticulasHit(ex, ey, "#dbeafe", mobileRuntimeRef.current ? 4 : 9);
       hits.forEach((damage, hitIndex) => {
         window.setTimeout(() => {
-          shockwavesRef.current.push({ id: enemyIdRef.current++, x: ex, y: ey, radius: 42 + hitIndex * 18, life: 120, maxLife: 120 });
-          criarParticulasHit(ex, ey, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 3 : 6);
+          if (enemy.hp <= 0) return;
+          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, performance.now() + 430);
+          enemy.vx = 0;
+          enemy.vy = 0;
+          enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 430);
+          enemy.redHoldY = enemy.y;
+          shockwavesRef.current.push({ id: enemyIdRef.current++, x: ex, y: ey, radius: 54 + hitIndex * 22, life: 190, maxLife: 190 });
+          criarParticulasHit(ex, ey, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 5 : 10);
           aplicarDanoInimigoEspecial(enemy, damage, colors[hitIndex] || "#bfdbfe", hitIndex === 2);
-        }, hitIndex * 135 + index * 16);
+          tocarSom(CONFIG.sounds.playerDamage, hitIndex === 2 ? 0.22 : 0.14, "hit");
+        }, delays[hitIndex]);
       });
-    });
+    }
     if (bossRef.current.active && bossRef.current.hp > 0 && !bossRef.current.intro) {
       const bx = bossRef.current.x + bossRef.current.w / 2;
       const by = bossRef.current.y + bossRef.current.h / 2;
       bossHits.forEach((damage, hitIndex) => {
         window.setTimeout(() => {
-          shockwavesRef.current.push({ id: enemyIdRef.current++, x: bx, y: by, radius: 74 + hitIndex * 26, life: 140, maxLife: 140 });
-          criarParticulasHit(bx, by, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 4 : 8);
+          shockwavesRef.current.push({ id: enemyIdRef.current++, x: bx, y: by, radius: 86 + hitIndex * 32, life: 220, maxLife: 220 });
+          criarParticulasHit(bx, by, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 6 : 12);
           aplicarDanoBossEspecial(damage, colors[hitIndex] || "#bfdbfe", hitIndex === 2);
-        }, hitIndex * 150);
+        }, delays[hitIndex]);
       });
     }
-    window.setTimeout(limparInimigosMortosEspecial, 560);
-    shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 150, life: 320, maxLife: 320 });
-    criarExplosao(cx, cy, "#bfdbfe", mobileRuntimeRef.current ? 7 : 14);
+    window.setTimeout(limparInimigosMortosEspecial, 1480);
+    shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 190, life: 420, maxLife: 420 });
+    criarExplosao(cx, cy, "#bfdbfe", mobileRuntimeRef.current ? 8 : 18);
     tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, remote ? 0.22 : 0.36, "sfx");
-    if (!remote) mostrarMensagemPet("TUNDRA: 2 · 2 · 4", "#bfdbfe");
+    if (!remote) mostrarMensagemPet("TUNDRA: RAJADA GLACIAL", "#bfdbfe");
     return true;
   }
 
@@ -6924,7 +7003,7 @@ export default function JogoPage() {
     const cooldownMs = cooldownHabilidadePetMs(petId);
     if (!remote) {
       if (now < petAbilityCooldownUntilRef.current) {
-        mostrarMensagemPet(`PET: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
+        mostrarMensagemPet(`C EM COOLDOWN: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
         return false;
       }
       definirCooldownPet(cooldownMs);
@@ -6937,6 +7016,7 @@ export default function JogoPage() {
     const cx = player.x + player.w / 2;
     const cy = player.y + player.h / 2;
     tocarSom(petId === "pet-blue-comet" ? (CONFIG.sounds.petSuperSpark || CONFIG.sounds.petActivate) : (CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup), remote ? 0.22 : 0.34, "sfx");
+    if (!remote) destacarEspecialPet(petId, itemShopPorId(petId)?.name?.replace(/^Pet\s+/i, "") || "ESPECIAL", petId === "pet-tundra" ? "#bfdbfe" : petId === "pet-blue-comet" ? "#fde047" : petId === "pet-red-jumper" ? "#f97316" : petId === "pet-milky-way" ? "#c084fc" : petId === "pet-chaos-jester" ? "#f472b6" : "#facc15");
 
     if (petId === "pet-blue-comet") {
       player.invincibleUntil = Math.max(player.invincibleUntil, now + 15000);
@@ -7031,13 +7111,13 @@ export default function JogoPage() {
       if (!pet) return;
       const now = performance.now();
       if (now < petAbilityCooldownUntilRef.current) {
-        mostrarMensagemPet(`PET: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
+        mostrarMensagemPet(`C EM COOLDOWN: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
         return;
       }
       mobilePetPressedRef.current = true;
       enviarInputOnlineAtual(true);
       window.setTimeout(() => { mobilePetPressedRef.current = false; enviarInputOnlineAtual(true); }, 180);
-      mostrarMensagemPet("PET: ENVIADO", "#93c5fd");
+      mostrarMensagemPet("ESPECIAL ENVIADO", "#93c5fd");
       desbloquearConquistaPerfil("pet-power");
       return;
     }
@@ -7047,7 +7127,7 @@ export default function JogoPage() {
     if (!pet) return;
     const now = performance.now();
     if (now < petAbilityCooldownUntilRef.current) {
-      mostrarMensagemPet(`PET: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
+      mostrarMensagemPet(`C EM COOLDOWN: ${Math.ceil((petAbilityCooldownUntilRef.current - now) / 1000)}s`, "#fbbf24");
       return;
     }
     if (onlineTogetherCoordenado()) {
@@ -7062,6 +7142,7 @@ export default function JogoPage() {
     definirCooldownPet(cooldownHabilidadePetMs(pet.id));
     desbloquearConquistaPerfil("pet-power");
     tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, 0.28, "sfx");
+    destacarEspecialPet(pet.id, pet.name.replace(/^Pet\s+/i, ""), pet.id === "pet-tundra" ? "#bfdbfe" : pet.id === "pet-blue-comet" ? "#fde047" : pet.id === "pet-red-jumper" ? "#f97316" : pet.id === "pet-milky-way" ? "#c084fc" : pet.id === "pet-chaos-jester" ? "#f472b6" : "#facc15");
 
     if (pet.id === "pet-blue-comet") {
       petSuperSparkUntilRef.current = now + 15000;
@@ -7265,12 +7346,13 @@ export default function JogoPage() {
     const candidates = typeof targetSlot === "number" ? onlinePlayers.filter((player) => player.slot === targetSlot) : onlinePlayers.filter((player) => player.slot !== onlineSlotRef.current);
     let sent = 0;
     for (const player of candidates) {
-      const code = formatarCodigoAmizadeInput(player.profileSummary?.friendCode || "");
-      if (!code) continue;
+      const code = formatarCodigoAmizadeInput(player.profileSummary?.friendCode || player.id || "");
+      if (!codigoAmizadeValido(code)) continue;
       adicionarPedidoAmizadeLocal(code);
       sent += 1;
     }
     if (sent > 0) feedbackOnline("success", sent === 1 ? "Pedido de amizade enviado." : `${sent} pedidos de amizade enviados.`);
+    else feedbackOnline("error", "Não encontrei código de perfil válido para esse player.");
   }
 
   function conviteOnlineAtual() {
@@ -7810,7 +7892,15 @@ export default function JogoPage() {
         if (!code || code === localProfileRef.current.friendCode) return;
         const current = localProfileRef.current;
         const alreadyFriend = current.friends.some((friend) => friend.code === code || friend.profileId === msg.fromProfileId);
+        const sentRequest = current.friendRequests.find((request) => request.code === code && request.direction === "sent");
         const alreadyRequest = current.friendRequests.some((request) => request.code === code && request.direction === "received");
+        if (sentRequest && !alreadyFriend) {
+          adicionarAmigoLocal({ id: String(msg.fromProfileId || code), profileId: msg.fromProfileId ? String(msg.fromProfileId) : undefined, code, name, color: msg.fromColor ? String(msg.fromColor) : undefined, status: "accepted", lastSeenAt: Date.now() });
+          enviarAceiteAmizadeOnline(Number(msg.fromSlot || 0), code, msg.fromProfileId ? String(msg.fromProfileId) : undefined);
+          adicionarNotificacaoPerfil("friend", "Pedido mútuo aceito", `${name} também enviou pedido. Amizade aceita automaticamente.`, "friends");
+          mostrarToastPerfil(`Amizade aceita: ${name}`);
+          return;
+        }
         if (!alreadyFriend && !alreadyRequest) {
           const request: LocalFriendRequest = {
             id: criarIdPerfilLocal(),
@@ -11771,6 +11861,7 @@ export default function JogoPage() {
     );
 
     if (bossWave) {
+      if (currentModeRef.current === "story" && gameStateRef.current === "victory") return;
       spawnBossChocado(fromStoryReveal);
     }
   }
@@ -11840,6 +11931,10 @@ export default function JogoPage() {
     enemyProjectilesRef.current = [];
     bossProjectilesRef.current = [];
     powerUpsRef.current = [];
+    bossRef.current.active = false;
+    bossRef.current.defeated = true;
+    bossRef.current.intro = false;
+    bossRef.current.nextAttackAt = Number.POSITIVE_INFINITY;
     waveStateRef.current = {
       ...waveStateRef.current,
       active: false,
@@ -17324,6 +17419,15 @@ export default function JogoPage() {
       enemiesRef.current = enemiesRef.current
         .map((enemy) => {
           const updated = { ...enemy, age: enemy.age + delta };
+          if ((updated.frozenUntil ?? 0) > performance.now()) {
+            updated.age -= delta;
+            updated.vx = 0;
+            updated.vy = 0;
+            updated.redPauseTimer = Math.max(updated.redPauseTimer ?? 0, delta + 80);
+            updated.redHoldY = updated.y;
+            updated.stretchUntil = Math.max(updated.stretchUntil ?? 0, performance.now() + 120);
+            return updated;
+          }
 
           // Knockback livre: quando um inimigo é lançado por boost/shockwave,
           // ele deixa temporariamente o padrão dele e segue em linha reta no espaço.
@@ -21400,7 +21504,7 @@ export default function JogoPage() {
                         <span>{friend.name}</span>
                         <small>{friend.code || friend.id}</small>
                         <div>
-                          <button type="button" onClick={() => mostrarToastPerfil(`${friend.name}: ${friend.code || friend.id}`)}>VER PERFIL</button>
+                          <button type="button" onClick={() => abrirPerfilAmigo(friend)}>VER PERFIL</button>
                           <button type="button" onClick={() => removerAmizadeOuPedidoLocal(friend.id)}>APAGAR</button>
                         </div>
                       </div>
@@ -21439,6 +21543,42 @@ export default function JogoPage() {
           </section>
         </div>
       )}
+
+      {selectedFriendProfile && (() => {
+        const summary = selectedFriendProfile;
+        const equipped = summary.equipped || {};
+        const previewItems = [itemShopPorId(equipped.recolor), itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+        const pet = itemShopPorId(equipped.pet);
+        return (
+          <div className="sn-profile-backdrop-v20 sn-online-profile-backdrop-v250" role="dialog" aria-modal="true">
+            <section className="sn-online-profile-card-v250">
+              <header>
+                <div className="sn-profile-avatar-v250" style={{ "--profile-color": summary.color || "#60a5fa" } as CSSProperties}>{(summary.name || "A").slice(0, 1).toUpperCase()}</div>
+                <div>
+                  <span>PERFIL DO AMIGO</span>
+                  <h2>{summary.name || "Amigo"}</h2>
+                  <p>Código: <strong>{summary.friendCode || "sem código"}</strong></p>
+                </div>
+                <button type="button" onClick={() => setSelectedFriendProfile(null)} aria-label="Fechar perfil amigo">×</button>
+              </header>
+              <div className="sn-online-profile-body-v250">
+                <div className="sn-profile-ship-preview-v250">
+                  <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                  {previewItems.map((item) => item.id !== "recolor-classic" && <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />)}
+                  {pet && <img className="sn-shop-preview-pet-v250" src={assetUrl(pet.asset)} alt="" />}
+                </div>
+                <div className="sn-profile-stat-grid-v250">
+                  <span><b>{summary.tokens ?? "--"}</b><small>tokens</small></span>
+                  <span><b>{summary.friendsCount ?? "--"}</b><small>amigos</small></span>
+                  <span><b>{summary.achievementsUnlocked ?? "--"}/{summary.achievementsTotal ?? "--"}</b><small>conquistas</small></span>
+                  <span><b>{summary.stats?.bestInfiniteWave ?? "--"}</b><small>recorde wave</small></span>
+                </div>
+              </div>
+              <footer><button type="button" onClick={() => setSelectedFriendProfile(null)}>FECHAR</button></footer>
+            </section>
+          </div>
+        );
+      })()}
 
       {selectedOnlineProfileSlot !== null && (() => {
         const player = onlinePlayers.find((item) => item.slot === selectedOnlineProfileSlot);
@@ -21482,6 +21622,16 @@ export default function JogoPage() {
           </div>
         ) : null;
       })()}
+
+      {petFocus && (
+        <div className="sn-pet-focus-v258" style={{ "--pet-focus-color": petFocus.color } as CSSProperties}>
+          <div>
+            <img src={assetUrl(petFocus.asset)} alt="" draggable={false} />
+            <strong>{petFocus.label}</strong>
+            <span>ESPECIAL ATIVADO</span>
+          </div>
+        </div>
+      )}
 
       {keyBindPrompt && (
         <div className="sn-modal-backdrop">
