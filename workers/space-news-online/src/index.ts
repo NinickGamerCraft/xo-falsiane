@@ -32,6 +32,7 @@ type PlayerSession = {
   input: Required<PlayerInput>;
   cosmetics?: Record<string, string>;
   profileColor?: string;
+  profileSummary?: Record<string, unknown>;
   modeVote: GameMode;
 };
 
@@ -42,6 +43,7 @@ type ServerPlayer = {
   color: string;
   profileColor?: string;
   cosmetics?: Record<string, string>;
+  profileSummary?: Record<string, unknown>;
   x: number;
   y: number;
   w: number;
@@ -161,12 +163,12 @@ type OnlineVisualEvent = {
 };
 
 type ClientMessage =
-  | { type: "join"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string }
-  | { type: "profile"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string }
+  | { type: "join"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string; profileSummary?: Record<string, unknown> }
+  | { type: "profile"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string; profileSummary?: Record<string, unknown> }
   | { type: "vote_mode"; mode?: GameMode }
   | { type: "start"; mode?: GameMode }
   | { type: "ready"; ready?: boolean }
-  | { type: "input"; input?: PlayerInput; seq?: number; cosmetics?: Record<string, string>; profileColor?: string; pet?: string }
+  | { type: "input"; input?: PlayerInput; seq?: number; cosmetics?: Record<string, string>; profileColor?: string; profileSummary?: Record<string, unknown>; pet?: string }
   | { type: "sync"; snapshot?: Record<string, unknown> }
   | { type: "token_collect"; slot?: number; amount?: number }
   | { type: "coop_token_collect"; slot?: number; tokenIds?: number[]; amount?: number; seq?: number }
@@ -294,7 +296,7 @@ export default {
     if (request.method === "OPTIONS") return json({ ok: true });
 
     if (url.pathname === "/" || url.pathname === "/health") {
-      return json({ ok: true, service: "Space News Online", version: "2.4.9-final-sync", netModel: "dual-sim-world-event-sync-v249" });
+      return json({ ok: true, service: "Space News Online", version: "2.5.0-shop-profile", netModel: "dual-sim-shop-profile-sync-v250" });
     }
 
     if (url.pathname === "/create") {
@@ -417,7 +419,7 @@ export class GameRoom extends DurableObject<Env> {
     server.serializeAttachment(placeholder);
     this.ctx.acceptWebSocket(server);
     this.sessions.set(server, placeholder);
-    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "dual-sim-world-event-sync-v249" }));
+    server.send(JSON.stringify({ type: "hello", room: this.roomCode, netModel: "dual-sim-shop-profile-sync-v250" }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -441,11 +443,12 @@ export class GameRoom extends DurableObject<Env> {
       session.device = String(msg.device || "unknown").slice(0, 32);
       if (msg.cosmetics && typeof msg.cosmetics === "object") session.cosmetics = msg.cosmetics;
       if (typeof msg.profileColor === "string") session.profileColor = msg.profileColor.slice(0, 24);
+      if (msg.profileSummary && typeof msg.profileSummary === "object") session.profileSummary = this.sanitizeProfileSummary(msg.profileSummary);
       ws.serializeAttachment(session);
       this.sessions.set(ws, session);
       this.ensureHost();
       this.syncSessionToState(session);
-      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "dual-sim-world-event-sync-v249" }));
+      ws.send(JSON.stringify({ type: "joined", room: this.roomCode, player: this.publicPlayer(session), slot: session.slot, netModel: "dual-sim-shop-profile-sync-v250" }));
       this.broadcast({ type: "player_joined", room: this.roomCode, player: this.publicPlayer(session), t: Date.now() }, ws);
       this.broadcastState();
       return;
@@ -456,6 +459,7 @@ export class GameRoom extends DurableObject<Env> {
       if (msg.device) session.device = String(msg.device || "unknown").slice(0, 32);
       if (msg.cosmetics && typeof msg.cosmetics === "object") session.cosmetics = msg.cosmetics;
       if (typeof msg.profileColor === "string") session.profileColor = msg.profileColor.slice(0, 24);
+      if (msg.profileSummary && typeof msg.profileSummary === "object") session.profileSummary = this.sanitizeProfileSummary(msg.profileSummary);
       ws.serializeAttachment(session);
       this.sessions.set(ws, session);
       this.syncSessionToState(session);
@@ -488,7 +492,7 @@ export class GameRoom extends DurableObject<Env> {
       if (!canStart) { ws.send(JSON.stringify({ type: "error", error: "Aguarde todos ficarem READY." })); return; }
       this.selectedGameMode = "localCoop";
       this.startMatch(this.selectedGameMode);
-      const netModel = "dual-sim-world-event-sync-v249";
+      const netModel = "dual-sim-shop-profile-sync-v250";
       // Together não usa mais host-authoritative pesado: cada cliente roda sua simulação local,
       // enquanto o Worker ordena inputs/eventos determinísticos para manter power-ups, moedas e waves iguais.
       const startHostSlot = this.selectedGameMode === "localCoop" ? 0 : 0;
@@ -506,6 +510,7 @@ export class GameRoom extends DurableObject<Env> {
       session.input = normalizeInput(msg.input);
       if (msg.cosmetics && typeof msg.cosmetics === "object") session.cosmetics = msg.cosmetics;
       if (typeof msg.profileColor === "string") session.profileColor = msg.profileColor.slice(0, 24);
+      if (msg.profileSummary && typeof msg.profileSummary === "object") session.profileSummary = this.sanitizeProfileSummary(msg.profileSummary);
       ws.serializeAttachment(session);
       this.syncSessionToState(session);
       if (this.gameActive && this.selectedGameMode === "localCoop") {
@@ -517,9 +522,10 @@ export class GameRoom extends DurableObject<Env> {
           input: session.input,
           cosmetics: session.cosmetics,
           profileColor: session.profileColor,
+          profileSummary: session.profileSummary,
           t: Date.now(),
           serverTick: this.serverTick,
-          netModel: "dual-sim-world-event-sync-v249",
+          netModel: "dual-sim-shop-profile-sync-v250",
         }, ws);
       }
       return;
@@ -544,7 +550,7 @@ export class GameRoom extends DurableObject<Env> {
       const tokenIds = Array.isArray(msg.tokenIds)
         ? msg.tokenIds.map((id) => Math.floor(Number(id))).filter((id) => Number.isFinite(id) && id > 0).slice(0, 16)
         : [];
-      this.broadcast({ type: "coop_token_collect", room: this.roomCode, from: session.slot, slot, tokenIds, amount: Math.max(0, Math.floor(Number(msg.amount || 0))), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_token_collect", room: this.roomCode, from: session.slot, slot, tokenIds, amount: Math.max(0, Math.floor(Number(msg.amount || 0))), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -553,7 +559,7 @@ export class GameRoom extends DurableObject<Env> {
       const slot = Number(msg.slot || session.slot || 0);
       if (slot !== session.slot || slot < 1 || slot > 4) return;
       const tokens = Array.isArray(msg.tokens) ? msg.tokens.slice(0, 20) : [];
-      this.broadcast({ type: "coop_token_spawn", room: this.roomCode, from: session.slot, slot, tokens, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_token_spawn", room: this.roomCode, from: session.slot, slot, tokens, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -561,7 +567,7 @@ export class GameRoom extends DurableObject<Env> {
       if (this.selectedGameMode !== "localCoop") return;
       const slot = Number(msg.slot || session.slot || 0);
       if (slot !== session.slot || slot < 1 || slot > 4 || !msg.power || typeof msg.power !== "object") return;
-      this.broadcast({ type: "coop_powerup_spawn", room: this.roomCode, from: session.slot, slot, power: msg.power, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_powerup_spawn", room: this.roomCode, from: session.slot, slot, power: msg.power, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -570,7 +576,7 @@ export class GameRoom extends DurableObject<Env> {
       const slot = Number(msg.slot || session.slot || 0);
       const kind = String(msg.kind || "");
       if (slot !== session.slot || slot < 1 || slot > 4 || !kind) return;
-      this.broadcast({ type: "coop_powerup_collect", room: this.roomCode, from: session.slot, slot, kind, powerId: Number(msg.powerId || 0), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_powerup_collect", room: this.roomCode, from: session.slot, slot, kind, powerId: Number(msg.powerId || 0), seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -579,7 +585,7 @@ export class GameRoom extends DurableObject<Env> {
       const slot = Number(msg.slot || session.slot || 0);
       const pet = String(msg.pet || "").slice(0, 48);
       if (slot !== session.slot || slot < 1 || slot > 4 || !pet) return;
-      this.broadcast({ type: "coop_pet_ability", room: this.roomCode, from: session.slot, slot, pet, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_pet_ability", room: this.roomCode, from: session.slot, slot, pet, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -587,7 +593,7 @@ export class GameRoom extends DurableObject<Env> {
       if (this.selectedGameMode !== "localCoop") return;
       const slot = Number(msg.slot || 0);
       if (slot < 1 || slot > 4) return;
-      this.broadcast({ type: "coop_revive", room: this.roomCode, from: session.slot, slot, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_revive", room: this.roomCode, from: session.slot, slot, seq: Number(msg.seq || 0), t: Date.now(), netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -595,7 +601,7 @@ export class GameRoom extends DurableObject<Env> {
       if (this.selectedGameMode !== "localCoop") return;
       const slot = Number(msg.slot || session.slot || 0);
       if (slot !== session.slot || slot < 1 || slot > 4) return;
-      this.broadcast({ type: "coop_wave_start", room: this.roomCode, from: session.slot, slot, wave: Math.max(1, Math.floor(Number(msg.wave || 1))), seed: Number(msg.seed || this.matchSeed || 0), seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_wave_start", room: this.roomCode, from: session.slot, slot, wave: Math.max(1, Math.floor(Number(msg.wave || 1))), seed: Number(msg.seed || this.matchSeed || 0), seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -604,7 +610,7 @@ export class GameRoom extends DurableObject<Env> {
       const slot = Number(msg.slot || session.slot || 0);
       if (slot !== session.slot || slot < 1 || slot > 4) return;
       const enemies = Array.isArray(msg.enemies) ? msg.enemies.slice(0, 16) : [];
-      this.broadcast({ type: "coop_enemy_spawn", room: this.roomCode, from: session.slot, slot, enemies, seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_enemy_spawn", room: this.roomCode, from: session.slot, slot, enemies, seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -612,7 +618,7 @@ export class GameRoom extends DurableObject<Env> {
       if (this.selectedGameMode !== "localCoop") return;
       const slot = Number(msg.slot || session.slot || 0);
       if (slot !== session.slot || slot < 1 || slot > 4 || !msg.world || typeof msg.world !== "object") return;
-      this.broadcast({ type: "coop_world_resync", room: this.roomCode, from: session.slot, slot, world: msg.world, seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-world-event-sync-v249" }, ws);
+      this.broadcast({ type: "coop_world_resync", room: this.roomCode, from: session.slot, slot, world: msg.world, seq: Number(msg.seq || 0), t: Date.now(), serverTick: this.serverTick, netModel: "dual-sim-shop-profile-sync-v250" }, ws);
       return;
     }
 
@@ -768,7 +774,7 @@ export class GameRoom extends DurableObject<Env> {
       // v2.4.8: Together online é dual-sim/event-sync.
       // O Worker não corrige posição de player; só ordena inputs e eventos do mundo.
       if (this.serverTick % 18 === 0) {
-        this.broadcast({ type: "heartbeat", room: this.roomCode, serverTick: this.serverTick, t: now, netModel: "dual-sim-world-event-sync-v249" });
+        this.broadcast({ type: "heartbeat", room: this.roomCode, serverTick: this.serverTick, t: now, netModel: "dual-sim-shop-profile-sync-v250" });
       }
       return;
     }
@@ -1270,7 +1276,7 @@ export class GameRoom extends DurableObject<Env> {
       serverTime: now,
       sentAt: now,
       authoritativeSlot: 0,
-      netModel: "dual-sim-world-event-sync-v249",
+      netModel: "dual-sim-shop-profile-sync-v250",
       mode: this.selectedGameMode,
       state: this.gameActive ? "playing" : "mainMenu",
       players: runtimePlayers,
@@ -1321,7 +1327,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcastSnapshot() {
-    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "dual-sim-world-event-sync-v249" });
+    this.broadcast({ type: "sync", from: 0, hostSlot: 0, snapshot: this.snapshot(), serverTime: Date.now(), t: Date.now(), priority: "server-frame", netModel: "dual-sim-shop-profile-sync-v250" });
   }
 
   private clearPendingDisconnect(slot: number) {
@@ -1367,8 +1373,40 @@ export class GameRoom extends DurableObject<Env> {
   async webSocketClose(ws: WebSocket) { this.handleSocketGone(ws); }
   async webSocketError(ws: WebSocket) { this.handleSocketGone(ws); }
 
+  private sanitizeProfileSummary(value: Record<string, unknown>) {
+    const stats = typeof value.stats === "object" && value.stats ? value.stats as Record<string, unknown> : {};
+    const equipped = typeof value.equipped === "object" && value.equipped ? value.equipped as Record<string, unknown> : {};
+    return {
+      id: String(value.id || "").slice(0, 64),
+      name: String(value.name || "Player").slice(0, 16),
+      color: String(value.color || value.profileColor || "#60a5fa").slice(0, 24),
+      friendCode: String(value.friendCode || "").slice(0, 16),
+      tokens: Math.max(0, Math.min(999999, Math.floor(Number(value.tokens || 0)))),
+      friendsCount: Math.max(0, Math.min(999, Math.floor(Number(value.friendsCount || 0)))),
+      requestsCount: Math.max(0, Math.min(999, Math.floor(Number(value.requestsCount || 0)))),
+      achievementsUnlocked: Math.max(0, Math.min(999, Math.floor(Number(value.achievementsUnlocked || 0)))),
+      achievementsTotal: Math.max(0, Math.min(999, Math.floor(Number(value.achievementsTotal || 0)))),
+      equipped: {
+        front: typeof equipped.front === "string" ? String(equipped.front).slice(0, 80) : undefined,
+        middle: typeof equipped.middle === "string" ? String(equipped.middle).slice(0, 80) : undefined,
+        pet: typeof equipped.pet === "string" ? String(equipped.pet).slice(0, 80) : undefined,
+        recolor: typeof equipped.recolor === "string" ? String(equipped.recolor).slice(0, 80) : undefined,
+      },
+      stats: {
+        runsStarted: Math.max(0, Math.floor(Number(stats.runsStarted || 0))),
+        enemiesKilled: Math.max(0, Math.floor(Number(stats.enemiesKilled || 0))),
+        deaths: Math.max(0, Math.floor(Number(stats.deaths || 0))),
+        tokensCollected: Math.max(0, Math.floor(Number(stats.tokensCollected || 0))),
+        bestInfiniteWave: Math.max(0, Math.floor(Number(stats.bestInfiniteWave || 0))),
+        bestInfiniteScore: Math.max(0, Math.floor(Number(stats.bestInfiniteScore || 0))),
+        chocadosKilled: Math.max(0, Math.floor(Number(stats.chocadosKilled || 0))),
+      },
+      updatedAt: Math.max(0, Number(value.updatedAt || Date.now())),
+    };
+  }
+
   private publicPlayer(session: PlayerSession) {
-    return { id: session.id, slot: session.slot, name: session.name, ready: session.ready, device: session.device, cosmetics: session.cosmetics, profileColor: session.profileColor, connected: true, host: false };
+    return { id: session.id, slot: session.slot, name: session.name, ready: session.ready, device: session.device, cosmetics: session.cosmetics, profileColor: session.profileColor, profileSummary: session.profileSummary, connected: true, host: false };
   }
 
   private players() {
@@ -1396,7 +1434,7 @@ export class GameRoom extends DurableObject<Env> {
     const players = this.players();
     const selectedMode = this.selectedMode();
     const roomHostSlot = 0;
-    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: roomHostSlot, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "dual-sim-world-event-sync-v249", version: "2.4.9-final-sync", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
+    this.broadcast({ type: "room_state", room: this.roomCode, players, modeVotes: this.modeVotes(), selectedMode, hostSlot: roomHostSlot, canStart: players.length >= 2 && players.every((p) => p.ready), netModel: "dual-sim-shop-profile-sync-v250", version: "2.5.0-shop-profile", tick: this.serverTick, serverTick: this.serverTick, t: Date.now() });
   }
 
   private broadcastPauseState() {

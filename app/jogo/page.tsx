@@ -104,6 +104,21 @@ type LeaderboardEntry = {
   createdAt: number;
 };
 
+type OnlineProfileSummary = {
+  id?: string;
+  name?: string;
+  color?: string;
+  friendCode?: string;
+  tokens?: number;
+  friendsCount?: number;
+  requestsCount?: number;
+  achievementsUnlocked?: number;
+  achievementsTotal?: number;
+  equipped?: EquippedCosmetics;
+  stats?: Partial<LocalProfileStats>;
+  updatedAt?: number;
+};
+
 type OnlinePlayer = {
   id?: string;
   slot: number;
@@ -112,6 +127,9 @@ type OnlinePlayer = {
   device?: string;
   connected?: boolean;
   host?: boolean;
+  cosmetics?: EquippedCosmetics;
+  profileColor?: string;
+  profileSummary?: OnlineProfileSummary;
 };
 
 type OnlineFlow = "choose" | "create" | "join";
@@ -506,6 +524,20 @@ type LocalAchievement = {
   unlockedAt?: number;
 };
 
+type LocalNotification = {
+  id: string;
+  kind: "update" | "friend" | "shop" | "achievement" | "system";
+  title: string;
+  message: string;
+  createdAt: number;
+  readAt?: number;
+  action?: "profile" | "friends" | "shop" | "achievements" | "messages";
+};
+
+type ProfileTab = "overview" | "stats" | "achievements" | "friends" | "messages";
+type ShopPanelTab = "store" | "inventory";
+type ShopRarityFilter = "all" | ShopItem["rarity"];
+
 type ShopSlot = "front" | "middle" | "pet" | "recolor";
 
 type ShopBuffs = {
@@ -558,6 +590,7 @@ type LocalProfile = {
   friendRequests: LocalFriendRequest[];
   stats: LocalProfileStats;
   achievements: LocalAchievement[];
+  notifications: LocalNotification[];
   inventory: string[];
   equipped: EquippedCosmetics;
   createdAt: number;
@@ -1685,7 +1718,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.4.9";
+const SPACE_NEWS_VERSION = "2.5.0";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -3043,6 +3076,15 @@ const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
   { id: "pet-power", title: "Parceiro Cósmico", description: "Usou uma habilidade especial de pet." },
   { id: "shop-first", title: "Primeira Compra", description: "Comprou seu primeiro cosmético na loja." },
   { id: "full-style", title: "Nave Montada", description: "Equipou recolor, frente, meio e pet ao mesmo tempo." },
+  { id: "inventory-5", title: "Cabide Orbital", description: "Guardou 5 itens diferentes no inventário." },
+  { id: "inventory-12", title: "Coleção de Hangar", description: "Guardou 12 itens diferentes no inventário." },
+  { id: "tokens-250", title: "Banco Lunar", description: "Acumulou 250 tokens no perfil." },
+  { id: "best-score-5000", title: "Transmissão de Ouro", description: "Fez 5.000 pontos no modo Infinito." },
+  { id: "friend-one", title: "Sinal de Amizade", description: "Salvou o primeiro amigo no perfil." },
+  { id: "friend-five", title: "Tripulação Formada", description: "Salvou 5 amigos no perfil." },
+  { id: "pet-equipped", title: "Mascote a Bordo", description: "Equipou um pet na nave." },
+  { id: "first-online-room", title: "Link Aberto", description: "Entrou em uma sala online." },
+  { id: "together-ready", title: "Dupla Confirmada", description: "Ficou READY em uma sala Together." },
 ];
 
 function criarIdPerfilLocal() {
@@ -3078,6 +3120,32 @@ function normalizarConquistasPerfil(list?: LocalAchievement[]): LocalAchievement
   const unlocked = new Map((Array.isArray(list) ? list : []).map((item) => [item.id, item.unlockedAt]));
   return ACHIEVEMENT_CATALOG.map((item) => ({ ...item, unlockedAt: unlocked.get(item.id) }));
 }
+function normalizarNotificacoesPerfil(list?: LocalNotification[]): LocalNotification[] {
+  const safe = Array.isArray(list) ? list : [];
+  return safe
+    .map((item) => ({
+      id: String(item.id || criarIdPerfilLocal()),
+      kind: (["update", "friend", "shop", "achievement", "system"] as LocalNotification["kind"][]).includes(item.kind) ? item.kind : "system",
+      title: String(item.title || "Notificação").slice(0, 48),
+      message: String(item.message || "").slice(0, 160),
+      createdAt: Number(item.createdAt || Date.now()),
+      readAt: item.readAt ? Number(item.readAt) : undefined,
+      action: item.action,
+    }))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 80);
+}
+
+function criarNotificacoesPerfilPadrao(): LocalNotification[] {
+  return [{
+    id: `welcome-${SPACE_NEWS_VERSION}`,
+    kind: "update",
+    title: `Space News v${SPACE_NEWS_VERSION}`,
+    message: "Shop, perfil, amigos, notificações e HUD foram reorganizados para a versão final de publicação.",
+    createdAt: Date.now(),
+    action: "messages",
+  }];
+}
 
 function criarPerfilLocalPadrao(): LocalProfile {
   const now = Date.now();
@@ -3092,6 +3160,7 @@ function criarPerfilLocalPadrao(): LocalProfile {
     friendRequests: [],
     stats: criarStatsPerfilPadrao(),
     achievements: normalizarConquistasPerfil(),
+    notifications: criarNotificacoesPerfilPadrao(),
     inventory: [...SHOP_DEFAULT_OWNED],
     equipped: { recolor: "recolor-classic" },
     createdAt: now,
@@ -3144,6 +3213,7 @@ function carregarPerfilLocalInicial(): LocalProfile {
         bestInfiniteScore: Math.max(0, Math.floor(Number(parsedStats.bestInfiniteScore ?? 0))),
       },
       achievements: normalizarConquistasPerfil(parsed.achievements),
+      notifications: normalizarNotificacoesPerfil((parsed as Partial<LocalProfile>).notifications),
       inventory: Array.from(new Set([
         ...SHOP_DEFAULT_OWNED,
         ...(Array.isArray((parsed as Partial<LocalProfile>).inventory) ? ((parsed as Partial<LocalProfile>).inventory as string[]) : []),
@@ -3335,10 +3405,14 @@ export default function JogoPage() {
   const [onlineWaitingSlots, setOnlineWaitingSlots] = useState<number[]>([]);
   const [localProfile, setLocalProfile] = useState<LocalProfile>(() => carregarPerfilLocalInicial());
   const [profileManagerOpen, setProfileManagerOpen] = useState(false);
+  const [profileActiveTab, setProfileActiveTab] = useState<ProfileTab>("overview");
+  const [selectedOnlineProfileSlot, setSelectedOnlineProfileSlot] = useState<number | null>(null);
   const [shopManagerOpen, setShopManagerOpen] = useState(false);
   const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
   const [shopTab, setShopTab] = useState<ShopSlot>("front");
-  const [shopMode, setShopMode] = useState<"buy" | "inventory">("buy");
+  const [shopMode, setShopMode] = useState<ShopPanelTab>("store");
+  const [shopSearch, setShopSearch] = useState("");
+  const [shopRarityFilter, setShopRarityFilter] = useState<ShopRarityFilter>("all");
   const [shopPreviewItemId, setShopPreviewItemId] = useState<string>("");
   const [petAbilityCooldownUi, setPetAbilityCooldownUi] = useState(0);
   const [pingBoardOpen, setPingBoardOpen] = useState(false);
@@ -4443,7 +4517,7 @@ export default function JogoPage() {
     onlineDeviceIndexRef.current = safeIndex;
     setOnlineDeviceIndex(safeIndex);
     const choice = choices[safeIndex] ?? choices[0];
-    if (onlineConnected) enviarOnline({ type: "profile", name: nomeOnlineSeguro(), device: choice.label, cosmetics: localProfileRef.current.equipped, profileColor: localProfileRef.current.color });
+    if (onlineConnected) enviarPerfilOnlineAtual();
     tocarSom(CONFIG.sounds.menuMove, 0.25, "menu");
   }
 
@@ -4578,7 +4652,7 @@ export default function JogoPage() {
     if (!force && now - onlineLastInputSentAtRef.current < 8) return;
     onlineLastInputPayloadRef.current = payload;
     onlineLastInputSentAtRef.current = now;
-    enviarOnline({ type: "input", seq: ++onlineInputSeqRef.current, input, cosmetics: localProfileRef.current.equipped, profileColor: localProfileRef.current.color, pet: localProfileRef.current.equipped?.pet });
+    enviarOnline({ type: "input", seq: ++onlineInputSeqRef.current, input, cosmetics: localProfileRef.current.equipped, profileColor: localProfileRef.current.color, profileSummary: criarResumoPerfilOnline(), pet: localProfileRef.current.equipped?.pet });
   }
 
   function sanitizarPlayerParaSync(player: Player | null): Partial<Player> | null {
@@ -5416,6 +5490,71 @@ export default function JogoPage() {
     }
   }
 
+  function criarResumoPerfilOnline(profile = localProfileRef.current): OnlineProfileSummary {
+    const achievements = normalizarConquistasPerfil(profile.achievements);
+    return {
+      id: profile.id,
+      name: nomePerfilVisivel(profile),
+      color: profile.color,
+      friendCode: profile.friendCode,
+      tokens: Math.max(0, Math.floor(profile.tokens || 0)),
+      friendsCount: profile.friends.length,
+      requestsCount: profile.friendRequests.length,
+      achievementsUnlocked: achievements.filter((item) => item.unlockedAt).length,
+      achievementsTotal: achievements.length,
+      equipped: profile.equipped,
+      stats: {
+        runsStarted: profile.stats.runsStarted,
+        enemiesKilled: profile.stats.enemiesKilled,
+        deaths: profile.stats.deaths,
+        tokensCollected: profile.stats.tokensCollected,
+        bestInfiniteWave: profile.stats.bestInfiniteWave,
+        bestInfiniteScore: profile.stats.bestInfiniteScore,
+        chocadosKilled: profile.stats.chocadosKilled,
+      },
+      updatedAt: profile.updatedAt,
+    };
+  }
+
+  function enviarPerfilOnlineAtual() {
+    if (!onlineConnected) return;
+    enviarOnline({
+      type: "profile",
+      name: nomeOnlineSeguro(),
+      device: dispositivoOnlineAtual().label,
+      cosmetics: localProfileRef.current.equipped,
+      profileColor: localProfileRef.current.color,
+      profileSummary: criarResumoPerfilOnline(),
+    });
+  }
+
+  function adicionarNotificacaoPerfil(kind: LocalNotification["kind"], title: string, message: string, action?: LocalNotification["action"]) {
+    const current = localProfileRef.current;
+    const next: LocalNotification = {
+      id: `${kind}-${Date.now().toString(36)}-${Math.floor(randomFloat() * 9999)}`,
+      kind,
+      title: title.slice(0, 48),
+      message: message.slice(0, 160),
+      createdAt: Date.now(),
+      action,
+    };
+    salvarPerfilLocal({ ...current, notifications: [next, ...normalizarNotificacoesPerfil(current.notifications)].slice(0, 80), updatedAt: Date.now() });
+  }
+
+  function marcarNotificacoesPerfilComoLidas() {
+    const now = Date.now();
+    const current = localProfileRef.current;
+    salvarPerfilLocal({
+      ...current,
+      notifications: normalizarNotificacoesPerfil(current.notifications).map((item) => item.readAt ? item : { ...item, readAt: now }),
+      updatedAt: now,
+    });
+  }
+
+  function limparNotificacoesPerfil() {
+    salvarPerfilLocal({ ...localProfileRef.current, notifications: [], updatedAt: Date.now() });
+  }
+
   function nomePerfilVisivel(profile = localProfileRef.current) {
     return limparNomeOnline(profile.name || "").trim() || "Player";
   }
@@ -5431,12 +5570,13 @@ export default function JogoPage() {
     salvarPerfilLocal(next);
     const onlineName = clean.trim() || "Player";
     setOnlinePlayerName(onlineName);
-    if (onlineConnected) enviarOnline({ type: "profile", name: onlineName, device: dispositivoOnlineAtual().label, cosmetics: localProfileRef.current.equipped, profileColor: localProfileRef.current.color });
+    if (onlineConnected) enviarPerfilOnlineAtual();
   }
 
   function atualizarCorPerfilLocal(color: string) {
     if (!PROFILE_COLOR_OPTIONS.includes(color)) return;
     salvarPerfilLocal({ ...localProfileRef.current, color, updatedAt: Date.now() });
+    enviarPerfilOnlineAtual();
   }
 
   function mostrarToastPerfil(message: string) {
@@ -5464,6 +5604,7 @@ export default function JogoPage() {
     if (!unlockedNow) return;
     salvarPerfilLocal({ ...current, achievements, updatedAt: now });
     mostrarPopupConquista(unlockedNow);
+    adicionarNotificacaoPerfil("achievement", unlockedNow.title, unlockedNow.description, "achievements");
   }
 
   function atualizarStatsPerfilLocal(updater: (stats: LocalProfileStats) => LocalProfileStats) {
@@ -5480,15 +5621,23 @@ export default function JogoPage() {
         }
         return achievement;
       });
-      if (unlockedNow) mostrarPopupConquista(unlockedNow);
+      if (unlockedNow) {
+        mostrarPopupConquista(unlockedNow);
+        adicionarNotificacaoPerfil("achievement", unlockedNow.title, unlockedNow.description, "achievements");
+      }
     }
     if (current.tokens > 0 || nextStats.tokensCollected > 0) unlock("first-token");
     if (current.tokens >= 10 || nextStats.tokensCollected >= 10) unlock("ten-tokens");
+    if (current.tokens >= 100 || nextStats.tokensCollected >= 100) unlock("hundred-tokens");
+    if (current.tokens >= 250 || nextStats.tokensCollected >= 250) unlock("tokens-250");
     if (nextStats.enemiesKilled >= 1) unlock("first-kill");
     if (nextStats.enemiesKilled >= 100) unlock("hundred-kills");
     if (nextStats.chocadosKilled >= 1) unlock("first-chocado");
     if (nextStats.bestInfiniteWave >= 10) unlock("infinite-10");
+    if (nextStats.bestInfiniteWave >= 25) unlock("infinite-25");
+    if (nextStats.bestInfiniteScore >= 5000) unlock("best-score-5000");
     if (nextStats.pvpWins >= 1) unlock("pvp-win");
+    if (nextStats.playTimeMs >= 30 * 60 * 1000) unlock("long-play");
     salvarPerfilLocal({ ...current, stats: nextStats, achievements, updatedAt: now });
   }
 
@@ -5512,6 +5661,7 @@ export default function JogoPage() {
     };
     salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
     setProfileFriendCodeInput("");
+    adicionarNotificacaoPerfil("friend", "Pedido de amizade", `Pedido salvo para ${code}.`, "friends");
     mostrarToastPerfil("Pedido de amizade salvo localmente.");
   }
 
@@ -5526,6 +5676,9 @@ export default function JogoPage() {
       friendRequests: current.friendRequests.filter((item) => item.id !== requestId),
       updatedAt: Date.now(),
     });
+    adicionarNotificacaoPerfil("friend", "Amigo adicionado", `${friend.name} agora está na sua tripulação.`, "friends");
+    desbloquearConquistaPerfil("friend-one");
+    if (localProfileRef.current.friends.length >= 5) desbloquearConquistaPerfil("friend-five");
     mostrarToastPerfil("Amigo aceito.");
   }
 
@@ -5643,6 +5796,12 @@ export default function JogoPage() {
       equipped: { ...current.equipped, [item.slot]: item.id },
       updatedAt: Date.now(),
     });
+    adicionarNotificacaoPerfil("shop", "Compra concluída", `${item.name} entrou no seu inventário.`, "shop");
+    desbloquearConquistaPerfil("shop-first");
+    if (localProfileRef.current.inventory.length >= 5) desbloquearConquistaPerfil("inventory-5");
+    if (localProfileRef.current.inventory.length >= 12) desbloquearConquistaPerfil("inventory-12");
+    if (item.slot === "pet") desbloquearConquistaPerfil("pet-equipped");
+    if (localProfileRef.current.equipped.recolor && localProfileRef.current.equipped.front && localProfileRef.current.equipped.middle && localProfileRef.current.equipped.pet) desbloquearConquistaPerfil("full-style");
     mostrarToastPerfil(`${item.name} comprado e equipado.`);
     tocarSom(CONFIG.sounds.tokenCollect || CONFIG.sounds.menuConfirm, 0.32, "menu");
   }
@@ -5670,6 +5829,8 @@ export default function JogoPage() {
       equipped: { ...current.equipped, [item.slot]: item.id },
       updatedAt: Date.now(),
     });
+    if (item.slot === "pet") desbloquearConquistaPerfil("pet-equipped");
+    if (localProfileRef.current.equipped.recolor && localProfileRef.current.equipped.front && localProfileRef.current.equipped.middle && localProfileRef.current.equipped.pet) desbloquearConquistaPerfil("full-style");
     mostrarToastPerfil(`${item.name} equipado.`);
     tocarSom(CONFIG.sounds.menuConfirm, 0.3, "menu");
   }
@@ -6774,6 +6935,14 @@ export default function JogoPage() {
     onlineHostSlotRef.current = hostSlot;
     setOnlineHostSlot(hostSlot);
     setOnlinePlayers(players);
+    players.forEach((player: OnlinePlayer) => {
+      if (player.slot) {
+        if (player.cosmetics) onlineCosmeticsBySlotRef.current[player.slot as PlayerSlot] = player.cosmetics;
+        if (player.profileSummary?.equipped) onlineCosmeticsBySlotRef.current[player.slot as PlayerSlot] = player.profileSummary.equipped;
+        if (player.profileColor || player.profileSummary?.color) onlineProfileColorBySlotRef.current[player.slot as PlayerSlot] = player.profileColor || player.profileSummary?.color || "";
+      }
+    });
+    if (onlineConnectedRef.current) desbloquearConquistaPerfil("first-online-room");
     if (players.length >= 2 && players.some((player: OnlinePlayer) => SPACE_NEWS_CREATOR_NAME_RE.test(player.name || ""))) {
       desbloquearConquistaPerfil("creator-match");
     }
@@ -6829,6 +6998,7 @@ export default function JogoPage() {
         device: dispositivoOnlineAtual().label,
         cosmetics: localProfileRef.current.equipped,
         profileColor: localProfileRef.current.color,
+        profileSummary: criarResumoPerfilOnline(),
       });
       iniciarPingOnline();
     };
@@ -9866,7 +10036,7 @@ export default function JogoPage() {
     if (option.action === "shop") {
       tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
       setShopTab("front");
-      setShopMode("buy");
+      setShopMode("store");
       setShopPreviewItemId("");
       setShopManagerOpen(true);
       return;
@@ -18900,20 +19070,6 @@ export default function JogoPage() {
 
       <div className="sn-version-badge">v{SPACE_NEWS_VERSION}</div>
 
-      {(gameState === "playing" || gameState === "paused") && (tokensVisibleUntil > performance.now()) && (
-        <div className={`sn-token-counter-v20 ${tokenUiPulseUntilRef.current > performance.now() ? "is-pulsing" : ""}`} aria-label="Tokens do perfil">
-          <span className="sn-token-icon-v20" aria-hidden="true" />
-          <strong><span>X</span>{localProfile.tokens}</strong>
-        </div>
-      )}
-
-      {(gameState === "playing" || gameState === "paused") && petEquipadoAtual() && (
-        <div className={`sn-pet-cooldown-hud-v234 ${petAbilityCooldownUi > 0 ? "is-cooling" : "is-ready"}`} aria-label="Habilidade do pet">
-          <img src={assetUrl(petEquipadoAtual()?.asset || CONFIG.uiImages.mobilePet)} alt="" draggable={false} />
-          <strong>{petAbilityCooldownUi > 0 ? `${petAbilityCooldownUi}s` : "C"}</strong>
-        </div>
-      )}
-
       {achievementPopup && (
         <div className="sn-achievement-popup-v214" aria-live="polite">
           <span>CONQUISTA DESBLOQUEADA</span>
@@ -19027,6 +19183,21 @@ export default function JogoPage() {
                 />
               ))}
             </div>
+          </div>
+
+          <div className="sn-hud-resource-row-v250" aria-label="Recursos do jogador">
+            <div className={`sn-hud-resource-chip-v250 is-token ${tokensVisibleUntil > performance.now() ? "is-visible" : ""} ${tokenUiPulseUntilRef.current > performance.now() ? "is-pulsing" : ""}`}>
+              <span className="sn-token-icon-v20" aria-hidden="true" />
+              <strong>{localProfile.tokens}</strong>
+              <small>TOKENS</small>
+            </div>
+            {petEquipadoAtual() && (
+              <button type="button" className={`sn-hud-resource-chip-v250 is-pet ${petAbilityCooldownUi > 0 ? "is-cooling" : "is-ready"}`} onClick={ativarHabilidadePetManual} aria-label="Habilidade do pet">
+                <img src={assetUrl(petEquipadoAtual()?.asset || CONFIG.uiImages.mobilePet)} alt="" draggable={false} />
+                <strong>{petAbilityCooldownUi > 0 ? `${petAbilityCooldownUi}s` : "C"}</strong>
+                <small>PET</small>
+              </button>
+            )}
           </div>
 
           <div className="sn-ability-stack">
@@ -19408,7 +19579,7 @@ export default function JogoPage() {
                       if (option.action === "shop") {
                         tocarSom(CONFIG.sounds.menuConfirm, 0.32, "menu");
                         setShopTab("front");
-                        setShopMode("buy");
+                        setShopMode("store");
                         setShopManagerOpen(true);
                         return;
                       }
@@ -19807,7 +19978,12 @@ export default function JogoPage() {
                         <article
                           key={slot}
                           className={`sn-online-crew-member-v15 sn-online-crew-member-v16 ${player ? "is-online" : ""} ${player?.ready ? "is-ready" : ""} ${onlineSlot === slot ? "is-you" : ""} ${onlineHostSlot === slot ? "is-host" : ""}`}
-                          style={{ "--player-color": LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
+                          style={{ "--player-color": player?.profileColor || player?.profileSummary?.color || LOCAL_PLAYER_COLORS[slot - 1] } as CSSProperties}
+                          role={player ? "button" : undefined}
+                          tabIndex={player ? 0 : undefined}
+                          title={player ? "Ver perfil do player" : "Slot vazio"}
+                          onClick={() => { if (player) setSelectedOnlineProfileSlot(slot); }}
+                          onKeyDown={(event) => { if (player && (event.key === "Enter" || event.key === " ")) setSelectedOnlineProfileSlot(slot); }}
                         >
                           <b>P{slot}</b>
                           <div>
@@ -20294,19 +20470,23 @@ export default function JogoPage() {
       )}
 
       {shopManagerOpen && (
-        <div className="sn-profile-backdrop-v20 sn-shop-backdrop-v223" role="dialog" aria-modal="true">
-          <section className="sn-shop-manager-v223">
-            <header className="sn-profile-header-v20 sn-shop-header-v223">
-              <div>
-                <span>SPACE NEWS SHOP</span>
-                <h2>SHOP</h2>
-                <p>Compre cosméticos com tokens e equipe sua nave no inventário.</p>
+        <div className="sn-profile-backdrop-v20 sn-shop-backdrop-v250" role="dialog" aria-modal="true">
+          <section className="sn-shop-manager-v250">
+            <header className="sn-shop-header-v250">
+              <div className="sn-shop-brand-v250">
+                <span>SPACE NEWS ARMORY</span>
+                <h2>SHOP ORBITAL</h2>
+                <p>Cosméticos, pets e recolors organizados sem apagar inventário antigo.</p>
               </div>
-              <strong><span className="sn-token-icon-v20" /> X{localProfile.tokens}</strong>
-              <button type="button" onClick={() => setShopManagerOpen(false)} aria-label="Fechar Shop">×</button>
+              <div className="sn-shop-wallet-v250" aria-label="Tokens disponíveis">
+                <span className="sn-token-icon-v20" />
+                <strong>{localProfile.tokens}</strong>
+                <small>TOKENS</small>
+              </div>
+              <button type="button" className="sn-shop-close-v250" onClick={() => setShopManagerOpen(false)} aria-label="Fechar Shop">×</button>
             </header>
 
-            <div className="sn-shop-layout-v223">
+            <div className="sn-shop-layout-v250">
               {(() => {
                 const equipped = localProfile.equipped || {};
                 const hovered = itemShopPorId(shopPreviewItemId);
@@ -20317,35 +20497,43 @@ export default function JogoPage() {
                   itemShopPorId(previewEquipped.front),
                 ].filter(Boolean) as ShopItem[];
                 const pet = itemShopPorId(previewEquipped.pet);
+                const ownedCount = SHOP_ITEMS.filter((item) => localProfile.inventory.includes(item.id)).length;
+                const equippedCount = Object.values(equipped).filter(Boolean).length;
                 return (
-                  <aside className="sn-shop-preview-panel-v223">
-                    <div className="sn-shop-ship-stage-v221">
-                      <div className="sn-shop-ship-preview-v221" aria-label="Preview da nave customizada">
+                  <aside className="sn-shop-preview-panel-v250">
+                    <div className="sn-shop-orbit-stage-v250">
+                      <div className="sn-shop-orbit-ring-v250" />
+                      <div className="sn-shop-ship-preview-v250" aria-label="Preview da nave customizada">
                         <div className="sn-shop-preview-glow-v221" />
                         <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
                         {previewItems.map((item) => item.id !== "recolor-classic" && (
                           <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />
                         ))}
-                        {pet && <img className="sn-shop-preview-pet-v221" src={assetUrl(pet.asset)} alt="" />}
-                      </div>
-                      <div className="sn-shop-preview-info-v221">
-                        <span>PREVIEW GRANDE</span>
-                        <strong>{pet ? `${pet.name} equipado` : "Sem pet equipado"}</strong>
-                        <small>Vel {Math.round(profileBuffsForHud.speed * 100)}% · Tiro {Math.round(profileBuffsForHud.shotSpeed * 100)}% · Dano {Math.round(profileBuffsForHud.damage * 100)}% · Tokens +{Math.round(profileBuffsForHud.tokenBonus * 100)}%</small>
-                        <em>Itens equipados afetam sua nave e são salvos no perfil.</em>
+                        {pet && <img className="sn-shop-preview-pet-v250" src={assetUrl(pet.asset)} alt="" />}
                       </div>
                     </div>
-                    <div className="sn-shop-equipped-v220">
+                    <div className="sn-shop-preview-copy-v250">
+                      <span>LOADOUT ATUAL</span>
+                      <strong>{hovered ? hovered.name : pet ? pet.name : "Nave padrão"}</strong>
+                      <small>{ownedCount}/{SHOP_ITEMS.length} itens · {equippedCount} equipados</small>
+                    </div>
+                    <div className="sn-shop-stat-grid-v250">
+                      <span><b>{Math.round(profileBuffsForHud.speed * 100)}%</b><small>vel</small></span>
+                      <span><b>{Math.round(profileBuffsForHud.shotSpeed * 100)}%</b><small>tiro</small></span>
+                      <span><b>{Math.round(profileBuffsForHud.damage * 100)}%</b><small>dano</small></span>
+                      <span><b>+{Math.round(profileBuffsForHud.tokenBonus * 100)}%</b><small>tokens</small></span>
+                    </div>
+                    <div className="sn-shop-equipped-v250">
                       {SHOP_SLOTS.map((slot) => {
                         const equippedItem = itemShopPorId(localProfile.equipped?.[slot]);
                         return (
-                          <span key={slot}>
-                            <b>{SHOP_SLOT_LABEL[slot]}</b>
-                            <em>{equippedItem?.name || "VAZIO"}</em>
+                          <article key={slot}>
+                            <span>{SHOP_SLOT_LABEL[slot]}</span>
+                            <strong>{equippedItem?.name || "VAZIO"}</strong>
                             {slot !== "recolor" && equippedItem && (
                               <button type="button" onClick={() => desequiparSlotShop(slot)}>tirar</button>
                             )}
-                          </span>
+                          </article>
                         );
                       })}
                     </div>
@@ -20353,45 +20541,93 @@ export default function JogoPage() {
                 );
               })()}
 
-              <main className="sn-shop-store-panel-v223">
-                <div className="sn-shop-mode-tabs-v223">
-                  <button type="button" className={shopMode === "buy" ? "is-active" : ""} onClick={() => setShopMode("buy")}>COMPRAR</button>
-                  <button type="button" className={shopMode === "inventory" ? "is-active" : ""} onClick={() => setShopMode("inventory")}>INVENTÁRIO</button>
+              <main className="sn-shop-store-panel-v250">
+                <div className="sn-shop-toolbar-v250">
+                  <div className="sn-shop-mode-tabs-v250">
+                    <button type="button" className={shopMode === "store" ? "is-active" : ""} onClick={() => setShopMode("store")}>LOJA</button>
+                    <button type="button" className={shopMode === "inventory" ? "is-active" : ""} onClick={() => setShopMode("inventory")}>INVENTÁRIO</button>
+                  </div>
+                  <label className="sn-shop-search-v250">
+                    <span>BUSCAR</span>
+                    <input value={shopSearch} onChange={(event) => setShopSearch(event.target.value)} placeholder="pet, asa, recolor..." />
+                  </label>
+                  <label className="sn-shop-filter-v250">
+                    <span>RARIDADE</span>
+                    <select value={shopRarityFilter} onChange={(event) => setShopRarityFilter(event.target.value as ShopRarityFilter)}>
+                      <option value="all">Todas</option>
+                      <option value="basic">Basic</option>
+                      <option value="rare">Rare</option>
+                      <option value="epic">Epic</option>
+                      <option value="event">Event</option>
+                      <option value="legendary">Legendary</option>
+                    </select>
+                  </label>
                 </div>
-                <div className="sn-shop-tabs-v220">
+
+                <div className="sn-shop-tabs-v250">
                   {SHOP_SLOTS.map((slot) => (
                     <button type="button" key={slot} className={shopTab === slot ? "is-active" : ""} onClick={() => setShopTab(slot)}>
-                      {SHOP_SLOT_LABEL[slot]}
+                      <span>{SHOP_SLOT_LABEL[slot]}</span>
+                      <small>{SHOP_ITEMS.filter((item) => itemPertenceAbaShop(item, slot) && localProfile.inventory.includes(item.id)).length}</small>
                     </button>
                   ))}
                 </div>
-                <div className="sn-shop-grid-v220 sn-shop-grid-v223">
-                  {SHOP_ITEMS.filter((item) => itemPertenceAbaShop(item, shopTab)).filter((item) => shopMode === "buy" || localProfile.inventory.includes(item.id)).map((item) => {
-                    const owned = localProfile.inventory.includes(item.id);
-                    const equipped = localProfile.equipped?.[item.slot] === item.id;
-                    return (
-                      <article key={item.id} className={`is-${item.rarity} ${equipped ? "is-equipped" : ""} ${shopPreviewItemId === item.id ? "is-previewing" : ""}`} onClick={() => setShopPreviewItemId(item.id)}>
-                        <div className="sn-shop-preview-v220">
-                          <img src={assetUrl(shopIconSrc(item, shopPreviewItemId === item.id))} alt="" onError={(event) => { event.currentTarget.src = assetUrl(item.asset); }} />
-                        </div>
-                        <div className="sn-shop-info-v220">
-                          <small>{item.tag || item.rarity.toUpperCase()}</small>
-                          <strong>{item.name}</strong>
-                          <p>{item.description}</p>
-                          <em>{descricaoBuffs(item)}</em>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={item.disabled || (!owned && shopMode === "inventory")}
-                          onClick={(event) => { event.stopPropagation(); owned ? equiparItemShop(item) : comprarItemShop(item); }}
+
+                <div className="sn-shop-grid-v250">
+                  {SHOP_ITEMS
+                    .filter((item) => itemPertenceAbaShop(item, shopTab))
+                    .filter((item) => shopMode === "store" || localProfile.inventory.includes(item.id))
+                    .filter((item) => shopRarityFilter === "all" || item.rarity === shopRarityFilter)
+                    .filter((item) => {
+                      const q = shopSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return `${item.name} ${item.description} ${item.rarity} ${descricaoBuffs(item)}`.toLowerCase().includes(q);
+                    })
+                    .map((item) => {
+                      const owned = localProfile.inventory.includes(item.id);
+                      const equipped = localProfile.equipped?.[item.slot] === item.id;
+                      const affordable = owned || localProfile.tokens >= item.price;
+                      return (
+                        <article
+                          key={item.id}
+                          className={`sn-shop-card-v250 is-${item.rarity} ${owned ? "is-owned" : ""} ${equipped ? "is-equipped" : ""} ${affordable ? "" : "is-locked"} ${shopPreviewItemId === item.id ? "is-previewing" : ""}`}
+                          onMouseEnter={() => setShopPreviewItemId(item.id)}
+                          onFocus={() => setShopPreviewItemId(item.id)}
+                          onClick={() => setShopPreviewItemId(item.id)}
                         >
-                          {equipped ? "EQUIPADO" : owned ? "EQUIPAR" : `COMPRAR X${item.price}`}
-                        </button>
-                      </article>
-                    );
-                  })}
-                  {shopMode === "inventory" && SHOP_ITEMS.filter((item) => itemPertenceAbaShop(item, shopTab) && localProfile.inventory.includes(item.id)).length === 0 && (
-                    <article className="sn-shop-empty-v223"><strong>Nada comprado nesse slot ainda.</strong><p>Vá em COMPRAR para adquirir novos itens.</p></article>
+                          <div className="sn-shop-card-art-v250">
+                            <img src={assetUrl(shopIconSrc(item, shopPreviewItemId === item.id))} alt="" onError={(event) => { event.currentTarget.src = assetUrl(item.asset); }} />
+                            <i>{item.rarity.toUpperCase()}</i>
+                            {equipped && <b>EQUIPADO</b>}
+                          </div>
+                          <div className="sn-shop-card-info-v250">
+                            <strong>{item.name}</strong>
+                            <p>{item.description}</p>
+                            <em>{descricaoBuffs(item)}</em>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={item.disabled || (!owned && shopMode === "inventory")}
+                            onClick={(event) => { event.stopPropagation(); owned ? equiparItemShop(item) : comprarItemShop(item); }}
+                          >
+                            {equipped ? "USANDO" : owned ? "EQUIPAR" : affordable ? `COMPRAR · ${item.price}` : `FALTAM ${item.price - localProfile.tokens}`}
+                          </button>
+                        </article>
+                      );
+                    })}
+                  {SHOP_ITEMS
+                    .filter((item) => itemPertenceAbaShop(item, shopTab))
+                    .filter((item) => shopMode === "store" || localProfile.inventory.includes(item.id))
+                    .filter((item) => shopRarityFilter === "all" || item.rarity === shopRarityFilter)
+                    .filter((item) => {
+                      const q = shopSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return `${item.name} ${item.description} ${item.rarity} ${descricaoBuffs(item)}`.toLowerCase().includes(q);
+                    }).length === 0 && (
+                    <article className="sn-shop-empty-v250">
+                      <strong>Nenhum item encontrado.</strong>
+                      <p>Limpe a busca/filtro ou troque de aba.</p>
+                    </article>
                   )}
                 </div>
               </main>
@@ -20401,152 +20637,223 @@ export default function JogoPage() {
       )}
 
       {profileManagerOpen && (
-        <div className="sn-profile-backdrop-v20" role="dialog" aria-modal="true">
-          <section className="sn-profile-manager-v20">
-            <header className="sn-profile-header-v20">
+        <div className="sn-profile-backdrop-v20 sn-profile-backdrop-v250" role="dialog" aria-modal="true">
+          <section className="sn-profile-manager-v250">
+            <header className="sn-profile-header-v250">
+              <div className="sn-profile-avatar-v250" style={{ "--profile-color": localProfile.color } as CSSProperties}>{inicialPerfil(localProfile)}</div>
               <div>
                 <span>PERFIL LOCAL</span>
                 <h2>{nomePerfilVisivel(localProfile)}</h2>
                 <p>Código: <strong>{localProfile.friendCode}</strong></p>
               </div>
+              <div className="sn-profile-header-stats-v250">
+                <span><b>{localProfile.tokens}</b><small>tokens</small></span>
+                <span><b>{localProfile.friends.length}</b><small>amigos</small></span>
+                <span><b>{normalizarNotificacoesPerfil(localProfile.notifications).filter((item) => !item.readAt).length}</b><small>novas</small></span>
+              </div>
               <button type="button" onClick={() => setProfileManagerOpen(false)} aria-label="Fechar perfil">×</button>
             </header>
 
-            <div className="sn-profile-main-v20">
-              <article className="sn-profile-card-v20 is-identity">
-                <div className="sn-profile-avatar-v20" style={{ "--profile-color": localProfile.color } as CSSProperties}>
-                  {inicialPerfil(localProfile)}
-                </div>
-                <label>
-                  Nome
-                  <input
-                    value={localProfile.name}
-                    maxLength={16}
-                    onChange={(event) => atualizarNomePerfilLocal(event.target.value)}
-                  />
-                </label>
-                <div className="sn-profile-colors-v20" aria-label="Cores do perfil">
-                  {PROFILE_COLOR_OPTIONS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      className={localProfile.color === color ? "is-selected" : ""}
-                      style={{ "--profile-color": color } as CSSProperties}
-                      onClick={() => atualizarCorPerfilLocal(color)}
-                      aria-label={`Usar cor ${color}`}
-                    />
-                  ))}
-                </div>
-                <div className="sn-profile-token-line-v20">
-                  <span className="sn-token-icon-v20" />
-                  <strong><span>X</span>{localProfile.tokens}</strong>
-                </div>
-              </article>
+            <nav className="sn-profile-tabs-v250" aria-label="Abas do perfil">
+              {([
+                ["overview", "VISÃO GERAL"],
+                ["stats", "ESTATÍSTICAS"],
+                ["achievements", "CONQUISTAS"],
+                ["friends", "AMIGOS"],
+                ["messages", "CAIXA"],
+              ] as Array<[ProfileTab, string]>).map(([tab, label]) => (
+                <button key={tab} type="button" className={profileActiveTab === tab ? "is-active" : ""} onClick={() => { setProfileActiveTab(tab); if (tab === "messages") marcarNotificacoesPerfilComoLidas(); }}>
+                  {label}
+                </button>
+              ))}
+            </nav>
 
-              <article className="sn-profile-card-v20 sn-profile-ship-card-v223">
-                <h3>NAVE PERSONALIZADA</h3>
-                {(() => {
-                  const equipped = localProfile.equipped || {};
-                  const previewItems = [
-                    itemShopPorId(equipped.recolor),
-                    itemShopPorId(equipped.middle),
-                    itemShopPorId(equipped.front),
-                  ].filter(Boolean) as ShopItem[];
-                  const pet = itemShopPorId(equipped.pet);
-                  return (
-                    <div className="sn-profile-hero-v223">
-                      <div className="sn-profile-ship-preview-v223" aria-label="Nave do perfil">
-                        <div className="sn-shop-preview-glow-v221" />
-                        <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
-                        {previewItems.map((item) => item.id !== "recolor-classic" && (
-                          <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />
-                        ))}
-                        {pet && <img className="sn-shop-preview-pet-v221" src={assetUrl(pet.asset)} alt="" />}
-                      </div>
-                      <div className="sn-profile-loadout-v223">
-                        <span>LOADOUT</span>
-                        <strong>{pet ? pet.name : "Sem pet equipado"}</strong>
-                        <small>Vel {Math.round(profileBuffsForHud.speed * 100)}% · Tiro {Math.round(profileBuffsForHud.shotSpeed * 100)}% · Dano {Math.round(profileBuffsForHud.damage * 100)}% · Tokens +{Math.round(profileBuffsForHud.tokenBonus * 100)}%</small>
-                        <button type="button" onClick={() => { setShopTab("front"); setShopManagerOpen(true); }}>ABRIR SHOP</button>
-                      </div>
+            <div className="sn-profile-body-v250">
+              {profileActiveTab === "overview" && (
+                <div className="sn-profile-overview-v250">
+                  <article className="sn-profile-card-v250 is-identity">
+                    <h3>IDENTIDADE</h3>
+                    <label>
+                      Nome
+                      <input value={localProfile.name} maxLength={16} onChange={(event) => atualizarNomePerfilLocal(event.target.value)} />
+                    </label>
+                    <div className="sn-profile-colors-v250" aria-label="Cores do perfil">
+                      {PROFILE_COLOR_OPTIONS.map((color) => (
+                        <button key={color} type="button" className={localProfile.color === color ? "is-selected" : ""} style={{ "--profile-color": color } as CSSProperties} onClick={() => atualizarCorPerfilLocal(color)} aria-label={`Usar cor ${color}`} />
+                      ))}
                     </div>
-                  );
-                })()}
-              </article>
+                  </article>
 
-              <article className="sn-profile-card-v20">
-                <h3>AMIZADES</h3>
-                <p className="sn-profile-muted-v20">Adicione por código. Envie pedidos por código ou convide amigos salvos para a sala atual. Push real com o site fechado fica para a fase PWA/backend.</p>
-                <div className="sn-profile-friend-add-v20">
-                  <input
-                    value={profileFriendCodeInput}
-                    onChange={(event) => setProfileFriendCodeInput(event.target.value.toUpperCase())}
-                    placeholder="SN-ABC123"
-                  />
-                  <button type="button" onClick={() => adicionarPedidoAmizadeLocal(profileFriendCodeInput)}>PEDIR</button>
-                </div>
-                <div className="sn-profile-list-v20">
-                  {localProfile.friendRequests.length === 0 && localProfile.friends.length === 0 && <em>Nenhum pedido ou amigo ainda.</em>}
-                  {localProfile.friendRequests.map((request) => (
-                    <div key={request.id}>
-                      <span>{request.name}</span>
-                      <small>{request.direction === "sent" ? "pedido enviado" : "pedido recebido"} · {request.code}</small>
-                      <div>
-                        {request.direction === "received" && <button type="button" onClick={() => aceitarPedidoAmizadeLocal(request.id)}>ACEITAR</button>}
-                        <button type="button" onClick={() => mostrarToastPerfil(`${request.name}: ${request.code}`)}>VER</button><button type="button" onClick={() => removerAmizadeOuPedidoLocal(request.id)}>REMOVER</button>
-                      </div>
-                    </div>
-                  ))}
-                  {localProfile.friends.map((friend) => (
-                    <div key={friend.id}>
-                      <span>{friend.name}</span>
-                      <small>{friend.code || friend.id}</small>
-                      <div>
-                        <button type="button" onClick={() => mostrarToastPerfil(`${friend.name}: ${friend.code || friend.id}`)}>VER PERFIL</button><button type="button" onClick={() => removerAmizadeOuPedidoLocal(friend.id)}>APAGAR</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </article>
+                  <article className="sn-profile-card-v250 is-ship">
+                    <h3>NAVE E PET</h3>
+                    {(() => {
+                      const equipped = localProfile.equipped || {};
+                      const previewItems = [itemShopPorId(equipped.recolor), itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+                      const pet = itemShopPorId(equipped.pet);
+                      return (
+                        <div className="sn-profile-loadout-grid-v250">
+                          <div className="sn-profile-ship-preview-v250">
+                            <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                            {previewItems.map((item) => item.id !== "recolor-classic" && <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />)}
+                            {pet && <img className="sn-shop-preview-pet-v250" src={assetUrl(pet.asset)} alt="" />}
+                          </div>
+                          <div>
+                            <strong>{pet ? pet.name : "Sem pet equipado"}</strong>
+                            <small>Vel {Math.round(profileBuffsForHud.speed * 100)}% · Tiro {Math.round(profileBuffsForHud.shotSpeed * 100)}% · Dano {Math.round(profileBuffsForHud.damage * 100)}% · Tokens +{Math.round(profileBuffsForHud.tokenBonus * 100)}%</small>
+                            <button type="button" onClick={() => { setShopTab("front"); setShopManagerOpen(true); }}>ABRIR SHOP</button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </article>
 
-              <article className="sn-profile-card-v20">
-                <h3>ESTATÍSTICAS</h3>
-                <div className="sn-profile-stats-v20">
-                  <span><b>{Math.floor(localProfile.stats.playTimeMs / 60000)}</b><small>min jogados</small></span>
-                  <span><b>{localProfile.stats.runsStarted}</b><small>runs</small></span>
-                  <span><b>{localProfile.stats.enemiesKilled}</b><small>inimigos</small></span>
-                  <span><b>{localProfile.stats.deaths}</b><small>mortes</small></span>
-                  <span><b>{localProfile.stats.chocadosKilled}</b><small>Chocado</small></span>
-                  <span><b>{localProfile.stats.pvpWins}</b><small>vitórias PvP</small></span>
-                  <span><b>{localProfile.stats.bestInfiniteWave}</b><small>recorde wave</small></span>
-                  <span><b>{localProfile.stats.bestInfiniteScore}</b><small>recorde score</small></span>
-                </div>
-              </article>
-
-              <article className="sn-profile-card-v20">
-                <h3>ACHIEVEMENTS</h3>
-                <div className="sn-achievements-v20">
-                  {localProfile.achievements.map((achievement) => (
-                    <div key={achievement.id} className={achievement.unlockedAt ? "is-unlocked" : "is-locked"}>
-                      <strong>{achievement.unlockedAt ? "★" : "☆"} {achievement.title}</strong>
-                      <small>{achievement.description}</small>
+                  <article className="sn-profile-card-v250 is-summary">
+                    <h3>RESUMO</h3>
+                    <div className="sn-profile-stat-grid-v250">
+                      <span><b>{Math.floor(localProfile.stats.playTimeMs / 60000)}</b><small>min</small></span>
+                      <span><b>{localProfile.stats.runsStarted}</b><small>runs</small></span>
+                      <span><b>{localProfile.stats.enemiesKilled}</b><small>kills</small></span>
+                      <span><b>{localProfile.stats.bestInfiniteWave}</b><small>recorde wave</small></span>
                     </div>
-                  ))}
-                  <div className="is-future">
-                    <strong>☆ Loja e pets</strong>
-                    <small>Cosméticos, pets e ranking online entram na próxima fase.</small>
+                  </article>
+                </div>
+              )}
+
+              {profileActiveTab === "stats" && (
+                <article className="sn-profile-card-v250 is-wide">
+                  <h3>ESTATÍSTICAS DE MISSÃO</h3>
+                  <div className="sn-profile-stat-grid-v250 is-large">
+                    <span><b>{Math.floor(localProfile.stats.playTimeMs / 60000)}</b><small>min jogados</small></span>
+                    <span><b>{localProfile.stats.runsStarted}</b><small>runs</small></span>
+                    <span><b>{localProfile.stats.enemiesKilled}</b><small>inimigos</small></span>
+                    <span><b>{localProfile.stats.deaths}</b><small>mortes</small></span>
+                    <span><b>{localProfile.stats.chocadosKilled}</b><small>Chocado</small></span>
+                    <span><b>{localProfile.stats.tokensCollected}</b><small>tokens coletados</small></span>
+                    <span><b>{localProfile.stats.bestInfiniteWave}</b><small>recorde wave</small></span>
+                    <span><b>{localProfile.stats.bestInfiniteScore}</b><small>recorde score</small></span>
                   </div>
-                </div>
-              </article>
+                </article>
+              )}
+
+              {profileActiveTab === "achievements" && (
+                <article className="sn-profile-card-v250 is-wide">
+                  <h3>CONQUISTAS</h3>
+                  <div className="sn-achievements-v250">
+                    {normalizarConquistasPerfil(localProfile.achievements).map((achievement) => (
+                      <div key={achievement.id} className={achievement.unlockedAt ? "is-unlocked" : "is-locked"}>
+                        <strong>{achievement.unlockedAt ? "★" : "☆"} {achievement.title}</strong>
+                        <small>{achievement.description}</small>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              )}
+
+              {profileActiveTab === "friends" && (
+                <article className="sn-profile-card-v250 is-wide">
+                  <h3>AMIGOS E PEDIDOS</h3>
+                  <p className="sn-profile-muted-v20">Gerencie pedidos recebidos/enviados e convide amigos para o lobby online.</p>
+                  <div className="sn-profile-friend-add-v250">
+                    <input value={profileFriendCodeInput} onChange={(event) => setProfileFriendCodeInput(event.target.value.toUpperCase())} placeholder="SN-ABC123" />
+                    <button type="button" onClick={() => adicionarPedidoAmizadeLocal(profileFriendCodeInput)}>ADICIONAR</button>
+                  </div>
+                  <div className="sn-profile-list-v250">
+                    {localProfile.friendRequests.length === 0 && localProfile.friends.length === 0 && <em>Nenhum pedido ou amigo ainda.</em>}
+                    {localProfile.friendRequests.map((request) => (
+                      <div key={request.id} className="is-request">
+                        <span>{request.name}</span>
+                        <small>{request.direction === "sent" ? "pedido enviado" : "pedido recebido"} · {request.code}</small>
+                        <div>
+                          {request.direction === "received" && <button type="button" onClick={() => aceitarPedidoAmizadeLocal(request.id)}>ACEITAR</button>}
+                          <button type="button" onClick={() => mostrarToastPerfil(`${request.name}: ${request.code}`)}>VER</button>
+                          <button type="button" onClick={() => removerAmizadeOuPedidoLocal(request.id)}>REMOVER</button>
+                        </div>
+                      </div>
+                    ))}
+                    {localProfile.friends.map((friend) => (
+                      <div key={friend.id} className="is-friend">
+                        <span>{friend.name}</span>
+                        <small>{friend.code || friend.id}</small>
+                        <div>
+                          <button type="button" onClick={() => mostrarToastPerfil(`${friend.name}: ${friend.code || friend.id}`)}>VER PERFIL</button>
+                          <button type="button" onClick={() => removerAmizadeOuPedidoLocal(friend.id)}>APAGAR</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              )}
+
+              {profileActiveTab === "messages" && (
+                <article className="sn-profile-card-v250 is-wide">
+                  <header className="sn-profile-card-header-v250">
+                    <div>
+                      <h3>CAIXA DE MENSAGEM</h3>
+                      <p>Atualizações, conquistas, shop e pedidos de amizade.</p>
+                    </div>
+                    <button type="button" onClick={limparNotificacoesPerfil}>LIMPAR</button>
+                  </header>
+                  <div className="sn-profile-notifications-v250">
+                    {normalizarNotificacoesPerfil(localProfile.notifications).length === 0 && <em>Nenhuma notificação.</em>}
+                    {normalizarNotificacoesPerfil(localProfile.notifications).map((notice) => (
+                      <button key={notice.id} type="button" className={`is-${notice.kind} ${notice.readAt ? "is-read" : "is-unread"}`} onClick={() => { if (notice.action === "shop") setShopManagerOpen(true); if (notice.action === "friends") setProfileActiveTab("friends"); if (notice.action === "achievements") setProfileActiveTab("achievements"); }}>
+                        <span>{notice.kind.toUpperCase()}</span>
+                        <strong>{notice.title}</strong>
+                        <small>{notice.message}</small>
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              )}
             </div>
 
-            <footer className="sn-profile-footer-v20">
+            <footer className="sn-profile-footer-v250">
               {profileToast && <span>{profileToast}</span>}
               <button type="button" onClick={deletarPerfilLocal}>DELETAR CONTA LOCAL</button>
             </footer>
           </section>
         </div>
       )}
+
+      {selectedOnlineProfileSlot !== null && (() => {
+        const player = onlinePlayers.find((item) => item.slot === selectedOnlineProfileSlot);
+        const summary = player?.profileSummary;
+        const equipped = summary?.equipped || player?.cosmetics || {};
+        const previewItems = [itemShopPorId(equipped.recolor), itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+        const pet = itemShopPorId(equipped.pet);
+        return player ? (
+          <div className="sn-profile-backdrop-v20 sn-online-profile-backdrop-v250" role="dialog" aria-modal="true">
+            <section className="sn-online-profile-card-v250">
+              <header>
+                <div className="sn-profile-avatar-v250" style={{ "--profile-color": summary?.color || player.profileColor || LOCAL_PLAYER_COLORS[(player.slot - 1) % LOCAL_PLAYER_COLORS.length] } as CSSProperties}>{(summary?.name || player.name || `P${player.slot}`).slice(0, 1).toUpperCase()}</div>
+                <div>
+                  <span>PERFIL DO PLAYER</span>
+                  <h2>{summary?.name || player.name || `P${player.slot}`}</h2>
+                  <p>P{player.slot} · {player.device || "dispositivo"} {onlineHostSlot === player.slot ? "· HOST" : ""}</p>
+                </div>
+                <button type="button" onClick={() => setSelectedOnlineProfileSlot(null)} aria-label="Fechar perfil online">×</button>
+              </header>
+              <div className="sn-online-profile-body-v250">
+                <div className="sn-profile-ship-preview-v250">
+                  <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                  {previewItems.map((item) => item.id !== "recolor-classic" && <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />)}
+                  {pet && <img className="sn-shop-preview-pet-v250" src={assetUrl(pet.asset)} alt="" />}
+                </div>
+                <div className="sn-profile-stat-grid-v250">
+                  <span><b>{summary?.tokens ?? "--"}</b><small>tokens</small></span>
+                  <span><b>{summary?.friendsCount ?? "--"}</b><small>amigos</small></span>
+                  <span><b>{summary?.achievementsUnlocked ?? "--"}/{summary?.achievementsTotal ?? "--"}</b><small>conquistas</small></span>
+                  <span><b>{summary?.stats?.bestInfiniteWave ?? "--"}</b><small>recorde wave</small></span>
+                </div>
+              </div>
+              <footer>
+                <button type="button" onClick={() => { salvarAmigosDaSalaOnline(); setSelectedOnlineProfileSlot(null); }}>SALVAR COMO AMIGO</button>
+                <button type="button" onClick={() => setSelectedOnlineProfileSlot(null)}>FECHAR</button>
+              </footer>
+            </section>
+          </div>
+        ) : null;
+      })()}
 
       {keyBindPrompt && (
         <div className="sn-modal-backdrop">
@@ -21284,7 +21591,7 @@ export default function JogoPage() {
 
           {petEquipadoAtual() && (
             <button
-              className="sn-mobile-button pet"
+              className={`sn-mobile-button pet is-pet-button-v250 ${petAbilityCooldownUi > 0 ? "is-cooling" : "is-ready"}`}
               style={mobileControlStyle("pet")}
               onPointerDown={(event) => {
                 event.preventDefault();
@@ -21292,9 +21599,10 @@ export default function JogoPage() {
                 ativarHabilidadePetManual();
                 window.setTimeout(() => { mobilePetPressedRef.current = false; }, 120);
               }}
+              disabled={petAbilityCooldownUi > 0}
               aria-label="habilidade do pet"
             >
-              <img src={assetUrl(CONFIG.uiImages.mobilePet)} alt="pet" draggable={false} />
+              {petAbilityCooldownUi > 0 ? <span>{petAbilityCooldownUi}s</span> : <img src={assetUrl(petEquipadoAtual()?.asset || CONFIG.uiImages.mobilePet)} alt="pet" draggable={false} />}
             </button>
           )}
 
