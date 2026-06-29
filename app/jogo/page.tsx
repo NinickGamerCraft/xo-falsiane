@@ -1733,7 +1733,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.5";
+const SPACE_NEWS_VERSION = "2.5.6";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2432,7 +2432,7 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260629-v255-mobile-shop-profile";
+const ASSET_VERSION = "space-news-20260629-v256-accessory-rework";
 const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
 const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
 
