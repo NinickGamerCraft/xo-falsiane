@@ -3215,9 +3215,15 @@ function criarCodigoAmizadeLocal(id = "") {
 function formatarCodigoAmizadeInput(value: string) {
   const raw = String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!raw) return "";
-  const clean = raw.startsWith("SN") ? raw.slice(2) : raw;
-  const compact = clean.replace(/^0+/, "").slice(0, 10);
-  return compact ? `SN-${compact}` : "";
+  const hasPrefix = raw.startsWith("SN");
+  const clean = hasPrefix ? raw.slice(2) : raw;
+  const compact = clean.slice(0, 10);
+  if (!compact) return hasPrefix ? "SN-" : "";
+  return `SN-${compact}`;
+}
+
+function codigoAmizadeCompacto(value: string) {
+  return formatarCodigoAmizadeInput(value).replace(/^SN-/, "");
 }
 
 function codigoAmizadeValido(value: string) {
@@ -5837,20 +5843,27 @@ export default function JogoPage() {
 
   function resumoPerfilPorCodigoAmizade(codeRaw: string): (OnlineProfileSummary & { onlineSlot?: number }) | null {
     const code = formatarCodigoAmizadeInput(codeRaw);
-    if (!code) return null;
-    const onlinePlayer = onlinePlayers.find((player) => formatarCodigoAmizadeInput(player.profileSummary?.friendCode || "") === code || formatarCodigoAmizadeInput(player.id || "") === code);
+    const compact = codigoAmizadeCompacto(codeRaw);
+    if (!codigoAmizadeValido(code)) return null;
+    const onlinePlayer = onlinePlayers.find((player) => {
+      const summaryCode = codigoAmizadeCompacto(player.profileSummary?.friendCode || "");
+      const idCode = codigoAmizadeCompacto(player.id || "");
+      const nameCode = codigoAmizadeCompacto(player.name || "");
+      return Boolean(compact && (summaryCode === compact || idCode === compact || nameCode === compact));
+    });
     if (onlinePlayer) {
+      const summaryCode = formatarCodigoAmizadeInput(onlinePlayer.profileSummary?.friendCode || code);
       return {
         ...(onlinePlayer.profileSummary || {}),
         id: onlinePlayer.profileSummary?.id || onlinePlayer.id,
         name: onlinePlayer.profileSummary?.name || onlinePlayer.name,
         color: onlinePlayer.profileSummary?.color || onlinePlayer.profileColor,
-        friendCode: code,
+        friendCode: codigoAmizadeValido(summaryCode) ? summaryCode : code,
         onlineSlot: onlinePlayer.slot,
       };
     }
     const registry = carregarRegistroPerfisLocais();
-    const local = registry[code];
+    const local = registry[code] || Object.values(registry).find((item) => codigoAmizadeCompacto(item.friendCode) === compact);
     if (!local) return null;
     return {
       id: local.id,
@@ -5887,6 +5900,7 @@ export default function JogoPage() {
     enviarOnline({
       type: "friend_request",
       toSlot: slot,
+      targetCode: formatarCodigoAmizadeInput(summary.friendCode || ""),
       fromCode: localProfileRef.current.friendCode,
       fromName: nomePerfilVisivel(localProfileRef.current),
       fromProfileId: localProfileRef.current.id,
@@ -6027,13 +6041,36 @@ export default function JogoPage() {
     const found = resumoPerfilPorCodigoAmizade(code);
     if (found) registrarResumoPerfilNoIndice(found);
     if (!found) {
-      mostrarToastPerfil("Perfil não encontrado para esse código.");
+      if (onlineConnected) {
+        const request: LocalFriendRequest = {
+          id: criarIdPerfilLocal(),
+          code,
+          name: code,
+          direction: "sent",
+          createdAt: Date.now(),
+        };
+        salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
+        setProfileFriendCodeInput("SN-");
+        enviarOnline({
+          type: "friend_request",
+          targetCode: code,
+          fromCode: localProfileRef.current.friendCode,
+          fromName: nomePerfilVisivel(localProfileRef.current),
+          fromProfileId: localProfileRef.current.id,
+          fromColor: localProfileRef.current.color,
+          fromSummary: criarResumoPerfilOnline(),
+        } as any);
+        adicionarNotificacaoPerfil("friend", "Pedido enviado por código", `Pedido enviado para ${code}. Se esse perfil estiver na sala, ele vai receber.`, "friends");
+        mostrarToastPerfil(`Pedido enviado para ${code}.`);
+        return;
+      }
+      mostrarToastPerfil("Perfil não encontrado. Entre na mesma sala online ou peça o código completo.");
       adicionarNotificacaoPerfil("system", "Perfil não encontrado", `Nenhum perfil registrado foi encontrado para ${code}.`, "friends");
       return;
     }
     const request: LocalFriendRequest = {
       id: criarIdPerfilLocal(),
-      code,
+      code: formatarCodigoAmizadeInput(found.friendCode || code),
       name: String(found.name || code).slice(0, 24),
       direction: "sent",
       createdAt: Date.now(),
@@ -6468,6 +6505,59 @@ export default function JogoPage() {
       }
     }
     ctx.restore();
+  }
+
+  function corPetEspecial(petId: string) {
+    if (petId === "pet-red-jumper") return "#f97316";
+    if (petId === "pet-black-hole") return "#7c3aed";
+    if (petId === "pet-satellite") return "#93c5fd";
+    if (petId === "pet-earth") return "#86efac";
+    if (petId === "pet-sun") return "#fb923c";
+    if (petId === "pet-moon") return "#ddd6fe";
+    if (petId === "pet-comet") return "#67e8f9";
+    if (petId === "pet-white-hole") return "#f8fafc";
+    if (petId === "pet-wormhole") return "#c084fc";
+    if (petId === "pet-alien") return "#67e8f9";
+    if (petId === "pet-void-knight") return "#e5e7eb";
+    if (petId === "pet-milky-way") return "#c084fc";
+    if (petId === "pet-chaos-jester") return "#f472b6";
+    return "#facc15";
+  }
+
+  function vfxInicioPet(petId: string, cx: number, cy: number) {
+    const color = corPetEspecial(petId);
+    if (petId === "pet-black-hole") {
+      adicionarVfxPet("portal", cx + 120, cy, color, { size: 180, label: "PUXÃO" });
+      adicionarVfxPet("confusion", cx + 120, cy, "#a78bfa", { size: 90 });
+    } else if (petId === "pet-satellite") {
+      adicionarVfxPet("slash", cx - 30, cy - 70, color, { x2: cx + 330, y2: cy - 70, size: 260, label: "SCAN" });
+      adicionarVfxPet("portal", cx + 180, cy - 70, color, { size: 48 });
+    } else if (petId === "pet-earth") {
+      adicionarVfxPet("burst", cx, cy + 20, color, { size: 110, label: "+VIDA" });
+      adicionarVfxPet("freeze", cx + 80, cy + 36, "#bbf7d0", { size: 54 });
+    } else if (petId === "pet-sun") {
+      adicionarVfxPet("flare", cx + 92, cy, color, { size: 150, label: "CHAMA" });
+      adicionarVfxPet("burst", cx + 160, cy, "#fed7aa", { size: 90 });
+    } else if (petId === "pet-moon") {
+      adicionarVfxPet("slash", cx + 30, cy - 44, color, { x2: cx + 310, y2: cy + 44, size: 260, label: "HOMING" });
+      adicionarVfxPet("portal", cx + 56, cy - 54, color, { size: 54 });
+    } else if (petId === "pet-comet") {
+      adicionarVfxPet("slash", cx - 42, cy + 42, color, { x2: cx + 360, y2: cy - 34, size: 330, label: "RASTRO" });
+      adicionarVfxPet("burst", cx + 180, cy, "#fbbf24", { size: 60 });
+    } else if (petId === "pet-white-hole") {
+      adicionarVfxPet("burst", cx, cy, color, { size: 160, label: "REPULSO" });
+      adicionarVfxPet("portal", cx, cy, "#dbeafe", { size: 92 });
+    } else if (petId === "pet-wormhole") {
+      adicionarVfxPet("portal", cx + 20, cy, color, { size: 74, label: "DOBRA" });
+      adicionarVfxPet("portal", cx + 260, cy - 10, color, { size: 92 });
+      adicionarVfxPet("slash", cx + 20, cy, color, { x2: cx + 280, y2: cy - 10, size: 250 });
+    } else if (petId === "pet-alien") {
+      adicionarVfxPet("slash", cx + 36, cy - 10, color, { x2: cx + 360, y2: cy - 10, size: 300, label: "LASER" });
+      adicionarVfxPet("confusion", cx + 110, cy - 10, color, { size: 52 });
+    } else if (petId === "pet-star") {
+      adicionarVfxPet("burst", cx, cy, color, { size: 86, label: "IMPULSO" });
+    }
+    shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: petId === "pet-white-hole" ? 190 : 112, life: 240, maxLife: 240 });
   }
 
   function criarNumeroDano(x: number, y: number, value: number, color = "#fff1a8", crit = false) {
@@ -7240,6 +7330,7 @@ export default function JogoPage() {
     }
     const cx = player.x + player.w / 2;
     const cy = player.y + player.h / 2;
+    if (petId !== "pet-blue-comet" && petId !== "pet-tundra") vfxInicioPet(petId, cx, cy);
     tocarSom(petId === "pet-blue-comet" ? (CONFIG.sounds.petSuperSpark || CONFIG.sounds.petActivate) : (CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup), remote ? 0.22 : 0.34, "sfx");
     if (!remote) destacarEspecialPet(petId, itemShopPorId(petId)?.name?.replace(/^Pet\s+/i, "") || "ESPECIAL", petId === "pet-tundra" ? "#bfdbfe" : petId === "pet-blue-comet" ? "#fde047" : petId === "pet-red-jumper" ? "#f97316" : petId === "pet-milky-way" ? "#c084fc" : petId === "pet-chaos-jester" ? "#f472b6" : "#facc15");
 
@@ -7272,14 +7363,17 @@ export default function JogoPage() {
         enemy.vy += (dy / dist) * force;
         enemy.stretchUntil = Math.max(enemy.stretchUntil ?? 0, now + 140);
       }
-      criarExplosao(cx, cy, "#7c3aed", mobileRuntimeRef.current ? 6 : 10);
-      if (!remote) mostrarMensagemPet("BURACO NEGRO: PUXÃO", "#a78bfa");
+      criarExplosao(cx + 110, cy, "#7c3aed", mobileRuntimeRef.current ? 8 : 16);
+      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(10, "#a78bfa");
+      if (!remote) mostrarMensagemPet("BURACO NEGRO: PUXA E RASGA", "#a78bfa");
       return true;
     }
 
     if (petId === "pet-satellite") {
-      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1300);
-      if (!remote) mostrarMensagemPet("SATÉLITE: RECARGA", "#93c5fd");
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1800);
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.abs((bullet.y + bullet.h / 2) - cy) > 74);
+      for (const enemy of enemiesRef.current.slice(0, 6)) if (enemy.hp > 0) aplicarDanoInimigoEspecial(enemy, 2.5, "#93c5fd");
+      if (!remote) mostrarMensagemPet("SATÉLITE: SCAN + RECARGA", "#93c5fd");
       return true;
     }
 
@@ -7287,10 +7381,12 @@ export default function JogoPage() {
 
     if (petId === "pet-earth") {
       if (enemiesRef.current.length < 18) spawnEnemy("red");
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy) > 135);
       player.hp = Math.min(vidaMaximaLocal(), player.hp + 1);
       if (slot === slotLocalOnline()) setPlayerHp(player.hp);
       else if (slot === slotVisualPlayer2Online()) setPlayer2Hp(player.hp);
-      if (!remote) mostrarMensagemPet("TERRA: REFORÇO", "#86efac");
+      criarParticulasHit(cx, cy + 18, "#86efac", mobileRuntimeRef.current ? 6 : 12);
+      if (!remote) mostrarMensagemPet("TERRA: CURA + LIMPEZA", "#86efac");
       return true;
     }
 
@@ -7298,16 +7394,22 @@ export default function JogoPage() {
     if (petId === "pet-void-knight") return dispararCavaleiroVazioEspecial(slot, remote);
 
     if (petId === "pet-sun") {
-      if (slot === slotLocalOnline()) flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 3000);
-      else if (slot === slotVisualPlayer2Online()) player2FlamesUntilRef.current = Math.max(player2FlamesUntilRef.current, now + 3000);
-      if (!remote) mostrarMensagemPet("SOL: CHAMA ATIVA", "#fb923c");
+      if (slot === slotLocalOnline()) flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 4200);
+      else if (slot === slotVisualPlayer2Online()) player2FlamesUntilRef.current = Math.max(player2FlamesUntilRef.current, now + 4200);
+      for (const enemy of enemiesRef.current) {
+        const dist = Math.hypot(enemy.x + enemy.w / 2 - (cx + 130), enemy.y + enemy.h / 2 - cy);
+        if (enemy.hp > 0 && dist < 210) aplicarDanoInimigoEspecial(enemy, 4, "#fb923c");
+      }
+      if (!remote) mostrarMensagemPet("SOL: CHAMA EM ÁREA", "#fb923c");
       return true;
     }
 
     if (petId === "pet-moon") {
-      if (slot === slotLocalOnline()) homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + (player.hp <= 1 ? 5200 : 3200));
-      else if (slot === slotVisualPlayer2Online()) player2HomingShotUntilRef.current = Math.max(player2HomingShotUntilRef.current, now + (player.hp <= 1 ? 5200 : 3200));
-      if (!remote) mostrarMensagemPet("LUA: TIROS GUIADOS", "#ddd6fe");
+      if (slot === slotLocalOnline()) homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + (player.hp <= 1 ? 6200 : 4200));
+      else if (slot === slotVisualPlayer2Online()) player2HomingShotUntilRef.current = Math.max(player2HomingShotUntilRef.current, now + (player.hp <= 1 ? 6200 : 4200));
+      const lunarTargets = enemiesRef.current.filter((enemy) => enemy.hp > 0).slice(0, 4);
+      lunarTargets.forEach((enemy, i) => window.setTimeout(() => aplicarDanoInimigoEspecial(enemy, 3, "#ddd6fe"), i * 90));
+      if (!remote) mostrarMensagemPet("LUA: HOMING + RAIO", "#ddd6fe");
       return true;
     }
 
@@ -7316,10 +7418,13 @@ export default function JogoPage() {
       enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => {
         if (cleared >= 3) return true;
         const dist = Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy);
-        if (dist < 175) { cleared += 1; return false; }
+        if (dist < 260) { cleared += 1; return false; }
         return true;
       });
-      if (!remote) mostrarMensagemPet("COMETA: LIMPEZA", "#67e8f9");
+      for (const enemy of enemiesRef.current) {
+        if (enemy.hp > 0 && enemy.x > cx - 30 && enemy.x < cx + 360 && Math.abs(enemy.y + enemy.h / 2 - cy) < 90) aplicarDanoInimigoEspecial(enemy, 4.5, "#67e8f9");
+      }
+      if (!remote) mostrarMensagemPet("COMETA: RASTRO CORTANTE", "#67e8f9");
       return true;
     }
 
@@ -7373,7 +7478,8 @@ export default function JogoPage() {
     if (pet.id === "pet-chaos-jester") desbloquearConquistaPerfil("pet-jester");
     if (pet.id === "pet-blue-comet") desbloquearConquistaPerfil("pet-super-spark");
     tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, 0.28, "sfx");
-    destacarEspecialPet(pet.id, pet.name.replace(/^Pet\s+/i, ""), pet.id === "pet-tundra" ? "#bfdbfe" : pet.id === "pet-blue-comet" ? "#fde047" : pet.id === "pet-red-jumper" ? "#f97316" : pet.id === "pet-milky-way" ? "#c084fc" : pet.id === "pet-chaos-jester" ? "#f472b6" : "#facc15");
+    destacarEspecialPet(pet.id, pet.name.replace(/^Pet\s+/i, ""), pet.id === "pet-tundra" ? "#bfdbfe" : pet.id === "pet-blue-comet" ? "#fde047" : pet.id === "pet-red-jumper" ? "#f97316" : pet.id === "pet-milky-way" ? "#c084fc" : pet.id === "pet-chaos-jester" ? "#f472b6" : corPetEspecial(pet.id));
+    if (pet.id !== "pet-blue-comet" && pet.id !== "pet-tundra") vfxInicioPet(pet.id, cx, cy);
 
     if (pet.id === "pet-blue-comet") {
       petSuperSparkUntilRef.current = now + 15000;
@@ -7399,8 +7505,10 @@ export default function JogoPage() {
         mostrarMensagemPet("SATÉLITE: ATALHO DE WAVE", "#93c5fd");
         window.setTimeout(() => iniciarWaveInfinita(wave + 1), 80);
       } else {
-        player.strongReadyAt = Math.max(now, player.strongReadyAt - 1100);
-        mostrarMensagemPet("SATÉLITE: RECARGA", "#93c5fd");
+        player.strongReadyAt = Math.max(now, player.strongReadyAt - 1800);
+        enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.abs((bullet.y + bullet.h / 2) - cy) > 74);
+        for (const enemy of enemiesRef.current.slice(0, 6)) if (enemy.hp > 0) aplicarDanoInimigoEspecial(enemy, 2.5, "#93c5fd");
+        mostrarMensagemPet("SATÉLITE: SCAN + RECARGA", "#93c5fd");
       }
       return;
     }
@@ -7411,9 +7519,13 @@ export default function JogoPage() {
     }
 
     if (pet.id === "pet-black-hole") {
-      petBlackHolePullUntilRef.current = now + 2300;
-      criarExplosao(cx, cy, "#7c3aed", mobileRuntimeRef.current ? 6 : 10);
-      mostrarMensagemPet("BURACO NEGRO: PUXÃO", "#a78bfa");
+      petBlackHolePullUntilRef.current = now + 2600;
+      criarExplosao(cx + 110, cy, "#7c3aed", mobileRuntimeRef.current ? 8 : 16);
+      for (const enemy of enemiesRef.current) {
+        if (enemy.hp > 0 && Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy) < 460) aplicarDanoInimigoEspecial(enemy, 2.5, "#a78bfa");
+      }
+      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(10, "#a78bfa");
+      mostrarMensagemPet("BURACO NEGRO: PUXA E RASGA", "#a78bfa");
       return;
     }
 
@@ -7424,9 +7536,11 @@ export default function JogoPage() {
 
     if (pet.id === "pet-earth") {
       if (enemiesRef.current.length < 18) spawnEnemy("red");
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy) > 135);
       player.hp = Math.min(vidaMaximaLocal(), player.hp + 1);
       setPlayerHp(player.hp);
-      mostrarMensagemPet("TERRA: REFORÇO", "#86efac");
+      criarParticulasHit(cx, cy + 18, "#86efac", mobileRuntimeRef.current ? 6 : 12);
+      mostrarMensagemPet("TERRA: CURA + LIMPEZA", "#86efac");
       return;
     }
 
@@ -7441,14 +7555,19 @@ export default function JogoPage() {
     }
 
     if (pet.id === "pet-sun") {
-      flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 3000);
-      mostrarMensagemPet("SOL: CHAMA ATIVA", "#fb923c");
+      flamesUntilRef.current = Math.max(flamesUntilRef.current, now + 4200);
+      for (const enemy of enemiesRef.current) {
+        const dist = Math.hypot(enemy.x + enemy.w / 2 - (cx + 130), enemy.y + enemy.h / 2 - cy);
+        if (enemy.hp > 0 && dist < 210) aplicarDanoInimigoEspecial(enemy, 4, "#fb923c");
+      }
+      mostrarMensagemPet("SOL: CHAMA EM ÁREA", "#fb923c");
       return;
     }
 
     if (pet.id === "pet-moon") {
-      homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + (player.hp <= 1 ? 5200 : 3200));
-      mostrarMensagemPet("LUA: TIROS GUIADOS", "#ddd6fe");
+      homingShotUntilRef.current = Math.max(homingShotUntilRef.current, now + (player.hp <= 1 ? 6200 : 4200));
+      enemiesRef.current.filter((enemy) => enemy.hp > 0).slice(0, 4).forEach((enemy, i) => window.setTimeout(() => aplicarDanoInimigoEspecial(enemy, 3, "#ddd6fe"), i * 90));
+      mostrarMensagemPet("LUA: HOMING + RAIO", "#ddd6fe");
       return;
     }
 
@@ -7457,11 +7576,14 @@ export default function JogoPage() {
       enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => {
         if (cleared >= 3) return true;
         const dist = Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy);
-        if (dist < 175) { cleared += 1; return false; }
+        if (dist < 260) { cleared += 1; return false; }
         return true;
       });
-      criarParticulasHit(cx, cy, "#fbbf24", 9);
-      mostrarMensagemPet("COMETA: RASTRO DEFENSIVO", "#fbbf24");
+      for (const enemy of enemiesRef.current) {
+        if (enemy.hp > 0 && enemy.x > cx - 30 && enemy.x < cx + 360 && Math.abs(enemy.y + enemy.h / 2 - cy) < 90) aplicarDanoInimigoEspecial(enemy, 4.5, "#67e8f9");
+      }
+      criarParticulasHit(cx, cy, "#67e8f9", 9);
+      mostrarMensagemPet("COMETA: RASTRO CORTANTE", "#67e8f9");
       return;
     }
 
@@ -7477,28 +7599,44 @@ export default function JogoPage() {
           bullet.vy += (dy / dist) * 2.2;
         }
       }
-      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 96, life: 190, maxLife: 190 });
-      mostrarMensagemPet("BURACO BRANCO: REPULSO", "#f8fafc");
+      for (const enemy of enemiesRef.current) {
+        const ex = enemy.x + enemy.w / 2;
+        const ey = enemy.y + enemy.h / 2;
+        const dx = ex - cx;
+        const dy = ey - cy;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        if (enemy.hp > 0 && dist < 240) {
+          enemy.vx += (dx / dist) * 2.8;
+          enemy.vy += (dy / dist) * 2.2;
+          aplicarDanoInimigoEspecial(enemy, 2.5, "#f8fafc");
+        }
+      }
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 190, life: 260, maxLife: 260 });
+      mostrarMensagemPet("BURACO BRANCO: REPULSO TOTAL", "#f8fafc");
       return;
     }
 
     if (pet.id === "pet-wormhole") {
-      player.strongReadyAt = Math.max(now, player.strongReadyAt - 2100);
-      player.vx += 0.55;
-      mostrarMensagemPet("MINHOCA: DOBRA", "#c084fc");
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 2400);
+      player.vx += 1.15;
+      player.stretchUntil = now + 360;
+      enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > cx && enemy.x < cx + 300).slice(0, 5).forEach((enemy) => aplicarDanoInimigoEspecial(enemy, 3.5, "#c084fc"));
+      mostrarMensagemPet("MINHOCA: DOBRA ESPACIAL", "#c084fc");
       return;
     }
 
     if (pet.id === "pet-alien") {
-      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1600);
-      boostChargeRef.current = Math.min(CONFIG.gameplay.boost.maxCharge, boostChargeRef.current + 18);
-      mostrarMensagemPet("ALIENÍGENA: RECARGA", "#67e8f9");
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1800);
+      boostChargeRef.current = Math.min(CONFIG.gameplay.boost.maxCharge, boostChargeRef.current + 22);
+      enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > cx && Math.abs(enemy.y + enemy.h / 2 - cy) < 110).slice(0, 4).forEach((enemy) => aplicarDanoInimigoEspecial(enemy, 3.2, "#67e8f9"));
+      mostrarMensagemPet("ALIENÍGENA: LASER + RECARGA", "#67e8f9");
       return;
     }
 
-    player.vx += 0.35;
-    player.strongReadyAt = Math.max(now, player.strongReadyAt - 750);
-    mostrarMensagemPet("PET: AJUDA RÁPIDA", "#fde68a");
+    player.vx += 0.75;
+    player.strongReadyAt = Math.max(now, player.strongReadyAt - 900);
+    criarParticulasHit(cx, cy, "#fde68a", 10);
+    mostrarMensagemPet("ESTRELA: IMPULSO RÁPIDO", "#fde68a");
   }
 
   function executarHabilidadesPetAvancadas(delta: number, canvas: HTMLCanvasElement) {

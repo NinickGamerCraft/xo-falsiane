@@ -165,7 +165,7 @@ type OnlineVisualEvent = {
 type ClientMessage =
   | { type: "join"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string; profileSummary?: Record<string, unknown> }
   | { type: "profile"; name?: string; device?: string; cosmetics?: Record<string, string>; profileColor?: string; profileSummary?: Record<string, unknown> }
-  | { type: "friend_request"; toSlot?: number; fromCode?: string; fromName?: string; fromProfileId?: string; fromColor?: string; fromSummary?: Record<string, unknown> }
+  | { type: "friend_request"; toSlot?: number; targetCode?: string; fromCode?: string; fromName?: string; fromProfileId?: string; fromColor?: string; fromSummary?: Record<string, unknown> }
   | { type: "friend_accept"; toSlot?: number; fromCode?: string; fromName?: string; fromProfileId?: string; targetCode?: string; targetProfileId?: string; fromColor?: string; fromSummary?: Record<string, unknown> }
   | { type: "vote_mode"; mode?: GameMode }
   | { type: "start"; mode?: GameMode }
@@ -486,12 +486,24 @@ export class GameRoom extends DurableObject<Env> {
     }
 
     if (msg.type === "friend_request") {
-      const targetSlot = Math.max(0, Math.floor(Number(msg.toSlot || 0)));
+      const requestedCode = this.normalizeFriendCode(String(msg.targetCode || ""));
+      let targetSlot = Math.max(0, Math.floor(Number(msg.toSlot || 0)));
+      if ((!targetSlot || targetSlot === session.slot) && requestedCode) {
+        for (const other of this.sessions.values()) {
+          if (other.slot === session.slot) continue;
+          const otherCode = this.normalizeFriendCode(String(other.profileSummary?.friendCode || ""));
+          if (otherCode && otherCode === requestedCode) {
+            targetSlot = other.slot;
+            break;
+          }
+        }
+      }
       if (!targetSlot || targetSlot === session.slot) return;
       this.sendToSlot(targetSlot, {
         type: "friend_request",
         room: this.roomCode,
         fromSlot: session.slot,
+        targetCode: requestedCode,
         fromCode: String(msg.fromCode || ""),
         fromName: String(msg.fromName || session.name || `P${session.slot}`),
         fromProfileId: String(msg.fromProfileId || session.id),
