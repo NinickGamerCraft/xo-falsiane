@@ -1782,7 +1782,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.5.9e";
+const SPACE_NEWS_VERSION = "2.6.4";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2481,47 +2481,71 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-auto-assets-v263";
+const ASSET_VERSION = "space-news-assets-v264-stable";
 const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
+const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision.v1";
 let assetRuntimeRevision = "";
 
-function gerarRevisaoAutomaticaDeAssets() {
-  if (typeof window === "undefined") return ASSET_VERSION;
-  const existing = (window as typeof window & { __SPACE_NEWS_ASSET_REVISION__?: string }).__SPACE_NEWS_ASSET_REVISION__;
-  if (existing) return existing;
-  const revision = `auto-${Date.now().toString(36)}`;
-  (window as typeof window & { __SPACE_NEWS_ASSET_REVISION__?: string }).__SPACE_NEWS_ASSET_REVISION__ = revision;
-  return revision;
+function lerNextBuildIdParaAssets() {
+  if (typeof window === "undefined" || typeof document === "undefined") return "";
+  try {
+    const nextData = (window as typeof window & { __NEXT_DATA__?: { buildId?: string } }).__NEXT_DATA__;
+    if (nextData?.buildId) return `next-${nextData.buildId}`.slice(0, 80);
+    const script = Array.from(document.scripts).find((item) => item.src.includes("/_next/static/"));
+    const match = script?.src.match(/\/_next\/static\/([^/]+)/);
+    if (match?.[1]) return `next-${match[1]}`.slice(0, 80);
+  } catch {
+    return "";
+  }
+  return "";
 }
 
 function assetRevisionAtual() {
   if (typeof window === "undefined") return ASSET_VERSION;
+  if (assetRuntimeRevision) return assetRuntimeRevision;
   try {
     const params = new URLSearchParams(window.location.search);
-    const urlRevision = (params.get("sprites") || params.get("assetRev") || "").trim();
-    if (urlRevision) return urlRevision.slice(0, 48);
-    if (!assetRuntimeRevision) assetRuntimeRevision = gerarRevisaoAutomaticaDeAssets();
+    const urlRevision = (params.get("sprites") || params.get("assetRev") || "").trim().slice(0, 64);
+    if (urlRevision) {
+      window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, urlRevision);
+      assetRuntimeRevision = urlRevision;
+      return assetRuntimeRevision;
+    }
+    const manualRevision = (window.localStorage.getItem(ASSET_REVISION_STORAGE_KEY) || "").trim().slice(0, 64);
+    if (manualRevision) {
+      assetRuntimeRevision = manualRevision;
+      return assetRuntimeRevision;
+    }
+    assetRuntimeRevision = lerNextBuildIdParaAssets() || ASSET_VERSION;
     return assetRuntimeRevision;
   } catch {
-    if (!assetRuntimeRevision) assetRuntimeRevision = ASSET_VERSION;
+    assetRuntimeRevision = ASSET_VERSION;
     return assetRuntimeRevision;
   }
 }
 
 function atualizarSpritesSemMexerNoCodigo() {
   if (typeof window === "undefined") return;
-  const revision = `auto-${Date.now().toString(36)}`;
+  const revision = `manual-${Date.now().toString(36)}`;
+  try { window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, revision); } catch {}
   assetRuntimeRevision = revision;
-  (window as typeof window & { __SPACE_NEWS_ASSET_REVISION__?: string }).__SPACE_NEWS_ASSET_REVISION__ = revision;
+  window.location.reload();
+}
+
+function limparRefreshManualDeSprites() {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(ASSET_REVISION_STORAGE_KEY); } catch {}
+  assetRuntimeRevision = "";
   window.location.reload();
 }
 
 if (typeof window !== "undefined") {
-  (window as typeof window & { spaceNewsRefreshSprites?: () => void }).spaceNewsRefreshSprites = atualizarSpritesSemMexerNoCodigo;
+  (window as typeof window & { spaceNewsRefreshSprites?: () => void; spaceNewsResetSpritesCache?: () => void }).spaceNewsRefreshSprites = atualizarSpritesSemMexerNoCodigo;
+  (window as typeof window & { spaceNewsRefreshSprites?: () => void; spaceNewsResetSpritesCache?: () => void }).spaceNewsResetSpritesCache = limparRefreshManualDeSprites;
 }
 
 function assetUrl(src: string) {
-  if (src.startsWith("data:") || src.startsWith("blob:")) return src;
+  if (!src || src.startsWith("data:") || src.startsWith("blob:")) return src;
   const separator = src.includes("?") ? "&" : "?";
   return `${src}${separator}v=${encodeURIComponent(assetRevisionAtual())}`;
 }
