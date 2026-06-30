@@ -21707,3 +21707,53 @@ button.sn-hud-resource-chip-v250.is-cooling { opacity: .8; filter: grayscale(.25
   .sn-pet-toast-v262 span { display: none; }
   .sn-shop-guide-v262 { font-size: 10px; padding: 8px 10px; }
 }
+
+/* Space News v2.6.6 — shop polish / no giant X / denser cards */
+.sn-shop-none-badge-v266 {
+  width: min(72px, 62%);
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  border: 2px dashed rgba(250, 204, 21, .62);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fde047;
+  background: radial-gradient(circle at center, rgba(250, 204, 21, .12), rgba(15, 23, 42, .72));
+  font-weight: 900;
+  font-size: clamp(10px, 1.5vw, 14px);
+  letter-spacing: .08em;
+  text-shadow: 0 0 12px rgba(250, 204, 21, .45);
+}
+.sn-shop-density-compact .sn-shop-card-v250 {
+  min-height: 0;
+}
+.sn-shop-density-compact .sn-shop-card-info-v250 p,
+.sn-shop-density-compact .sn-shop-pet-info-v253 {
+  display: none;
+}
+.sn-shop-density-detailed .sn-shop-card-info-v250 p {
+  line-height: 1.35;
+}
+.sn-shop-card-v250.is-equipped .sn-shop-card-art-v250 {
+  box-shadow: inset 0 0 0 2px rgba(250, 204, 21, .5), 0 0 22px rgba(250, 204, 21, .16);
+}
+.sn-shop-guide-v262 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  border: 1px solid rgba(250, 204, 21, .25);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: linear-gradient(90deg, rgba(250, 204, 21, .08), rgba(14, 165, 233, .05));
+}
+@media (max-width: 760px) {
+  .sn-shop-none-badge-v266 {
+    width: 54px;
+    border-radius: 14px;
+    font-size: 10px;
+  }
+  .sn-shop-guide-v262 {
+    font-size: 11px;
+  }
+}
