@@ -1789,7 +1789,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.6.7";
+const SPACE_NEWS_VERSION = "2.6.8";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2544,23 +2544,19 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-assets-v264-stable";
+const ASSET_VERSION = "space-news-assets-no-cache";
 const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
-const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision.v1";
 let assetRuntimeRevision = "";
 
-function lerNextBuildIdParaAssets() {
-  if (typeof window === "undefined" || typeof document === "undefined") return "";
-  try {
-    const nextData = (window as typeof window & { __NEXT_DATA__?: { buildId?: string } }).__NEXT_DATA__;
-    if (nextData?.buildId) return `next-${nextData.buildId}`.slice(0, 80);
-    const script = Array.from(document.scripts).find((item) => item.src.includes("/_next/static/"));
-    const match = script?.src.match(/\/_next\/static\/([^/]+)/);
-    if (match?.[1]) return `next-${match[1]}`.slice(0, 80);
-  } catch {
-    return "";
+function criarRevisaoVivaDosSprites() {
+  if (typeof window === "undefined") return ASSET_VERSION;
+  const globalWindow = window as typeof window & { __SPACE_NEWS_SPRITE_REVISION__?: string };
+  if (!globalWindow.__SPACE_NEWS_SPRITE_REVISION__) {
+    // Sem cache fixo: toda recarga da página ganha uma revisão nova.
+    // Isso mantém o loading/preload funcionando, mas força sprites atualizados.
+    globalWindow.__SPACE_NEWS_SPRITE_REVISION__ = `live-${Date.now().toString(36)}`;
   }
-  return "";
+  return globalWindow.__SPACE_NEWS_SPRITE_REVISION__;
 }
 
 function assetRevisionAtual() {
@@ -2569,36 +2565,27 @@ function assetRevisionAtual() {
   try {
     const params = new URLSearchParams(window.location.search);
     const urlRevision = (params.get("sprites") || params.get("assetRev") || "").trim().slice(0, 64);
-    if (urlRevision) {
-      window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, urlRevision);
-      assetRuntimeRevision = urlRevision;
-      return assetRuntimeRevision;
-    }
-    const manualRevision = (window.localStorage.getItem(ASSET_REVISION_STORAGE_KEY) || "").trim().slice(0, 64);
-    if (manualRevision) {
-      assetRuntimeRevision = manualRevision;
-      return assetRuntimeRevision;
-    }
-    assetRuntimeRevision = lerNextBuildIdParaAssets() || ASSET_VERSION;
+    assetRuntimeRevision = urlRevision || criarRevisaoVivaDosSprites();
     return assetRuntimeRevision;
   } catch {
-    assetRuntimeRevision = ASSET_VERSION;
+    assetRuntimeRevision = criarRevisaoVivaDosSprites();
     return assetRuntimeRevision;
   }
 }
 
 function atualizarSpritesSemMexerNoCodigo() {
   if (typeof window === "undefined") return;
-  const revision = `manual-${Date.now().toString(36)}`;
-  try { window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, revision); } catch {}
-  assetRuntimeRevision = revision;
+  const globalWindow = window as typeof window & { __SPACE_NEWS_SPRITE_REVISION__?: string };
+  globalWindow.__SPACE_NEWS_SPRITE_REVISION__ = `live-${Date.now().toString(36)}`;
+  assetRuntimeRevision = globalWindow.__SPACE_NEWS_SPRITE_REVISION__;
   window.location.reload();
 }
 
 function limparRefreshManualDeSprites() {
   if (typeof window === "undefined") return;
-  try { window.localStorage.removeItem(ASSET_REVISION_STORAGE_KEY); } catch {}
   assetRuntimeRevision = "";
+  const globalWindow = window as typeof window & { __SPACE_NEWS_SPRITE_REVISION__?: string };
+  delete globalWindow.__SPACE_NEWS_SPRITE_REVISION__;
   window.location.reload();
 }
 
@@ -6803,8 +6790,8 @@ export default function JogoPage() {
     if (onlineTogetherCoordenado() && !souAutoridadeMundoOnlineTogether()) return;
     const center = playerPorSlotOnline(slot) || playerRef.current;
     const baseY = clamp(center.y + center.h / 2 + rand(-72, 72), 88, CONFIG.canvasHeight - 96);
-    const startX = CONFIG.canvasWidth + 52;
-    const gap = mobileRuntimeRef.current ? 98 : 112;
+    const startX = CONFIG.canvasWidth - (mobileRuntimeRef.current ? 22 : 28);
+    const gap = mobileRuntimeRef.current ? 82 : 96;
     const pattern = randomFloat() < 0.68 ? "line" : "zigzag";
     const now = performance.now();
     const spawnedTokens: TokenPickup[] = [];
@@ -6817,7 +6804,7 @@ export default function JogoPage() {
         y: y - 13,
         w: mobileRuntimeRef.current ? 18 : 22,
         h: mobileRuntimeRef.current ? 18 : 22,
-        vx: -2.9,
+        vx: mobileRuntimeRef.current ? -3.45 : -3.85,
         vy: 0,
         age: 0,
         life: 6600 + i * 90,
@@ -6835,7 +6822,7 @@ export default function JogoPage() {
       tokensRef.current.push(token);
       spawnedTokens.push(token);
     }
-    tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 22 : 42));
+    tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 32 : 62));
     if (onlineTogetherCoordenado() && spawnedTokens.length > 0) {
       enviarOnline({ type: "coop_token_spawn", slot, tokens: spawnedTokens.map(tokenSnapshotParaSync), seq: Date.now() });
     }
@@ -6848,7 +6835,7 @@ export default function JogoPage() {
     const cy = player.y + player.h / 2;
     const now = performance.now();
     const targets = enemiesRef.current
-      .filter((enemy) => enemy.hp > 0 && enemy.x > -40 && enemy.x < CONFIG.canvasWidth + 90 && enemy.y > -30 && enemy.y < CONFIG.canvasHeight + 60)
+      .filter((enemy) => enemy.hp > 0 && enemy.kind !== "fragment" && enemy.x > -140 && enemy.x < CONFIG.canvasWidth + 260)
       .sort((a, b) => Math.hypot(a.x + a.w / 2 - cx, a.y + a.h / 2 - cy) - Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy))
       .slice(0, mobileRuntimeRef.current ? 7 : 11);
     const hits = [2, 2, 4];
@@ -6872,14 +6859,13 @@ export default function JogoPage() {
       hits.forEach((damage, hitIndex) => {
         window.setTimeout(() => {
           if (gameStateRef.current !== "playing" || enemy.hp <= 0) return;
-          if (enemy.x < -160 || enemy.x > CONFIG.canvasWidth + 220 || enemy.y < -120 || enemy.y > CONFIG.canvasHeight + 140) return;
           enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, performance.now() + 560);
           enemy.vx = 0;
           enemy.vy = 0;
           enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 560);
           enemy.redHoldY = enemy.y;
-          const hx = enemy.x + enemy.w / 2;
-          const hy = enemy.y + enemy.h / 2;
+          const hx = clamp(enemy.x + enemy.w / 2, 28, CONFIG.canvasWidth - 28);
+          const hy = clamp(enemy.y + enemy.h / 2, 28, CONFIG.canvasHeight - 28);
           shockwavesRef.current.push({ id: enemyIdRef.current++, x: hx, y: hy, radius: 54 + hitIndex * 22, life: 190, maxLife: 190 });
           criarParticulasHit(hx, hy, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 5 : 10);
           adicionarVfxPet("freeze", hx, hy, colors[hitIndex] || "#bfdbfe", { size: 52 + hitIndex * 10, label: hitIndex === 2 ? "4" : "2" });
@@ -7497,6 +7483,144 @@ export default function JogoPage() {
     }
   }
 
+  function alvosPetOrdenados(cx: number, cy: number, alcanceX = 620, alcanceY = 260, atras = 80) {
+    return enemiesRef.current
+      .filter((enemy) => enemy.hp > 0 && enemy.kind !== "fragment")
+      .filter((enemy) => {
+        const ex = enemy.x + enemy.w / 2;
+        const ey = enemy.y + enemy.h / 2;
+        return ex >= cx - atras && ex <= cx + alcanceX && Math.abs(ey - cy) <= alcanceY;
+      })
+      .sort((a, b) => Math.hypot(a.x + a.w / 2 - cx, a.y + a.h / 2 - cy) - Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy));
+  }
+
+  function aplicarPulsoDanoPet(
+    petId: string,
+    cx: number,
+    cy: number,
+    options: {
+      damage: number;
+      bossDamage?: number;
+      limit?: number;
+      delay?: number;
+      alcanceX?: number;
+      alcanceY?: number;
+      atras?: number;
+      color?: string;
+      kind?: PetVisualFx["kind"];
+      label?: string;
+      pullTo?: { x: number; y: number; force?: number };
+      freezeMs?: number;
+      knockback?: number;
+      areaCenterX?: number;
+      areaCenterY?: number;
+      areaRadius?: number;
+      crit?: boolean;
+    },
+  ) {
+    const run = () => {
+      if (gameStateRef.current !== "playing") return;
+      const color = options.color || corPetEspecial(petId);
+      const limit = Math.max(1, options.limit ?? (mobileRuntimeRef.current ? 5 : 9));
+      const targets = enemiesRef.current
+        .filter((enemy) => enemy.hp > 0 && enemy.kind !== "fragment")
+        .filter((enemy) => {
+          const ex = enemy.x + enemy.w / 2;
+          const ey = enemy.y + enemy.h / 2;
+          if (options.areaRadius) {
+            const ax = options.areaCenterX ?? cx;
+            const ay = options.areaCenterY ?? cy;
+            return Math.hypot(ex - ax, ey - ay) <= options.areaRadius;
+          }
+          return ex >= cx - (options.atras ?? 80) && ex <= cx + (options.alcanceX ?? 560) && Math.abs(ey - cy) <= (options.alcanceY ?? 230);
+        })
+        .sort((a, b) => Math.hypot(a.x + a.w / 2 - cx, a.y + a.h / 2 - cy) - Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy))
+        .slice(0, limit);
+      let hitCount = 0;
+      for (const enemy of targets) {
+        const ex = enemy.x + enemy.w / 2;
+        const ey = enemy.y + enemy.h / 2;
+        if (options.pullTo) {
+          const dx = options.pullTo.x - ex;
+          const dy = options.pullTo.y - ey;
+          const dist = Math.max(1, Math.hypot(dx, dy));
+          const force = options.pullTo.force ?? 2.2;
+          enemy.vx += (dx / dist) * force;
+          enemy.vy += (dy / dist) * force;
+        }
+        if (options.knockback) {
+          const dx = ex - cx;
+          const dy = ey - cy;
+          const dist = Math.max(1, Math.hypot(dx, dy));
+          enemy.vx += (dx / dist) * options.knockback;
+          enemy.vy += (dy / dist) * options.knockback * 0.65;
+        }
+        if (options.freezeMs) {
+          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, performance.now() + options.freezeMs);
+          enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, options.freezeMs);
+          enemy.redHoldY = enemy.y;
+        }
+        const applied = aplicarDanoInimigoEspecial(enemy, options.damage, color, options.crit || hitCount === 0);
+        if (applied > 0) {
+          adicionarVfxPet(options.kind || "burst", ex, ey, color, { size: options.areaRadius ? Math.min(120, options.areaRadius * 0.34) : 54, label: hitCount === 0 ? options.label : undefined, x2: cx, y2: cy });
+          hitCount += 1;
+        }
+      }
+      if (bossRef.current.active && bossRef.current.hp > 0 && !bossRef.current.intro && options.bossDamage) {
+        const bx = bossRef.current.x + bossRef.current.w * 0.42;
+        const by = bossRef.current.y + bossRef.current.h * 0.5;
+        aplicarDanoBossEspecial(options.bossDamage, color, options.crit);
+        adicionarVfxPet(options.kind || "burst", bx, by, color, { size: 84, label: options.label });
+      }
+      if (hitCount === 0 && !bossRef.current.active && options.label) {
+        adicionarVfxPet(options.kind || "burst", clamp(cx + 170, 60, CONFIG.canvasWidth - 60), cy, color, { size: 62, label: options.label });
+      }
+      window.setTimeout(limparInimigosMortosEspecial, 80);
+    };
+    const delay = options.delay ?? 0;
+    if (delay > 0) window.setTimeout(run, delay);
+    else run();
+  }
+
+  function executarDanoPetEspecialCoerente(petId: string, cx: number, cy: number) {
+    if (petId === "pet-none" || petId === "pet-blue-comet" || petId === "pet-tundra") return;
+    const color = corPetEspecial(petId);
+    if (petId === "pet-star") {
+      aplicarPulsoDanoPet(petId, cx, cy, { damage: 3, bossDamage: 6, limit: 5, alcanceX: 390, alcanceY: 170, color, kind: "spark", label: "IMPULSO" });
+      aplicarPulsoDanoPet(petId, cx, cy, { damage: 2, bossDamage: 4, limit: 4, delay: 170, alcanceX: 430, alcanceY: 145, color, kind: "flare" });
+    } else if (petId === "pet-black-hole") {
+      for (let i = 0; i < 6; i++) {
+        aplicarPulsoDanoPet(petId, cx, cy, { damage: 1.9, bossDamage: 4, limit: 12, delay: i * 260, areaCenterX: cx + 145, areaCenterY: cy, areaRadius: 360, color, kind: "pull", label: i === 0 ? "PUXA" : undefined, pullTo: { x: cx + 145, y: cy, force: 2.9 } });
+      }
+    } else if (petId === "pet-red-jumper") {
+      [0, 220, 460].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy, { damage: i === 2 ? 7 : 4.2, bossDamage: i === 2 ? 12 : 7, limit: 8, delay, areaCenterX: cx + 130 + i * 74, areaCenterY: clamp(cy + [-72, 0, 72][i], 80, CONFIG.canvasHeight - 90), areaRadius: 145, color, kind: "meteor", label: i === 0 ? "PISÃO" : undefined, knockback: 2.4, crit: i === 2 }));
+    } else if (petId === "pet-satellite") {
+      [0, 160, 320].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy - 58 + i * 58, { damage: 3.4, bossDamage: 7, limit: 7, delay, alcanceX: 640, alcanceY: 62, color, kind: "beam", label: i === 0 ? "SCAN" : undefined }));
+    } else if (petId === "pet-milky-way") {
+      [0, 230, 500].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy, { damage: i === 2 ? 7 : 3.6, bossDamage: i === 2 ? 14 : 8, limit: 10, delay, areaCenterX: cx + 175, areaCenterY: cy, areaRadius: 260 + i * 45, color, kind: "portal", label: i === 0 ? "PORTAL" : undefined, knockback: 1.8 }));
+    } else if (petId === "pet-earth") {
+      [0, 240, 520].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy, { damage: 3.4, bossDamage: 7, limit: 9, delay, areaCenterX: cx + 110, areaCenterY: cy + 18, areaRadius: 230 + i * 28, color, kind: "roots", label: i === 0 ? "RAÍZES" : undefined, freezeMs: 650 }));
+    } else if (petId === "pet-chaos-jester") {
+      [0, 180, 360].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy + (i - 1) * 48, { damage: i === 2 ? 6 : 3.5, bossDamage: i === 2 ? 10 : 6, limit: 7, delay, alcanceX: 470, alcanceY: 120, color, kind: i % 2 ? "cards" : "confusion", label: i === 0 ? "CAOS" : undefined, crit: i === 2 }));
+    } else if (petId === "pet-void-knight") {
+      aplicarPulsoDanoPet(petId, cx, cy, { damage: 8, bossDamage: 18, limit: 10, alcanceX: 620, alcanceY: 170, color, kind: "slash", label: "CORTE", crit: true });
+    } else if (petId === "pet-sun") {
+      [0, 180, 360, 540].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy, { damage: 2.8, bossDamage: 5, limit: 9, delay, alcanceX: 420, alcanceY: 230, color, kind: "flare", label: i === 0 ? "CHAMA" : undefined }));
+    } else if (petId === "pet-moon") {
+      [0, 150, 300, 450].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy + (i % 2 ? 54 : -54), { damage: 3.8, bossDamage: 6, limit: 4, delay, alcanceX: 560, alcanceY: 120, color, kind: "slash", label: i === 0 ? "LUNAR" : undefined }));
+    } else if (petId === "pet-comet") {
+      [0, 180].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy, { damage: 5.2, bossDamage: 9, limit: 9, delay, alcanceX: 560, alcanceY: 145, color, kind: "slash", label: i === 0 ? "RASTRO" : undefined, knockback: 1.4 }));
+    } else if (petId === "pet-white-hole") {
+      [0, 240].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy, { damage: 4, bossDamage: 8, limit: 11, delay, areaCenterX: cx, areaCenterY: cy, areaRadius: 245 + i * 55, color, kind: "burst", label: i === 0 ? "REPULSO" : undefined, knockback: 3.5 }));
+    } else if (petId === "pet-wormhole") {
+      [0, 220].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy - 8, { damage: 5.4, bossDamage: 10, limit: 8, delay, alcanceX: 560, alcanceY: 130, color, kind: "portal", label: i === 0 ? "DOBRA" : undefined }));
+    } else if (petId === "pet-alien") {
+      [0, 180, 360].forEach((delay, i) => aplicarPulsoDanoPet(petId, cx, cy - 10, { damage: 3.6, bossDamage: 7, limit: 6, delay, alcanceX: 620, alcanceY: 92, color, kind: "beam", label: i === 0 ? "LASER" : undefined }));
+    } else {
+      aplicarPulsoDanoPet(petId, cx, cy, { damage: 3.5, bossDamage: 6, limit: 5, alcanceX: 380, alcanceY: 180, color, kind: "burst", label: "PET" });
+    }
+  }
+
   function aplicarImpactoPetGarantido(petId: string, cx: number, cy: number) {
     if (petId === "pet-none" || petId === "pet-blue-comet" || petId === "pet-tundra" || petId === "pet-red-jumper" || petId === "pet-milky-way" || petId === "pet-chaos-jester" || petId === "pet-void-knight") return;
     const color = corPetEspecial(petId);
@@ -7588,7 +7712,7 @@ export default function JogoPage() {
     const cx = player.x + player.w / 2;
     const cy = player.y + player.h / 2;
     if (petId !== "pet-blue-comet" && petId !== "pet-tundra") vfxInicioPet(petId, cx, cy);
-    aplicarImpactoPetGarantido(petId, cx, cy);
+    executarDanoPetEspecialCoerente(petId, cx, cy);
     tocarSom(petId === "pet-blue-comet" ? (CONFIG.sounds.petSuperSpark || CONFIG.sounds.petActivate) : (CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup), remote ? 0.22 : 0.34, "sfx");
     if (!remote) destacarEspecialPet(petId, itemShopPorId(petId)?.name?.replace(/^Pet\s+/i, "") || "ESPECIAL", petId === "pet-tundra" ? "#bfdbfe" : petId === "pet-blue-comet" ? "#fde047" : petId === "pet-red-jumper" ? "#f97316" : petId === "pet-milky-way" ? "#c084fc" : petId === "pet-chaos-jester" ? "#f472b6" : "#facc15");
 
@@ -7607,8 +7731,20 @@ export default function JogoPage() {
 
     if (petId === "pet-red-jumper") return dispararSaltadorRubroEspecial(slot, remote);
 
+    if (petId === "pet-star") {
+      player.vx += 1.35;
+      player.stretchUntil = now + 380;
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1200);
+      criarParticulasHit(cx + 72, cy, "#facc15", mobileRuntimeRef.current ? 5 : 12);
+      if (!remote) mostrarMensagemPet("ESTRELA: IMPULSO CORTANTE", "#facc15");
+      return true;
+    }
+
     if (petId === "pet-black-hole") {
-      petBlackHolePullUntilRef.current = Math.max(petBlackHolePullUntilRef.current, now + 2900);
+      petBlackHolePullUntilRef.current = Math.max(petBlackHolePullUntilRef.current, now + 3600);
+      for (let tick = 1; tick <= 5; tick++) {
+        window.setTimeout(() => aplicarPulsoDanoPet(petId, cx, cy, { damage: 1.7, bossDamage: 3, areaCenterX: cx + 145, areaCenterY: cy, areaRadius: 370, limit: mobileRuntimeRef.current ? 7 : 12, color: "#a78bfa", kind: "pull", label: tick === 1 ? "DANO" : undefined, pullTo: { x: cx + 145, y: cy, force: 3.2 } }), tick * 360);
+      }
       for (const enemy of enemiesRef.current) {
         if (enemy.hp <= 0 || enemy.kind === "fragment") continue;
         const ecx = enemy.x + enemy.w / 2;
@@ -17431,7 +17567,7 @@ export default function JogoPage() {
 
     function limparTokensDaRun() {
       tokensRef.current = [];
-      nextTokenSpawnAtRef.current = 0;
+      nextTokenSpawnAtRef.current = performance.now() + rand(900, 1700);
     }
 
     function centroPlayerPorSlot(slot: PlayerSlot) {
@@ -17493,8 +17629,8 @@ export default function JogoPage() {
       const mode = String((CONFIG.settings as Record<string, unknown>).tokenTrailFrequency ?? "normal");
       if (mode === "off") { nextTokenSpawnAtRef.current = Number.POSITIVE_INFINITY; return; }
       const multiplayer = onlineGameplayActiveRef.current || isLocalPvpMode() || onlineTogetherCoordenado();
-      const baseMin = mode === "often" ? 4300 : mode === "rare" ? 11200 : multiplayer ? 6200 : 5600;
-      const baseMax = mode === "often" ? 6800 : mode === "rare" ? 15800 : multiplayer ? 9400 : 8800;
+      const baseMin = mode === "often" ? 2400 : mode === "rare" ? 8200 : multiplayer ? 3600 : 3200;
+      const baseMax = mode === "often" ? 4200 : mode === "rare" ? 12200 : multiplayer ? 6200 : 5600;
       nextTokenSpawnAtRef.current = now + rand(baseMin, baseMax);
     }
 
@@ -17504,16 +17640,16 @@ export default function JogoPage() {
       if (onlineGameplayActiveRef.current && !souHostOnline() && !onlineTogetherCoordenado()) return;
       const now = performance.now();
       if (!force && now < nextTokenSpawnAtRef.current) return;
-      const maxTokens = mobileRuntimeRef.current ? 14 : 26;
+      const maxTokens = mobileRuntimeRef.current ? 24 : 44;
       if (tokensRef.current.length > maxTokens) { agendarProximoToken(now); return; }
 
       const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
       const patterns: Array<"line" | "zigzag" | "arc" | "cluster" | "wave" | "split"> = ["line", "line", "zigzag", "arc", "cluster", "wave", "split"];
       const pattern = patterns[Math.floor(rand(0, patterns.length))] || "line";
-      const startX = CONFIG.canvasWidth + 56;
+      const startX = CONFIG.canvasWidth - (mobileRuntimeRef.current ? 24 : 32);
       const baseY = clamp(playerCenter.y + rand(-92, 92), 92, CONFIG.canvasHeight - 104);
       const planned: Array<{ x: number; y: number; delay: number }> = [];
-      const gap = mobileRuntimeRef.current ? 96 : 112;
+      const gap = mobileRuntimeRef.current ? 80 : 92;
 
       if (pattern === "line") {
         const count = mobileRuntimeRef.current ? 11 : 16;
@@ -17563,10 +17699,10 @@ export default function JogoPage() {
           y: point.y,
           w: mobileRuntimeRef.current ? 20 : 23,
           h: mobileRuntimeRef.current ? 20 : 23,
-          vx: -rand(1.02, 1.32),
+          vx: -rand(mobileRuntimeRef.current ? 2.75 : 3.05, mobileRuntimeRef.current ? 3.55 : 3.95),
           vy: pattern === "zigzag" ? (i % 2 === 0 ? 0.05 : -0.05) : 0,
           age: -point.delay * 28,
-          life: rand(6800, 9200),
+          life: rand(8200, 11200),
           wavePhase: rand(0, Math.PI * 2),
           bornAt: now,
           value: 1,
@@ -17578,7 +17714,7 @@ export default function JogoPage() {
         tokensRef.current.push(token);
         spawnedTokens.push(token);
       }
-      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 22 : 42));
+      tokensRef.current = tokensRef.current.slice(-(mobileRuntimeRef.current ? 32 : 62));
       if (onlineTogetherCoordenado() && spawnedTokens.length > 0) {
         enviarOnline({ type: "coop_token_spawn", slot: slotLocalOnline(), tokens: spawnedTokens.map(tokenSnapshotParaSync), seq: Date.now() });
       }
@@ -17586,7 +17722,7 @@ export default function JogoPage() {
     }
 
     function atualizarTokens(delta: number, canvas: HTMLCanvasElement) {
-      if (!nextTokenSpawnAtRef.current) agendarProximoToken();
+      if (!nextTokenSpawnAtRef.current) nextTokenSpawnAtRef.current = performance.now() + rand(900, 1700);
       spawnTokenPattern(false);
       const speedFactor = delta / 16.67;
       tokensRef.current = tokensRef.current
