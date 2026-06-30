@@ -2481,31 +2481,38 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
   },
 ];
 
-const ASSET_VERSION = "space-news-20260629-v258-pet-friends-story-accessories";
+const ASSET_VERSION = "space-news-auto-assets-v263";
 const ACCESSORY_SPRITES_ENABLED = true; // v2.4.7: acessórios cosméticos reativados com sprites refeitos.
-const ASSET_REVISION_STORAGE_KEY = "spaceNews.assetRevision";
+let assetRuntimeRevision = "";
+
+function gerarRevisaoAutomaticaDeAssets() {
+  if (typeof window === "undefined") return ASSET_VERSION;
+  const existing = (window as typeof window & { __SPACE_NEWS_ASSET_REVISION__?: string }).__SPACE_NEWS_ASSET_REVISION__;
+  if (existing) return existing;
+  const revision = `auto-${Date.now().toString(36)}`;
+  (window as typeof window & { __SPACE_NEWS_ASSET_REVISION__?: string }).__SPACE_NEWS_ASSET_REVISION__ = revision;
+  return revision;
+}
 
 function assetRevisionAtual() {
   if (typeof window === "undefined") return ASSET_VERSION;
   try {
     const params = new URLSearchParams(window.location.search);
     const urlRevision = (params.get("sprites") || params.get("assetRev") || "").trim();
-    if (urlRevision) {
-      window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, urlRevision.slice(0, 48));
-      return urlRevision.slice(0, 48);
-    }
-    return window.localStorage.getItem(ASSET_REVISION_STORAGE_KEY) || ASSET_VERSION;
+    if (urlRevision) return urlRevision.slice(0, 48);
+    if (!assetRuntimeRevision) assetRuntimeRevision = gerarRevisaoAutomaticaDeAssets();
+    return assetRuntimeRevision;
   } catch {
-    return ASSET_VERSION;
+    if (!assetRuntimeRevision) assetRuntimeRevision = ASSET_VERSION;
+    return assetRuntimeRevision;
   }
 }
 
 function atualizarSpritesSemMexerNoCodigo() {
   if (typeof window === "undefined") return;
-  const revision = String(Date.now());
-  try {
-    window.localStorage.setItem(ASSET_REVISION_STORAGE_KEY, revision);
-  } catch {}
+  const revision = `auto-${Date.now().toString(36)}`;
+  assetRuntimeRevision = revision;
+  (window as typeof window & { __SPACE_NEWS_ASSET_REVISION__?: string }).__SPACE_NEWS_ASSET_REVISION__ = revision;
   window.location.reload();
 }
 
