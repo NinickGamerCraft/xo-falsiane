@@ -6000,93 +6000,89 @@ export default function JogoPage() {
 
   function adicionarPedidoAmizadeLocal(codeRaw: string) {
     const code = formatarCodigoAmizadeInput(codeRaw);
+    const compact = codigoAmizadeCompacto(code);
     const myCode = formatarCodigoAmizadeInput(localProfileRef.current.friendCode);
+    const myCompact = codigoAmizadeCompacto(myCode);
     if (!codigoAmizadeValido(code)) {
       mostrarToastPerfil("Código inválido. Use algo tipo SN-ABC123.");
       return;
     }
-    if (code === myCode) {
+    if (compact === myCompact) {
       mostrarToastPerfil("Esse é o seu próprio código.");
       return;
     }
     const current = localProfileRef.current;
-    if (current.friends.some((friend) => friend.code === code || friend.id === code)) {
+    const alreadyFriend = current.friends.some((friend) => {
+      const friendCompact = codigoAmizadeCompacto(friend.code || friend.id || "");
+      return friendCompact === compact || friend.profileId === code;
+    });
+    if (alreadyFriend) {
       mostrarToastPerfil("Esse código já está na sua lista.");
       return;
     }
-    const received = current.friendRequests.find((request) => request.code === code && request.direction === "received");
+    const received = current.friendRequests.find((request) => codigoAmizadeCompacto(request.code) === compact && request.direction === "received");
     if (received) {
       aceitarPedidoAmizadeLocal(received.id);
       mostrarToastPerfil(`Pedido mútuo aceito: ${received.name}`);
       return;
     }
-    const sameRequest = current.friendRequests.find((request) => request.code === code);
-    if (sameRequest) {
-      if (sameRequest.direction === "received") {
-        aceitarPedidoAmizadeLocal(sameRequest.id);
-        mostrarToastPerfil(`Pedido mútuo aceito: ${sameRequest.name}`);
-      } else if (sameRequest.slot && onlineConnected) {
-        const foundOnline = resumoPerfilPorCodigoAmizade(code);
-        if (foundOnline?.onlineSlot) {
-          enviarPedidoAmizadeOnline(foundOnline.onlineSlot, foundOnline);
-          mostrarToastPerfil(`Pedido reenviado para ${foundOnline.name || code}.`);
-        } else {
-          mostrarToastPerfil("Pedido já enviado para esse código.");
-        }
-      } else {
-        mostrarToastPerfil("Pedido já enviado para esse código.");
-      }
-      return;
-    }
+
     const found = resumoPerfilPorCodigoAmizade(code);
     if (found) registrarResumoPerfilNoIndice(found);
-    if (!found) {
-      if (onlineConnected) {
-        const request: LocalFriendRequest = {
-          id: criarIdPerfilLocal(),
-          code,
-          name: code,
-          direction: "sent",
-          createdAt: Date.now(),
-        };
-        salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
-        setProfileFriendCodeInput("SN-");
-        enviarOnline({
-          type: "friend_request",
-          targetCode: code,
-          fromCode: localProfileRef.current.friendCode,
-          fromName: nomePerfilVisivel(localProfileRef.current),
-          fromProfileId: localProfileRef.current.id,
-          fromColor: localProfileRef.current.color,
-          fromSummary: criarResumoPerfilOnline(),
-        } as any);
-        adicionarNotificacaoPerfil("friend", "Pedido enviado por código", `Pedido enviado para ${code}. Se esse perfil estiver na sala, ele vai receber.`, "friends");
-        mostrarToastPerfil(`Pedido enviado para ${code}.`);
-        return;
-      }
-      mostrarToastPerfil("Perfil não encontrado. Entre na mesma sala online ou peça o código completo.");
-      adicionarNotificacaoPerfil("system", "Perfil não encontrado", `Nenhum perfil registrado foi encontrado para ${code}.`, "friends");
+
+    const sameRequest = current.friendRequests.find((request) => codigoAmizadeCompacto(request.code) === compact && request.direction === "sent");
+    if (sameRequest) {
+      if (found?.onlineSlot) enviarPedidoAmizadeOnline(found.onlineSlot, found);
+      else if (onlineConnected) enviarOnline({
+        type: "friend_request",
+        targetCode: code,
+        fromCode: localProfileRef.current.friendCode,
+        fromName: nomePerfilVisivel(localProfileRef.current),
+        fromProfileId: localProfileRef.current.id,
+        fromColor: localProfileRef.current.color,
+        fromSummary: criarResumoPerfilOnline(),
+      } as any);
+      mostrarToastPerfil(onlineConnected || found?.onlineSlot ? `Pedido reenviado para ${found?.name || code}.` : `Pedido já salvo para ${code}.`);
       return;
     }
+
     const request: LocalFriendRequest = {
       id: criarIdPerfilLocal(),
-      code: formatarCodigoAmizadeInput(found.friendCode || code),
-      name: String(found.name || code).slice(0, 24),
+      code: formatarCodigoAmizadeInput(found?.friendCode || code),
+      name: String(found?.name || code).slice(0, 24),
       direction: "sent",
       createdAt: Date.now(),
-      profileId: found.id,
-      color: found.color,
-      slot: found.onlineSlot,
+      profileId: found?.id,
+      color: found?.color,
+      slot: found?.onlineSlot,
     };
+
     salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
     setProfileFriendCodeInput("");
-    if (found.onlineSlot && enviarPedidoAmizadeOnline(found.onlineSlot, found)) {
+
+    if (found?.onlineSlot && enviarPedidoAmizadeOnline(found.onlineSlot, found)) {
       adicionarNotificacaoPerfil("friend", "Pedido enviado", `Pedido enviado para ${request.name}.`, "friends");
       mostrarToastPerfil(`Pedido enviado para ${request.name}.`);
-    } else {
-      adicionarNotificacaoPerfil("friend", "Pedido salvo", `Perfil ${request.name} encontrado. Pedido salvo localmente.`, "friends");
-      mostrarToastPerfil(`Perfil encontrado: ${request.name}.`);
+      return;
     }
+
+    if (onlineConnected) {
+      enviarOnline({
+        type: "friend_request",
+        targetCode: code,
+        fromCode: localProfileRef.current.friendCode,
+        fromName: nomePerfilVisivel(localProfileRef.current),
+        fromProfileId: localProfileRef.current.id,
+        fromColor: localProfileRef.current.color,
+        fromSummary: criarResumoPerfilOnline(),
+      } as any);
+      adicionarNotificacaoPerfil("friend", "Pedido enviado por código", `Pedido enviado para ${code}. Se esse perfil estiver na sala online, ele recebe agora.`, "friends");
+      mostrarToastPerfil(`Pedido enviado para ${code}.`);
+      return;
+    }
+
+    adicionarNotificacaoPerfil("friend", "Pedido salvo por código", `Pedido salvo para ${code}. Para entregar, entre na mesma sala online ou peça para a pessoa também enviar seu código.`, "friends");
+    mostrarToastPerfil(`Pedido salvo para ${code}.`);
   }
 
   function aceitarPedidoAmizadeLocal(requestId: string) {
@@ -8270,9 +8266,13 @@ export default function JogoPage() {
       }
 
       if (msg.type === "friend_request") {
+        const targetCode = formatarCodigoAmizadeInput(String(msg.targetCode || ""));
+        const myCode = formatarCodigoAmizadeInput(localProfileRef.current.friendCode);
+        if (targetCode && targetCode !== myCode) return;
         const code = formatarCodigoAmizadeInput(String(msg.fromCode || ""));
         const name = String(msg.fromName || code || "Player").slice(0, 24);
-        if (!code || code === localProfileRef.current.friendCode) return;
+        if (!code || code === myCode) return;
+        if (msg.fromSummary && typeof msg.fromSummary === "object") registrarResumoPerfilNoIndice(msg.fromSummary as Partial<OnlineProfileSummary>);
         const current = localProfileRef.current;
         const alreadyFriend = current.friends.some((friend) => friend.code === code || friend.profileId === msg.fromProfileId);
         const sentRequest = current.friendRequests.find((request) => request.code === code && request.direction === "sent");
@@ -8303,9 +8303,13 @@ export default function JogoPage() {
       }
 
       if (msg.type === "friend_accept") {
+        const targetCode = formatarCodigoAmizadeInput(String(msg.targetCode || ""));
+        const myCode = formatarCodigoAmizadeInput(localProfileRef.current.friendCode);
+        if (targetCode && targetCode !== myCode) return;
         const code = formatarCodigoAmizadeInput(String(msg.fromCode || ""));
         const name = String(msg.fromName || code || "Player").slice(0, 24);
         if (!code) return;
+        if (msg.fromSummary && typeof msg.fromSummary === "object") registrarResumoPerfilNoIndice(msg.fromSummary as Partial<OnlineProfileSummary>);
         adicionarAmigoLocal({ id: String(msg.fromProfileId || code), profileId: msg.fromProfileId ? String(msg.fromProfileId) : undefined, code, name, color: msg.fromColor ? String(msg.fromColor) : undefined, status: "accepted", lastSeenAt: Date.now() });
         adicionarNotificacaoPerfil("friend", "Pedido aceito", `${name} aceitou sua amizade.`, "friends");
         mostrarToastPerfil(`${name} aceitou sua amizade.`);
