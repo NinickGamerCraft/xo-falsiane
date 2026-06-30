@@ -497,7 +497,7 @@ type TokenPickup = {
   magnetDelay?: number;
   burst?: boolean;
   collectScale?: number;
-  pattern?: "line" | "zigzag" | "arc" | "cluster" | "burst";
+  pattern?: "line" | "zigzag" | "arc" | "cluster" | "burst" | "wave" | "split";
   patternIndex?: number;
 };
 
@@ -649,7 +649,7 @@ type PetToastState = {
 
 type PetVisualFx = {
   id: number;
-  kind: "slash" | "burst" | "freeze" | "cards" | "portal" | "confusion" | "flare";
+  kind: "slash" | "burst" | "freeze" | "cards" | "portal" | "confusion" | "flare" | "beam" | "pull" | "roots" | "meteor" | "spark";
   x: number;
   y: number;
   x2?: number;
@@ -1687,6 +1687,7 @@ const CONFIG = {
     damageNumberMode: "normal",
     reduceMobileVfx: true,
     shopCardDensity: "normal",
+    tokenTrailFrequency: "normal",
     showFps: false,
     performanceMode: "auto",
     fpsLimit: "unlimited",
@@ -1788,7 +1789,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.6.6";
+const SPACE_NEWS_VERSION = "2.6.7";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -2325,6 +2326,14 @@ const SETTINGS_OPTIONS: GameSettingOption[] = [
     kind: "select",
     values: ["compact", "normal", "detailed"],
     formatter: (v) => String(v) === "compact" ? "COMPACTO" : String(v) === "detailed" ? "DETALHADO" : "NORMAL",
+  },
+  {
+    key: "tokenTrailFrequency" as GameSettingKey,
+    label: "Trilhas de tokens",
+    category: "DESEMPENHO",
+    kind: "select",
+    values: ["off", "rare", "normal", "often"],
+    formatter: (v) => String(v) === "off" ? "DESLIGADO" : String(v) === "rare" ? "RARO" : String(v) === "often" ? "FREQUENTE" : "NORMAL",
   },
 
   {
@@ -6580,10 +6589,44 @@ export default function JogoPage() {
       ctx.shadowColor = fx.color;
       ctx.shadowBlur = 16;
       const size = fx.size ?? 48;
-      if (fx.kind === "burst" || fx.kind === "freeze" || fx.kind === "portal" || fx.kind === "flare" || fx.kind === "confusion") {
+      if (fx.kind === "burst" || fx.kind === "freeze" || fx.kind === "portal" || fx.kind === "flare" || fx.kind === "confusion" || fx.kind === "pull" || fx.kind === "roots" || fx.kind === "spark" || fx.kind === "meteor") {
         ctx.beginPath();
         ctx.arc(fx.x, fx.y, size * (0.35 + t), 0, Math.PI * 2);
         ctx.stroke();
+      }
+      if (fx.kind === "pull") {
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          const start = t * Math.PI * 2 + i * 2.1;
+          ctx.arc(fx.x, fx.y, size * (0.22 + i * 0.18 + t * 0.12), start, start + Math.PI * 1.2);
+          ctx.stroke();
+        }
+      }
+      if (fx.kind === "roots") {
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 7; i++) {
+          const a = -Math.PI * 0.85 + (i / 6) * Math.PI * 1.7;
+          const wobble = Math.sin(t * Math.PI * 2 + i) * 8;
+          ctx.beginPath();
+          ctx.moveTo(fx.x, fx.y);
+          ctx.lineTo(fx.x + Math.cos(a) * size * (0.38 + t * 0.24), fx.y + Math.sin(a) * size * 0.46 + wobble);
+          ctx.stroke();
+        }
+      }
+      if (fx.kind === "meteor") {
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(fx.x - size * 0.9, fx.y - size * 0.55);
+        ctx.lineTo(fx.x + size * 0.25, fx.y + size * 0.18);
+        ctx.stroke();
+        ctx.fillRect(fx.x + size * 0.12, fx.y + size * 0.08, 12, 12);
+      }
+      if (fx.kind === "spark") {
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI * 2 * i) / 6 + t * 2.2;
+          ctx.fillRect(fx.x + Math.cos(a) * size * 0.5 - 2, fx.y + Math.sin(a) * size * 0.5 - 2, 4, 4);
+        }
       }
       if (fx.kind === "freeze") {
         for (let i = 0; i < 6; i++) {
@@ -6596,15 +6639,15 @@ export default function JogoPage() {
           ctx.stroke();
         }
       }
-      if (fx.kind === "slash") {
+      if (fx.kind === "slash" || fx.kind === "beam") {
         const x2 = fx.x2 ?? fx.x + size;
         const y2 = fx.y2 ?? fx.y;
-        ctx.lineWidth = 6;
+        ctx.lineWidth = fx.kind === "beam" ? 9 : 6;
         ctx.beginPath();
         ctx.moveTo(fx.x, fx.y);
         ctx.lineTo(x2, y2);
         ctx.stroke();
-        ctx.lineWidth = 2;
+        ctx.lineWidth = fx.kind === "beam" ? 3 : 2;
         ctx.strokeStyle = "#ffffff";
         ctx.beginPath();
         ctx.moveTo(fx.x + 2, fx.y - 2);
@@ -6656,14 +6699,14 @@ export default function JogoPage() {
   function vfxInicioPet(petId: string, cx: number, cy: number) {
     const color = corPetEspecial(petId);
     if (petId === "pet-black-hole") {
-      adicionarVfxPet("portal", cx + 120, cy, color, { size: 180, label: "PUXÃO" });
-      adicionarVfxPet("confusion", cx + 120, cy, "#a78bfa", { size: 90 });
+      adicionarVfxPet("pull", cx + 140, cy, color, { size: 210, label: "GRAVIDADE" });
+      adicionarVfxPet("portal", cx + 140, cy, "#a78bfa", { size: 125 });
     } else if (petId === "pet-satellite") {
       adicionarVfxPet("slash", cx - 30, cy - 70, color, { x2: cx + 330, y2: cy - 70, size: 260, label: "SCAN" });
       adicionarVfxPet("portal", cx + 180, cy - 70, color, { size: 48 });
     } else if (petId === "pet-earth") {
-      adicionarVfxPet("burst", cx, cy + 20, color, { size: 110, label: "+VIDA" });
-      adicionarVfxPet("freeze", cx + 80, cy + 36, "#bbf7d0", { size: 54 });
+      adicionarVfxPet("roots", cx + 100, cy + 26, color, { size: 130, label: "RAÍZES" });
+      adicionarVfxPet("burst", cx, cy + 18, "#bbf7d0", { size: 64, label: "+HP" });
     } else if (petId === "pet-sun") {
       adicionarVfxPet("flare", cx + 92, cy, color, { size: 150, label: "CHAMA" });
       adicionarVfxPet("burst", cx + 160, cy, "#fed7aa", { size: 90 });
@@ -6681,7 +6724,7 @@ export default function JogoPage() {
       adicionarVfxPet("portal", cx + 260, cy - 10, color, { size: 92 });
       adicionarVfxPet("slash", cx + 20, cy, color, { x2: cx + 280, y2: cy - 10, size: 250 });
     } else if (petId === "pet-alien") {
-      adicionarVfxPet("slash", cx + 36, cy - 10, color, { x2: cx + 360, y2: cy - 10, size: 300, label: "LASER" });
+      adicionarVfxPet("beam", cx + 36, cy - 10, color, { x2: cx + 380, y2: cy - 10, size: 320, label: "LASER" });
       adicionarVfxPet("confusion", cx + 110, cy - 10, color, { size: 52 });
     } else if (petId === "pet-star") {
       adicionarVfxPet("burst", cx, cy, color, { size: 86, label: "IMPULSO" });
@@ -6805,20 +6848,20 @@ export default function JogoPage() {
     const cy = player.y + player.h / 2;
     const now = performance.now();
     const targets = enemiesRef.current
-      .filter((enemy) => enemy.hp > 0 && enemy.x > -60 && enemy.x < CONFIG.canvasWidth + 140 && enemy.y > -60 && enemy.y < CONFIG.canvasHeight + 90)
+      .filter((enemy) => enemy.hp > 0 && enemy.x > -40 && enemy.x < CONFIG.canvasWidth + 90 && enemy.y > -30 && enemy.y < CONFIG.canvasHeight + 60)
       .sort((a, b) => Math.hypot(a.x + a.w / 2 - cx, a.y + a.h / 2 - cy) - Math.hypot(b.x + b.w / 2 - cx, b.y + b.h / 2 - cy))
-      .slice(0, mobileRuntimeRef.current ? 8 : 12);
+      .slice(0, mobileRuntimeRef.current ? 7 : 11);
     const hits = [2, 2, 4];
     const bossHits = [15, 15, 30];
     const delays = [0, 560, 1160];
     const colors = ["#dbeafe", "#93c5fd", "#67e8f9"];
     adicionarVfxPet("freeze", cx, cy, "#93c5fd", { size: 120, label: "CONGELAR" });
     for (const enemy of targets) {
-      enemy.frozenUntil = now + 1750;
+      enemy.frozenUntil = now + 1850;
       enemy.vx = 0;
       enemy.vy = 0;
       enemy.shotCooldown = Math.max(enemy.shotCooldown ?? 0, 2600);
-      enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 1750);
+      enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 1850);
       enemy.redHoldY = enemy.y;
       enemy.stretchUntil = now + 620;
       const ex = enemy.x + enemy.w / 2;
@@ -6828,25 +6871,30 @@ export default function JogoPage() {
       adicionarVfxPet("freeze", ex, ey, "#bfdbfe", { size: 42 });
       hits.forEach((damage, hitIndex) => {
         window.setTimeout(() => {
-          if (enemy.hp <= 0) return;
-          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, performance.now() + 530);
+          if (gameStateRef.current !== "playing" || enemy.hp <= 0) return;
+          if (enemy.x < -160 || enemy.x > CONFIG.canvasWidth + 220 || enemy.y < -120 || enemy.y > CONFIG.canvasHeight + 140) return;
+          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, performance.now() + 560);
           enemy.vx = 0;
           enemy.vy = 0;
-          enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 530);
+          enemy.redPauseTimer = Math.max(enemy.redPauseTimer ?? 0, 560);
           enemy.redHoldY = enemy.y;
-          shockwavesRef.current.push({ id: enemyIdRef.current++, x: ex, y: ey, radius: 54 + hitIndex * 22, life: 190, maxLife: 190 });
-          criarParticulasHit(ex, ey, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 5 : 10);
-          adicionarVfxPet("freeze", ex, ey, colors[hitIndex] || "#bfdbfe", { size: 52 + hitIndex * 10, label: hitIndex === 2 ? "4" : "2" });
+          const hx = enemy.x + enemy.w / 2;
+          const hy = enemy.y + enemy.h / 2;
+          shockwavesRef.current.push({ id: enemyIdRef.current++, x: hx, y: hy, radius: 54 + hitIndex * 22, life: 190, maxLife: 190 });
+          criarParticulasHit(hx, hy, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 5 : 10);
+          adicionarVfxPet("freeze", hx, hy, colors[hitIndex] || "#bfdbfe", { size: 52 + hitIndex * 10, label: hitIndex === 2 ? "4" : "2" });
           aplicarDanoInimigoEspecial(enemy, damage, colors[hitIndex] || "#bfdbfe", hitIndex === 2);
           tocarSom(CONFIG.sounds.playerDamage, hitIndex === 2 ? 0.22 : 0.14, "hit");
         }, delays[hitIndex]);
       });
     }
     if (bossRef.current.active && bossRef.current.hp > 0 && !bossRef.current.intro) {
-      const bx = bossRef.current.x + bossRef.current.w / 2;
-      const by = bossRef.current.y + bossRef.current.h / 2;
       bossHits.forEach((damage, hitIndex) => {
         window.setTimeout(() => {
+          if (gameStateRef.current !== "playing") return;
+          const boss = bossRef.current;
+          const bx = boss.x + boss.w * 0.45;
+          const by = boss.y + boss.h * 0.5;
           shockwavesRef.current.push({ id: enemyIdRef.current++, x: bx, y: by, radius: 86 + hitIndex * 32, life: 220, maxLife: 220 });
           criarParticulasHit(bx, by, colors[hitIndex] || "#bfdbfe", mobileRuntimeRef.current ? 6 : 12);
           adicionarVfxPet("freeze", bx, by, colors[hitIndex] || "#bfdbfe", { size: 84 + hitIndex * 18, label: String(bossHits[hitIndex]) });
@@ -6854,7 +6902,7 @@ export default function JogoPage() {
         }, delays[hitIndex]);
       });
     }
-    window.setTimeout(limparInimigosMortosEspecial, 1600);
+    window.setTimeout(() => { if (gameStateRef.current === "playing") limparInimigosMortosEspecial(); }, 1650);
     shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 190, life: 420, maxLife: 420 });
     criarExplosao(cx, cy, "#bfdbfe", mobileRuntimeRef.current ? 8 : 18);
     tocarSom(CONFIG.sounds.petActivate || CONFIG.sounds.powerUpPickup, remote ? 0.22 : 0.36, "sfx");
@@ -6866,35 +6914,35 @@ export default function JogoPage() {
     const player = playerPorSlotOnline(slot) || playerRef.current;
     const cx = player.x + player.w / 2;
     const cy = player.y + player.h / 2;
-    const pulses = [0, 180, 380];
-    pulses.forEach((delay, pulseIndex) => {
+    const lanes = [-86, 0, 86];
+    lanes.forEach((offsetY, pulseIndex) => {
+      const delay = pulseIndex * 210;
       window.setTimeout(() => {
-        const radius = 118 + pulseIndex * 54;
-        let hit = 0;
-        adicionarVfxPet("burst", cx, cy - 6, pulseIndex === 2 ? "#f97316" : "#fdba74", { size: radius * 0.42, label: pulseIndex === 2 ? "PISÃO" : undefined });
-        adicionarVfxPet("flare", cx + 22 + pulseIndex * 18, cy - 12, "#fb923c", { size: 42 + pulseIndex * 12 });
-        adicionarVfxPet("slash", cx + 24, cy - 24, "#e5e7eb", { x2: cx + 320, y2: cy + 24, size: 320, label: "CORTE" });
-    for (const enemy of enemiesRef.current) {
-          const dist = Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy);
-          if (enemy.hp > 0 && dist < radius && hit < 10) {
-            aplicarDanoInimigoEspecial(enemy, pulseIndex === 2 ? 8 : 4.5, pulseIndex === 2 ? "#fb923c" : "#fdba74", pulseIndex === 2);
-            enemy.vx += 1.05 + pulseIndex * 0.35;
-            enemy.vy += pulseIndex === 1 ? -0.34 : -0.08;
-            hit += 1;
-          }
+        if (gameStateRef.current !== "playing") return;
+        const impactX = clamp(cx + 145 + pulseIndex * 66, 90, CONFIG.canvasWidth - 80);
+        const impactY = clamp(cy + offsetY, 82, CONFIG.canvasHeight - 88);
+        adicionarVfxPet("meteor", impactX, impactY - 22, "#fb923c", { size: 74 + pulseIndex * 12, label: pulseIndex === 0 ? "PISÃO" : undefined });
+        shockwavesRef.current.push({ id: enemyIdRef.current++, x: impactX, y: impactY, radius: 100 + pulseIndex * 26, life: 170, maxLife: 170 });
+        criarParticulasHit(impactX, impactY, pulseIndex === 2 ? "#f97316" : "#fdba74", mobileRuntimeRef.current ? 4 : 9);
+        let hits = 0;
+        for (const enemy of enemiesRef.current) {
+          if (enemy.hp <= 0) continue;
+          const ex = enemy.x + enemy.w / 2;
+          const ey = enemy.y + enemy.h / 2;
+          const inside = Math.abs(ex - impactX) < 155 && Math.abs(ey - impactY) < 92;
+          if (!inside || hits >= (mobileRuntimeRef.current ? 5 : 9)) continue;
+          aplicarDanoInimigoEspecial(enemy, pulseIndex === 2 ? 9 : 5, "#fb923c", pulseIndex === 2);
+          enemy.vx += 1.4 + pulseIndex * 0.35;
+          enemy.vy -= 0.45;
+          hits += 1;
         }
-        if (bossRef.current.active && bossRef.current.hp > 0 && Math.abs((bossRef.current.x + bossRef.current.w / 2) - cx) < 560) {
-          aplicarDanoBossEspecial(pulseIndex === 2 ? 18 : 10, "#f97316", pulseIndex === 2);
-        }
-        shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius, life: 150, maxLife: 150 });
-        criarParticulasHit(cx, cy - 8, pulseIndex === 2 ? "#f97316" : "#fdba74", mobileRuntimeRef.current ? 3 : 6);
+        if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(pulseIndex === 2 ? 18 : 10, "#f97316", pulseIndex === 2);
       }, delay);
     });
-    window.setTimeout(limparInimigosMortosEspecial, 620);
-    criarExplosao(cx, cy, "#f97316", mobileRuntimeRef.current ? 7 : 14);
+    window.setTimeout(limparInimigosMortosEspecial, 760);
     spawnTokenPatternPetEspecial(slot, mobileRuntimeRef.current ? 11 : 15, "#f59e0b");
     tocarSom(CONFIG.sounds.powerUpPickup || CONFIG.sounds.petActivate, remote ? 0.2 : 0.34, "sfx");
-    if (!remote) mostrarMensagemPet("SALTADOR RUBRO: TRIPLO PISÃO", "#f97316");
+    if (!remote) mostrarMensagemPet("SALTADOR: PISÃO TRIPLO", "#f97316");
     return true;
   }
 
@@ -7035,9 +7083,10 @@ export default function JogoPage() {
     const now = performance.now();
     if (now > petBlackHolePullUntilRef.current) return;
     const player = playerRef.current;
-    const pcx = player.x + player.w / 2;
+    const pcx = player.x + player.w / 2 + 120;
     const pcy = player.y + player.h / 2;
     const speedFactor = delta / 16.67;
+    const tick = Math.floor(now / 260);
     for (const enemy of enemiesRef.current) {
       if (enemy.hp <= 0 || enemy.kind === "fragment") continue;
       const ecx = enemy.x + enemy.w / 2;
@@ -7045,12 +7094,22 @@ export default function JogoPage() {
       const dx = pcx - ecx;
       const dy = pcy - ecy;
       const dist = Math.max(1, Math.hypot(dx, dy));
-      if (dist > 520) continue;
-      const force = (1 - dist / 520) * 0.055 * speedFactor;
+      if (dist > 540) continue;
+      const force = (1 - dist / 540) * 0.16 * speedFactor;
       enemy.vx += (dx / dist) * force;
       enemy.vy += (dy / dist) * force;
-      enemy.stretchUntil = Math.max(enemy.stretchUntil ?? 0, now + 70);
+      enemy.stretchUntil = Math.max(enemy.stretchUntil ?? 0, now + 90);
+      if (((enemy as Enemy & { lastBlackHoleTick?: number }).lastBlackHoleTick ?? -1) !== tick && dist < 420) {
+        (enemy as Enemy & { lastBlackHoleTick?: number }).lastBlackHoleTick = tick;
+        aplicarDanoInimigoEspecial(enemy, 0.7, "#a78bfa");
+        if (!mobileRuntimeRef.current || randomFloat() < 0.35) adicionarVfxPet("pull", ecx, ecy, "#7c3aed", { size: 32 });
+      }
     }
+    if (bossRef.current.active && bossRef.current.hp > 0 && ((bossRef.current as typeof bossRef.current & { lastBlackHoleTick?: number }).lastBlackHoleTick ?? -1) !== tick) {
+      (bossRef.current as typeof bossRef.current & { lastBlackHoleTick?: number }).lastBlackHoleTick = tick;
+      aplicarDanoBossEspecial(1.4, "#a78bfa");
+    }
+    if (!mobileRuntimeRef.current && randomFloat() < 0.22) adicionarVfxPet("pull", pcx, pcy, "#7c3aed", { size: 120 });
   }
 
   function cooldownHabilidadePetMs(petId: string) {
@@ -7549,6 +7608,7 @@ export default function JogoPage() {
     if (petId === "pet-red-jumper") return dispararSaltadorRubroEspecial(slot, remote);
 
     if (petId === "pet-black-hole") {
+      petBlackHolePullUntilRef.current = Math.max(petBlackHolePullUntilRef.current, now + 2900);
       for (const enemy of enemiesRef.current) {
         if (enemy.hp <= 0 || enemy.kind === "fragment") continue;
         const ecx = enemy.x + enemy.w / 2;
@@ -7579,13 +7639,24 @@ export default function JogoPage() {
     if (petId === "pet-milky-way") return dispararViaLacteaEspecial(slot, remote);
 
     if (petId === "pet-earth") {
-      if (enemiesRef.current.length < 18) spawnEnemy("red");
-      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy) > 135);
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy) > 170);
       player.hp = Math.min(vidaMaximaLocal(), player.hp + 1);
       if (slot === slotLocalOnline()) setPlayerHp(player.hp);
       else if (slot === slotVisualPlayer2Online()) setPlayer2Hp(player.hp);
+      for (const enemy of enemiesRef.current) {
+        const ex = enemy.x + enemy.w / 2;
+        const ey = enemy.y + enemy.h / 2;
+        if (enemy.hp > 0 && Math.hypot(ex - (cx + 110), ey - cy) < 300) {
+          enemy.vx *= 0.55;
+          enemy.vy *= 0.55;
+          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, now + 700);
+          aplicarDanoInimigoEspecial(enemy, 4.5, "#86efac");
+          adicionarVfxPet("roots", ex, ey, "#86efac", { size: 42 });
+        }
+      }
+      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(12, "#86efac", true);
       criarParticulasHit(cx, cy + 18, "#86efac", mobileRuntimeRef.current ? 6 : 12);
-      if (!remote) mostrarMensagemPet("TERRA: CURA + LIMPEZA", "#86efac");
+      if (!remote) mostrarMensagemPet("TERRA: RAÍZES + CURA", "#86efac");
       return true;
     }
 
@@ -7770,7 +7841,7 @@ export default function JogoPage() {
     }
 
     if (pet.id === "pet-black-hole") {
-      petBlackHolePullUntilRef.current = now + 2600;
+      petBlackHolePullUntilRef.current = now + 3200;
       criarExplosao(cx + 110, cy, "#7c3aed", mobileRuntimeRef.current ? 8 : 16);
       for (const enemy of enemiesRef.current) {
         if (enemy.hp > 0 && Math.hypot(enemy.x + enemy.w / 2 - cx, enemy.y + enemy.h / 2 - cy) < 460) aplicarDanoInimigoEspecial(enemy, 2.5, "#a78bfa");
@@ -7786,12 +7857,23 @@ export default function JogoPage() {
     }
 
     if (pet.id === "pet-earth") {
-      if (enemiesRef.current.length < 18) spawnEnemy("red");
-      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy) > 135);
+      enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => Math.hypot(bullet.x + bullet.w / 2 - cx, bullet.y + bullet.h / 2 - cy) > 170);
       player.hp = Math.min(vidaMaximaLocal(), player.hp + 1);
       setPlayerHp(player.hp);
+      for (const enemy of enemiesRef.current) {
+        const ex = enemy.x + enemy.w / 2;
+        const ey = enemy.y + enemy.h / 2;
+        if (enemy.hp > 0 && Math.hypot(ex - (cx + 110), ey - cy) < 300) {
+          enemy.vx *= 0.55;
+          enemy.vy *= 0.55;
+          enemy.frozenUntil = Math.max(enemy.frozenUntil ?? 0, now + 700);
+          aplicarDanoInimigoEspecial(enemy, 4.5, "#86efac");
+          adicionarVfxPet("roots", ex, ey, "#86efac", { size: 42 });
+        }
+      }
+      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(12, "#86efac", true);
       criarParticulasHit(cx, cy + 18, "#86efac", mobileRuntimeRef.current ? 6 : 12);
-      mostrarMensagemPet("TERRA: CURA + LIMPEZA", "#86efac");
+      mostrarMensagemPet("TERRA: RAÍZES + CURA", "#86efac");
       return;
     }
 
@@ -7884,10 +7966,15 @@ export default function JogoPage() {
       return;
     }
 
-    player.vx += 0.75;
-    player.strongReadyAt = Math.max(now, player.strongReadyAt - 900);
+    player.vx += 1.45;
+    player.strongReadyAt = Math.max(now, player.strongReadyAt - 1600);
+    adicionarVfxPet("spark", cx + 85, cy, "#fde68a", { size: 86, label: "NOVA" });
+    for (const enemy of enemiesRef.current) {
+      if (enemy.hp > 0 && enemy.x > cx - 20 && enemy.x < cx + 330 && Math.abs(enemy.y + enemy.h / 2 - cy) < 110) aplicarDanoInimigoEspecial(enemy, 4, "#fde68a");
+    }
+    if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(9, "#fde68a");
     criarParticulasHit(cx, cy, "#fde68a", 10);
-    mostrarMensagemPet("ESTRELA: IMPULSO RÁPIDO", "#fde68a");
+    mostrarMensagemPet("ESTRELA: NOVA + RECARGA", "#fde68a");
   }
 
   function executarHabilidadesPetAvancadas(delta: number, canvas: HTMLCanvasElement) {
@@ -11646,23 +11733,118 @@ export default function JogoPage() {
     return intensity;
   }
 
+  type ShotVfxPalette = {
+    key: "normal" | "powerHoming" | "strong" | "power" | "homing";
+    core: string;
+    glow: string;
+    trail: string;
+    trail2: string;
+    sparks: string[];
+  };
+
+  function chavePaletaTiro(shot: Shot): ShotVfxPalette["key"] {
+    if (shot.type === "strong") return "strong";
+    if (shot.variant === "powerHoming") return "powerHoming";
+    if (shot.variant === "power") return "power";
+    if (shot.variant === "homing") return "homing";
+    return "normal";
+  }
+
+  function paletaTiro(shot: Shot): ShotVfxPalette {
+    const palettes: Record<ShotVfxPalette["key"], ShotVfxPalette> = {
+      normal: {
+        key: "normal",
+        core: "#1828e8",
+        glow: "#2537ff",
+        trail: "#07108f",
+        trail2: "#0b1bd6",
+        sparks: ["#07108f", "#1023c7", "#2537ff", "#020a68"],
+      },
+      powerHoming: {
+        key: "powerHoming",
+        core: "#f87191",
+        glow: "#be314f",
+        trail: "#2a1022",
+        trail2: "#8a2144",
+        sparks: ["#f87191", "#be314f", "#40112b", "#fb9aaa"],
+      },
+      strong: {
+        key: "strong",
+        core: "#ff7a00",
+        glow: "#fbbf24",
+        trail: "#ff4b00",
+        trail2: "#fff27a",
+        sparks: ["#fff27a", "#fbbf24", "#ff7a00", "#ff4b00"],
+      },
+      power: {
+        key: "power",
+        core: "#b83250",
+        glow: "#7f1d3d",
+        trail: "#1f0822",
+        trail2: "#dc4268",
+        sparks: ["#1f0822", "#7f1d3d", "#b83250", "#ef5678"],
+      },
+      homing: {
+        key: "homing",
+        core: "#40f48a",
+        glow: "#2ddf7c",
+        trail: "#304055",
+        trail2: "#a7f3d0",
+        sparks: ["#40f48a", "#2ddf7c", "#304055", "#a7f3d0"],
+      },
+    };
+    return palettes[chavePaletaTiro(shot)];
+  }
+
   function corDoTiro(shot: Shot) {
-    if (shot.type === "strong") return "#facc15";
-    if (shot.variant === "power" || shot.variant === "powerHoming") return "#ef4444";
-    if (shot.variant === "homing") return "#22d3ee";
-    return CONFIG.colors.normalShot;
+    return paletaTiro(shot).glow;
+  }
+
+  function criarParticulasPaletaTiro(x: number, y: number, shot: Shot, amount: number) {
+    if (!CONFIG.settings.enableParticles) return;
+    const palette = paletaTiro(shot);
+    const requestedAmount = mobileRuntimeRef.current
+      ? Math.min(amount, Boolean((CONFIG.settings as Record<string, unknown>).reduceMobileVfx ?? true) ? 4 : 6)
+      : amount;
+    const finalAmount = Math.max(0, Math.round(requestedAmount * CONFIG.settings.particleQuality));
+    const vxBase = shot.vx ?? shot.speed;
+    const vyBase = shot.vy ?? 0;
+    const len = Math.max(1, Math.hypot(vxBase, vyBase));
+    const ux = vxBase / len;
+    const uy = vyBase / len;
+    for (let i = 0; i < finalAmount; i++) {
+      const side = rand(-1, 1);
+      const back = rand(0.8, 4.5);
+      const speed = rand(0.55, 2.6);
+      particlesRef.current.push({
+        id: enemyIdRef.current++,
+        x: x - ux * rand(0, 14),
+        y: y + side * rand(0, 8),
+        vx: -ux * back + -uy * side * speed,
+        vy: -uy * back + ux * side * speed,
+        size: rand(shot.type === "strong" ? 5 : 3, shot.type === "strong" ? 13 : 8),
+        life: rand(140, shot.type === "strong" ? 420 : 300),
+        maxLife: shot.type === "strong" ? 420 : 300,
+        color: palette.sparks[Math.floor(rand(0, palette.sparks.length))] || palette.glow,
+      });
+    }
   }
 
   function criarVfxDisparo(shot: Shot) {
     const intensity = intensidadeVfxTiro();
     if (intensity <= 0) return;
-    const color = corDoTiro(shot);
     const cx = shot.x + shot.w * 0.52;
     const cy = shot.y + shot.h / 2;
-    const amount = Math.max(1, Math.round((shot.type === "strong" ? 9 : shot.variant === "power" || shot.variant === "powerHoming" ? 7 : 4) * intensity));
-    criarParticulasHit(cx, cy, color, amount);
+    const amount = Math.max(1, Math.round((shot.type === "strong" ? 11 : shot.variant === "power" || shot.variant === "powerHoming" ? 8 : 5) * intensity));
+    criarParticulasPaletaTiro(cx, cy, shot, amount);
+    const palette = paletaTiro(shot);
     if (shot.type === "strong" && !mobileRuntimeRef.current) {
-      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 44, life: 130, maxLife: 130 });
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 48, life: 140, maxLife: 140 });
+    } else if ((shot.variant === "power" || shot.variant === "powerHoming") && !mobileRuntimeRef.current) {
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 26, life: 95, maxLife: 95 });
+    }
+    if (!mobileRuntimeRef.current && randomFloat() < 0.38) {
+      adicionarVfxPet(shot.variant === "homing" || shot.variant === "powerHoming" ? "spark" : "flare", cx, cy, palette.glow, { size: shot.type === "strong" ? 34 : 20 });
     }
   }
 
@@ -13642,6 +13824,7 @@ export default function JogoPage() {
         (CONFIG.settings as Record<string, unknown>).damageNumberMode = String(CONFIG.settings.damageNumberMode ?? "normal");
         (CONFIG.settings as Record<string, unknown>).reduceMobileVfx = CONFIG.settings.reduceMobileVfx ?? true;
         (CONFIG.settings as Record<string, unknown>).shopCardDensity = String(CONFIG.settings.shopCardDensity ?? "normal");
+        (CONFIG.settings as Record<string, unknown>).tokenTrailFrequency = String(CONFIG.settings.tokenTrailFrequency ?? "normal");
         CONFIG.settings.enableFlashingLights = true;
         CONFIG.settings.particleQuality = coarsePointer ? 0.58 : 1;
         CONFIG.settings.showFps = false;
@@ -15623,16 +15806,8 @@ export default function JogoPage() {
                 : "normalShot";
 
       const img = assetsRef.current.get(key);
-      const color =
-        shot.type === "strong"
-          ? CONFIG.colors.strongShot
-          : shot.variant === "powerHoming"
-            ? "#f0abfc"
-            : shot.variant === "power"
-              ? "#f59e0b"
-              : shot.variant === "homing"
-                ? "#22d3ee"
-                : CONFIG.colors.normalShot;
+      const palette = paletaTiro(shot);
+      const color = palette.glow;
 
       if (!img) {
         drawShotFallbackSprite(ctx, shot, color);
@@ -15667,21 +15842,30 @@ export default function JogoPage() {
         ctx.save();
         ctx.globalCompositeOperation = "lighter";
         ctx.globalAlpha = (shot.type === "strong" ? 0.42 : 0.28) * shotTrailIntensity;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = Math.max(2, shot.h * (shot.type === "strong" ? 0.42 : 0.28));
-        ctx.shadowColor = color;
-        ctx.shadowBlur = shot.type === "strong" ? 18 : 10;
+        ctx.strokeStyle = palette.trail;
+        ctx.lineWidth = Math.max(2, shot.h * (shot.type === "strong" ? 0.46 : 0.30));
+        ctx.shadowColor = palette.glow;
+        ctx.shadowBlur = shot.type === "strong" ? 22 : 12;
         ctx.beginPath();
         ctx.moveTo(cx - ux * trailLength, cy - uy * trailLength);
         ctx.lineTo(cx - ux * shot.w * 0.12, cy - uy * shot.w * 0.12);
         ctx.stroke();
         if (shot.variant === "power" || shot.variant === "powerHoming") {
           ctx.globalAlpha *= 0.7;
-          ctx.strokeStyle = "#ff2d2d";
+          ctx.strokeStyle = palette.trail2;
           ctx.lineWidth *= 0.55;
           ctx.beginPath();
           ctx.moveTo(cx - ux * trailLength * 1.25, cy - uy * trailLength * 1.25 + 3);
           ctx.lineTo(cx, cy + 1);
+          ctx.stroke();
+        }
+        if (shot.variant === "homing" || shot.variant === "powerHoming" || shot.variant === "normal") {
+          ctx.globalAlpha = (shot.variant === "normal" ? 0.16 : 0.24) * shotTrailIntensity;
+          ctx.strokeStyle = palette.trail2;
+          ctx.lineWidth = Math.max(1.5, shot.h * 0.16);
+          ctx.beginPath();
+          ctx.moveTo(cx - ux * trailLength * 0.82, cy - uy * trailLength * 0.82 - 2);
+          ctx.lineTo(cx, cy - 1);
           ctx.stroke();
         }
         ctx.restore();
@@ -17258,6 +17442,7 @@ export default function JogoPage() {
 
     function spawnTokenBurst(x: number, y: number, targetSlot: PlayerSlot = 1, maxAmount = 6, dropChance = isLocalPvpMode() ? 0.74 : 0.66) {
       if (gameStateRef.current === "tutorial") return;
+      if (String((CONFIG.settings as Record<string, unknown>).tokenTrailFrequency ?? "normal") === "off") return;
       if (onlineTogetherCoordenado() && !souAutoridadeMundoOnlineTogether()) return;
       if (onlineGameplayActiveRef.current && onlineServerAuthoritativeRef.current && !souHostOnline()) return;
       if (randomFloat() > dropChance) return;
@@ -17305,7 +17490,12 @@ export default function JogoPage() {
     }
 
     function agendarProximoToken(now = performance.now()) {
-      nextTokenSpawnAtRef.current = now + rand(isLocalPvpMode() ? 8200 : 6800, isLocalPvpMode() ? 11200 : 10400);
+      const mode = String((CONFIG.settings as Record<string, unknown>).tokenTrailFrequency ?? "normal");
+      if (mode === "off") { nextTokenSpawnAtRef.current = Number.POSITIVE_INFINITY; return; }
+      const multiplayer = onlineGameplayActiveRef.current || isLocalPvpMode() || onlineTogetherCoordenado();
+      const baseMin = mode === "often" ? 4300 : mode === "rare" ? 11200 : multiplayer ? 6200 : 5600;
+      const baseMax = mode === "often" ? 6800 : mode === "rare" ? 15800 : multiplayer ? 9400 : 8800;
+      nextTokenSpawnAtRef.current = now + rand(baseMin, baseMax);
     }
 
     function spawnTokenPattern(force = false) {
@@ -17318,7 +17508,7 @@ export default function JogoPage() {
       if (tokensRef.current.length > maxTokens) { agendarProximoToken(now); return; }
 
       const playerCenter = centroPlayerPorSlot((onlineSlotRef.current || 1) as PlayerSlot);
-      const patterns: Array<"line" | "zigzag" | "arc" | "cluster"> = ["line", "line", "zigzag", "arc", "cluster"];
+      const patterns: Array<"line" | "zigzag" | "arc" | "cluster" | "wave" | "split"> = ["line", "line", "zigzag", "arc", "cluster", "wave", "split"];
       const pattern = patterns[Math.floor(rand(0, patterns.length))] || "line";
       const startX = CONFIG.canvasWidth + 56;
       const baseY = clamp(playerCenter.y + rand(-92, 92), 92, CONFIG.canvasHeight - 104);
@@ -17341,13 +17531,26 @@ export default function JogoPage() {
           const y = clamp(baseY + Math.sin(t * Math.PI) * -118 + 44, 84, CONFIG.canvasHeight - 96);
           planned.push({ x: startX + i * (gap * .92), y, delay: i });
         }
-      } else {
+      } else if (pattern === "cluster") {
         // Encruzilhada: longa, separada e com risco/recompensa.
         const count = mobileRuntimeRef.current ? 11 : 16;
         for (let i = 0; i < count; i++) {
           const branch = i % 4;
           const y = branch === 0 ? baseY : branch === 1 ? baseY - 92 : branch === 2 ? baseY + 92 : baseY;
           planned.push({ x: startX + i * gap, y: clamp(y, 86, CONFIG.canvasHeight - 96), delay: i });
+        }
+      } else if (pattern === "wave") {
+        const count = mobileRuntimeRef.current ? 12 : 18;
+        for (let i = 0; i < count; i++) {
+          const y = clamp(baseY + Math.sin(i * 0.78) * 86, 84, CONFIG.canvasHeight - 96);
+          planned.push({ x: startX + i * (gap * 0.82), y, delay: i });
+        }
+      } else {
+        const count = mobileRuntimeRef.current ? 10 : 15;
+        for (let i = 0; i < count; i++) {
+          const lane = i % 3;
+          const y = clamp(baseY + (lane - 1) * 72, 86, CONFIG.canvasHeight - 96);
+          planned.push({ x: startX + i * (gap * 0.88), y, delay: i });
         }
       }
 

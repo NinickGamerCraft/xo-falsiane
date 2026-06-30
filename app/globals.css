@@ -21757,3 +21757,22 @@ button.sn-hud-resource-chip-v250.is-cooling { opacity: .8; filter: grayscale(.25
     font-size: 11px;
   }
 }
+
+/* v2.6.7 — shop/none badge polish */
+.sn-shop-none-badge-v266 {
+  width: min(68px, 70%);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  margin: auto;
+  border: 2px dashed rgba(255, 214, 10, .65);
+  color: rgba(255, 236, 145, .92);
+  font-size: clamp(.55rem, 1.2vw, .72rem);
+  letter-spacing: .08em;
+  background: radial-gradient(circle, rgba(255, 214, 10, .12), rgba(0,0,0,.08));
+  box-shadow: 0 0 18px rgba(255, 214, 10, .12) inset;
+}
+.sn-shop-card-v250 .sn-shop-card-art-v250:has(.sn-shop-none-badge-v266) {
+  opacity: .92;
+}
