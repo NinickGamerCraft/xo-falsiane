@@ -1789,7 +1789,7 @@ const LOCAL_MODE_OPTIONS: Array<{ label: string; mode: GameMode; description: st
 ];
 
 const LOCAL_PLAYER_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"];
-const SPACE_NEWS_VERSION = "2.6.8";
+const SPACE_NEWS_VERSION = "2.6.9";
 
 
 const INPUT_DEVICE_CHOICES: InputDeviceChoice[] = [
@@ -6426,6 +6426,22 @@ export default function JogoPage() {
     return imagemShop(dodge ? item.dodgeAsset || item.asset : item.asset);
   }
 
+  function imagemRecolorComoNave(equipped?: EquippedCosmetics, dodge = false, movingFrame?: number) {
+    const recolor = itemShopPorId(equipped?.recolor);
+    if (!recolor || recolor.id === "recolor-classic") return null;
+    if (!dodge && recolor.moveFrames?.length && typeof movingFrame === "number") {
+      const frameSrc = recolor.moveFrames[movingFrame % recolor.moveFrames.length];
+      const frameImg = imagemShop(frameSrc);
+      if (frameImg) return frameImg;
+    }
+    return assetCosmetico(recolor, dodge);
+  }
+
+  function srcRecolorPreview(equipped?: EquippedCosmetics) {
+    const recolor = itemShopPorId(equipped?.recolor);
+    return recolor && recolor.id !== "recolor-classic" ? recolor.asset : "/game/player/ship-idle.png";
+  }
+
   function desenharCosmeticosNave(ctx: CanvasRenderingContext2D, player: Player, options?: { dodge?: boolean; alpha?: number; equipped?: EquippedCosmetics; movingFrame?: number; superSpark?: boolean }) {
     const profile = localProfileRef.current;
     const equipped = options?.equipped || profile.equipped || {};
@@ -6463,8 +6479,8 @@ export default function JogoPage() {
       }
       ctx.restore();
     };
-    const recolor = itemShopPorId(equipped.recolor);
-    if (recolor && recolor.id !== "recolor-classic") drawFull(recolor.id, true);
+    // NAVES/recolors são base completa da nave. Não desenhar aqui como camada,
+    // senão parece que a nave realista está sobrepondo a nave padrão.
     if (ACCESSORY_SPRITES_ENABLED) {
       drawFull(equipped.middle);
       drawFull(equipped.front);
@@ -14949,12 +14965,15 @@ export default function JogoPage() {
         : null;
 
       const playerIdleAsset = assetsRef.current.get("player");
-      const playerAsset =
+      const equippedLocal = localProfileRef.current.equipped || {};
+      const recolorAsset = imagemRecolorComoNave(equippedLocal, isDodging, shouldUseMoveFrames ? anim.frame : undefined);
+      const playerAsset = recolorAsset || (
         isDodging && dodgeAsset
           ? dodgeAsset
-          : (movingFrameAsset ?? playerIdleAsset);
+          : (movingFrameAsset ?? playerIdleAsset)
+      );
       const playerConfig =
-        isDodging && dodgeAsset ? ASSETS.playerDodge : ASSETS.player;
+        isDodging && dodgeAsset && !recolorAsset ? ASSETS.playerDodge : ASSETS.player;
 
       ctx.save();
       const chargingAbility =
@@ -15818,7 +15837,9 @@ export default function JogoPage() {
       const anim = playerAnimRef.current;
       anim.update(delta);
       const moving = Math.hypot(player.vx, player.vy) > CONFIG.gameplay.player.animationMoveThreshold || now < player.boostUntil;
-      const img = moving ? assetsRef.current.getFrame("player", anim.frame) : assetsRef.current.get("player");
+      const equippedP2 = onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[slotVisualPlayer2Online()] : undefined;
+      const img = imagemRecolorComoNave(equippedP2, now < player.dodgeUntil, moving ? anim.frame : undefined)
+        || (moving ? assetsRef.current.getFrame("player", anim.frame) : assetsRef.current.get("player"));
 
       ctx.save();
       ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
@@ -15854,7 +15875,7 @@ export default function JogoPage() {
         ctx.closePath();
         ctx.fill();
       }
-      desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.3 : 0.88, movingFrame: anim.frame, equipped: onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[slotVisualPlayer2Online()] : undefined });
+      desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.3 : 0.88, movingFrame: anim.frame, equipped: equippedP2 });
 
       if (shieldVisual) {
         const t = now * 0.006;
@@ -15887,7 +15908,9 @@ export default function JogoPage() {
         const ghostLocal = isLocalWaveMode() && player.hp <= 0;
         if (!ghostLocal && player.hp <= 0 && Math.floor(now / 180) % 2 === 0) continue;
         const moving = Math.hypot(player.vx, player.vy) > CONFIG.gameplay.player.animationMoveThreshold || now < player.boostUntil;
-        const img = moving ? assetsRef.current.getFrame("player", anim.frame) : assetsRef.current.get("player");
+        const equippedRuntime = onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[runtime.slot] : undefined;
+        const img = imagemRecolorComoNave(equippedRuntime, now < player.dodgeUntil, moving ? anim.frame : undefined)
+          || (moving ? assetsRef.current.getFrame("player", anim.frame) : assetsRef.current.get("player"));
         const color = runtime.color || LOCAL_PLAYER_COLORS[runtime.slot - 1] || "#ffffff";
         ctx.save();
         ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
@@ -15914,7 +15937,7 @@ export default function JogoPage() {
           ctx.closePath();
           ctx.fill();
         }
-        desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.28 : 0.82, movingFrame: anim.frame, equipped: onlineGameplayActiveRef.current ? onlineCosmeticsBySlotRef.current[runtime.slot] : undefined });
+        desenharCosmeticosNave(ctx, player, { dodge: now < player.dodgeUntil, alpha: ghostLocal ? 0.28 : 0.82, movingFrame: anim.frame, equipped: equippedRuntime });
         const shieldUntil = runtime.powerups.shieldUntil ?? runtime.shieldUntil ?? 0;
         if (player.hp > 0 && now < shieldUntil) {
           ctx.globalAlpha = 0.35 + Math.sin(now * 0.012) * 0.08;
@@ -22300,10 +22323,10 @@ export default function JogoPage() {
                 const hovered = itemShopPorId(shopPreviewItemId);
                 const previewEquipped = hovered ? { ...equipped, [hovered.slot]: hovered.id } : equipped;
                 const previewItems = [
-                  itemShopPorId(previewEquipped.recolor),
                   itemShopPorId(previewEquipped.middle),
                   itemShopPorId(previewEquipped.front),
                 ].filter(Boolean) as ShopItem[];
+                const previewBaseSrc = srcRecolorPreview(previewEquipped);
                 const pet = itemShopPorId(previewEquipped.pet);
                 const ownedCount = SHOP_ITEMS.filter((item) => localProfile.inventory.includes(item.id)).length;
                 const equippedCount = Object.values(equipped).filter(Boolean).length;
@@ -22313,7 +22336,7 @@ export default function JogoPage() {
                       <div className="sn-shop-orbit-ring-v250" />
                       <div className="sn-shop-ship-preview-v250" aria-label="Preview da nave customizada">
                         <div className="sn-shop-preview-glow-v221" />
-                        <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                        <img className="sn-shop-preview-base-v221" src={assetUrl(previewBaseSrc)} alt="" />
                         {previewItems.map((item) => itemPreviewVisivelShop(item) && (
                           <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />
                         ))}
@@ -22510,12 +22533,13 @@ export default function JogoPage() {
                     <h3>NAVE E PET</h3>
                     {(() => {
                       const equipped = localProfile.equipped || {};
-                      const previewItems = [itemShopPorId(equipped.recolor), itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+                      const previewItems = [itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+                      const previewBaseSrc = srcRecolorPreview(equipped);
                       const pet = itemShopPorId(equipped.pet);
                       return (
                         <div className="sn-profile-loadout-grid-v250">
                           <div className="sn-profile-ship-preview-v250">
-                            <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                            <img className="sn-shop-preview-base-v221" src={assetUrl(previewBaseSrc)} alt="" />
                             {previewItems.map((item) => itemPreviewVisivelShop(item) && <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />)}
                             {pet && <img className="sn-shop-preview-pet-v250" src={assetUrl(pet.asset)} alt="" />}
                           </div>
@@ -22642,7 +22666,8 @@ export default function JogoPage() {
       {selectedFriendProfile && (() => {
         const summary = selectedFriendProfile;
         const equipped = summary.equipped || {};
-        const previewItems = [itemShopPorId(equipped.recolor), itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+        const previewItems = [itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+        const previewBaseSrc = srcRecolorPreview(equipped);
         const pet = itemShopPorId(equipped.pet);
         return (
           <div className="sn-profile-backdrop-v20 sn-online-profile-backdrop-v250" role="dialog" aria-modal="true">
@@ -22658,7 +22683,7 @@ export default function JogoPage() {
               </header>
               <div className="sn-online-profile-body-v250">
                 <div className="sn-profile-ship-preview-v250">
-                  <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                  <img className="sn-shop-preview-base-v221" src={assetUrl(previewBaseSrc)} alt="" />
                   {previewItems.map((item) => itemPreviewVisivelShop(item) && <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />)}
                   {pet && <img className="sn-shop-preview-pet-v250" src={assetUrl(pet.asset)} alt="" />}
                 </div>
@@ -22679,7 +22704,8 @@ export default function JogoPage() {
         const player = onlinePlayers.find((item) => item.slot === selectedOnlineProfileSlot);
         const summary = player?.profileSummary;
         const equipped = summary?.equipped || player?.cosmetics || {};
-        const previewItems = [itemShopPorId(equipped.recolor), itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+        const previewItems = [itemShopPorId(equipped.middle), itemShopPorId(equipped.front)].filter(Boolean) as ShopItem[];
+        const previewBaseSrc = srcRecolorPreview(equipped);
         const pet = itemShopPorId(equipped.pet);
         return player ? (
           <div className="sn-profile-backdrop-v20 sn-online-profile-backdrop-v250" role="dialog" aria-modal="true">
@@ -22696,7 +22722,7 @@ export default function JogoPage() {
               </header>
               <div className="sn-online-profile-body-v250">
                 <div className="sn-profile-ship-preview-v250">
-                  <img className="sn-shop-preview-base-v221" src={assetUrl("/game/player/ship-idle.png")} alt="" />
+                  <img className="sn-shop-preview-base-v221" src={assetUrl(previewBaseSrc)} alt="" />
                   {previewItems.map((item) => itemPreviewVisivelShop(item) && <img key={item.id} className="sn-shop-preview-layer-v221" src={assetUrl(item.asset)} alt="" />)}
                   {pet && <img className="sn-shop-preview-pet-v250" src={assetUrl(pet.asset)} alt="" />}
                 </div>
