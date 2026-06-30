@@ -640,6 +640,13 @@ type PetFocusState = {
   until: number;
 };
 
+type PetToastState = {
+  id: number;
+  message: string;
+  color: string;
+  until: number;
+};
+
 type PetVisualFx = {
   id: number;
   kind: "slash" | "burst" | "freeze" | "cards" | "portal" | "confusion" | "flare";
@@ -3154,7 +3161,7 @@ const SHOP_ITEMS: ShopItem[] = [
 
 const SHOP_DEFAULT_OWNED = ["recolor-classic", "accessory-none", "pet-none"];
 const SHOP_SLOTS: ShopSlot[] = ["recolor", "front", "middle", "pet"];
-const SHOP_SLOT_LABEL: Record<ShopSlot, string> = { recolor: "RECOLOR", front: "ACESSÓRIOS", middle: "ACESSÓRIOS", pet: "PET" };
+const SHOP_SLOT_LABEL: Record<ShopSlot, string> = { recolor: "NAVES", front: "FRENTE", middle: "CORPO", pet: "PETS" };
 
 const ACHIEVEMENT_CATALOG: LocalAchievement[] = [
   { id: "first-token", title: "Primeiro Token", description: "Coletou sua primeira moeda de transmissão." },
@@ -3212,22 +3219,32 @@ function criarCodigoAmizadeLocal(id = "") {
   return `SN-${base || randomFloat().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-function formatarCodigoAmizadeInput(value: string) {
+function codigoAmizadeCorpo(value: string) {
   const raw = String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (!raw) return "";
-  const hasPrefix = raw.startsWith("SN");
-  const clean = hasPrefix ? raw.slice(2) : raw;
-  const compact = clean.slice(0, 10);
-  if (!compact) return hasPrefix ? "SN-" : "";
+  const clean = raw.startsWith("SN") ? raw.slice(2) : raw;
+  return clean.slice(0, 10);
+}
+
+function formatarCodigoAmizadeInput(value: string) {
+  const compact = codigoAmizadeCorpo(value);
+  if (!compact) return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").startsWith("SN") ? "SN-" : "";
   return `SN-${compact}`;
 }
 
 function codigoAmizadeCompacto(value: string) {
-  return formatarCodigoAmizadeInput(value).replace(/^SN-/, "");
+  return codigoAmizadeCorpo(value);
 }
 
 function codigoAmizadeValido(value: string) {
-  return /^SN-[A-Z0-9]{3,10}$/.test(formatarCodigoAmizadeInput(value));
+  const compact = codigoAmizadeCorpo(value);
+  return /^[A-Z0-9]{3,10}$/.test(compact);
+}
+
+function codigoAmizadeIgual(a: string, b: string) {
+  const aa = codigoAmizadeCorpo(a);
+  const bb = codigoAmizadeCorpo(b);
+  return Boolean(aa && bb && aa === bb);
 }
 
 function criarStatsPerfilPadrao(): LocalProfileStats {
@@ -3598,7 +3615,7 @@ export default function JogoPage() {
   const [selectedOnlineProfileSlot, setSelectedOnlineProfileSlot] = useState<number | null>(null);
   const [selectedFriendProfile, setSelectedFriendProfile] = useState<OnlineProfileSummary | null>(null);
   const [shopManagerOpen, setShopManagerOpen] = useState(false);
-  const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("");
+  const [profileFriendCodeInput, setProfileFriendCodeInput] = useState("SN-");
   const [shopTab, setShopTab] = useState<ShopSlot>("front");
   const [shopMode, setShopMode] = useState<ShopPanelTab>("store");
   const [shopSearch, setShopSearch] = useState("");
@@ -3606,6 +3623,7 @@ export default function JogoPage() {
   const [shopPreviewItemId, setShopPreviewItemId] = useState<string>("");
   const [petAbilityCooldownUi, setPetAbilityCooldownUi] = useState(0);
   const [petFocus, setPetFocus] = useState<PetFocusState | null>(null);
+  const [petToast, setPetToast] = useState<PetToastState | null>(null);
   const petFocusIdRef = useRef(0);
   const [pingBoardOpen, setPingBoardOpen] = useState(false);
   const [profileToast, setProfileToast] = useState("");
@@ -5890,8 +5908,8 @@ export default function JogoPage() {
       profileId: friend.profileId || friend.id,
       color: friend.color,
     };
-    const nextFriends = [normalized, ...current.friends.filter((item) => item.code !== normalized.code && item.id !== normalized.id)].slice(0, 60);
-    const nextRequests = current.friendRequests.filter((item) => item.code !== normalized.code && item.profileId !== normalized.profileId);
+    const nextFriends = [normalized, ...current.friends.filter((item) => !codigoAmizadeIgual(item.code || item.id || "", normalized.code || normalized.id || "") && item.id !== normalized.id)].slice(0, 60);
+    const nextRequests = current.friendRequests.filter((item) => !codigoAmizadeIgual(item.code, normalized.code || "") && item.profileId !== normalized.profileId);
     salvarPerfilLocal({ ...current, friends: nextFriends, friendRequests: nextRequests, updatedAt: Date.now() });
   }
 
@@ -6000,27 +6018,21 @@ export default function JogoPage() {
 
   function adicionarPedidoAmizadeLocal(codeRaw: string) {
     const code = formatarCodigoAmizadeInput(codeRaw);
-    const compact = codigoAmizadeCompacto(code);
     const myCode = formatarCodigoAmizadeInput(localProfileRef.current.friendCode);
-    const myCompact = codigoAmizadeCompacto(myCode);
     if (!codigoAmizadeValido(code)) {
-      mostrarToastPerfil("Código inválido. Use algo tipo SN-ABC123.");
+      mostrarToastPerfil("Código inválido. Confere se ficou tipo SN-ABC123.");
       return;
     }
-    if (compact === myCompact) {
+    if (codigoAmizadeIgual(code, myCode)) {
       mostrarToastPerfil("Esse é o seu próprio código.");
       return;
     }
     const current = localProfileRef.current;
-    const alreadyFriend = current.friends.some((friend) => {
-      const friendCompact = codigoAmizadeCompacto(friend.code || friend.id || "");
-      return friendCompact === compact || friend.profileId === code;
-    });
-    if (alreadyFriend) {
-      mostrarToastPerfil("Esse código já está na sua lista.");
+    if (current.friends.some((friend) => codigoAmizadeIgual(friend.code || friend.id || "", code))) {
+      mostrarToastPerfil("Esse player já está na sua lista.");
       return;
     }
-    const received = current.friendRequests.find((request) => codigoAmizadeCompacto(request.code) === compact && request.direction === "received");
+    const received = current.friendRequests.find((request) => codigoAmizadeIgual(request.code, code) && request.direction === "received");
     if (received) {
       aceitarPedidoAmizadeLocal(received.id);
       mostrarToastPerfil(`Pedido mútuo aceito: ${received.name}`);
@@ -6029,60 +6041,46 @@ export default function JogoPage() {
 
     const found = resumoPerfilPorCodigoAmizade(code);
     if (found) registrarResumoPerfilNoIndice(found);
+    if (!found?.onlineSlot && !current.friendRequests.some((request) => codigoAmizadeIgual(request.code, code))) {
+      mostrarToastPerfil("Não achei esse código na sala online. Os dois precisam estar no mesmo lobby.");
+      adicionarNotificacaoPerfil("system", "Código não encontrado", `${code} não está online nesta sala agora.`, "friends");
+      return;
+    }
 
-    const sameRequest = current.friendRequests.find((request) => codigoAmizadeCompacto(request.code) === compact && request.direction === "sent");
-    if (sameRequest) {
-      if (found?.onlineSlot) enviarPedidoAmizadeOnline(found.onlineSlot, found);
-      else if (onlineConnected) enviarOnline({
-        type: "friend_request",
-        targetCode: code,
-        fromCode: localProfileRef.current.friendCode,
-        fromName: nomePerfilVisivel(localProfileRef.current),
-        fromProfileId: localProfileRef.current.id,
-        fromColor: localProfileRef.current.color,
-        fromSummary: criarResumoPerfilOnline(),
-      } as any);
-      mostrarToastPerfil(onlineConnected || found?.onlineSlot ? `Pedido reenviado para ${found?.name || code}.` : `Pedido já salvo para ${code}.`);
+    const existingSent = current.friendRequests.find((request) => codigoAmizadeIgual(request.code, code) && request.direction === "sent");
+    if (existingSent) {
+      if (found?.onlineSlot && enviarPedidoAmizadeOnline(found.onlineSlot, found)) {
+        mostrarToastPerfil(`Pedido reenviado para ${found.name || code}.`);
+        return;
+      }
+      mostrarToastPerfil("Pedido já enviado para esse código.");
+      return;
+    }
+
+    if (!found) {
+      mostrarToastPerfil("Perfil não encontrado. Entre na mesma sala online e tente de novo.");
       return;
     }
 
     const request: LocalFriendRequest = {
       id: criarIdPerfilLocal(),
-      code: formatarCodigoAmizadeInput(found?.friendCode || code),
-      name: String(found?.name || code).slice(0, 24),
+      code: formatarCodigoAmizadeInput(found.friendCode || code),
+      name: String(found.name || code).slice(0, 24),
       direction: "sent",
       createdAt: Date.now(),
-      profileId: found?.id,
-      color: found?.color,
-      slot: found?.onlineSlot,
+      profileId: found.id,
+      color: found.color,
+      slot: found.onlineSlot,
     };
-
-    salvarPerfilLocal({ ...current, friendRequests: [request, ...current.friendRequests].slice(0, 40), updatedAt: Date.now() });
-    setProfileFriendCodeInput("");
-
-    if (found?.onlineSlot && enviarPedidoAmizadeOnline(found.onlineSlot, found)) {
+    const nextRequests = [request, ...current.friendRequests.filter((item) => !codigoAmizadeIgual(item.code, request.code))].slice(0, 40);
+    salvarPerfilLocal({ ...current, friendRequests: nextRequests, updatedAt: Date.now() });
+    setProfileFriendCodeInput("SN-");
+    if (found.onlineSlot && enviarPedidoAmizadeOnline(found.onlineSlot, found)) {
       adicionarNotificacaoPerfil("friend", "Pedido enviado", `Pedido enviado para ${request.name}.`, "friends");
       mostrarToastPerfil(`Pedido enviado para ${request.name}.`);
-      return;
+    } else {
+      mostrarToastPerfil("Não consegui entregar. O player precisa estar na mesma sala online.");
     }
-
-    if (onlineConnected) {
-      enviarOnline({
-        type: "friend_request",
-        targetCode: code,
-        fromCode: localProfileRef.current.friendCode,
-        fromName: nomePerfilVisivel(localProfileRef.current),
-        fromProfileId: localProfileRef.current.id,
-        fromColor: localProfileRef.current.color,
-        fromSummary: criarResumoPerfilOnline(),
-      } as any);
-      adicionarNotificacaoPerfil("friend", "Pedido enviado por código", `Pedido enviado para ${code}. Se esse perfil estiver na sala online, ele recebe agora.`, "friends");
-      mostrarToastPerfil(`Pedido enviado para ${code}.`);
-      return;
-    }
-
-    adicionarNotificacaoPerfil("friend", "Pedido salvo por código", `Pedido salvo para ${code}. Para entregar, entre na mesma sala online ou peça para a pessoa também enviar seu código.`, "friends");
-    mostrarToastPerfil(`Pedido salvo para ${code}.`);
   }
 
   function aceitarPedidoAmizadeLocal(requestId: string) {
@@ -6387,9 +6385,11 @@ export default function JogoPage() {
   function mostrarMensagemPet(message: string, color = "#facc15") {
     const now = performance.now();
     if (now < petSkillMessageUntilRef.current) return;
-    petSkillMessageUntilRef.current = now + 1200;
-    mostrarMensagemWave(message, false);
-    criarParticulasHit(playerRef.current.x + playerRef.current.w / 2, playerRef.current.y + playerRef.current.h / 2, color, 8);
+    petSkillMessageUntilRef.current = now + 900;
+    const toast: PetToastState = { id: enemyIdRef.current++, message, color, until: now + 1350 };
+    setPetToast(toast);
+    window.setTimeout(() => setPetToast((current) => current?.id === toast.id ? null : current), 1420);
+    criarParticulasHit(playerRef.current.x + playerRef.current.w / 2, playerRef.current.y + playerRef.current.h / 2, color, mobileRuntimeRef.current ? 4 : 8);
   }
 
   function destacarEspecialPet(petId: string, label: string, color = "#facc15") {
@@ -7409,6 +7409,55 @@ export default function JogoPage() {
       return true;
     }
 
+    if (petId === "pet-white-hole") {
+      for (const bullet of enemyProjectilesRef.current) {
+        const bx = bullet.x + bullet.w / 2;
+        const by = bullet.y + bullet.h / 2;
+        const dx = bx - cx;
+        const dy = by - cy;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        if (dist < 220) {
+          bullet.vx += (dx / dist) * 2.7;
+          bullet.vy += (dy / dist) * 2.7;
+        }
+      }
+      for (const enemy of enemiesRef.current) {
+        const ex = enemy.x + enemy.w / 2;
+        const ey = enemy.y + enemy.h / 2;
+        const dx = ex - cx;
+        const dy = ey - cy;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        if (enemy.hp > 0 && dist < 265) {
+          enemy.vx += (dx / dist) * 3.1;
+          enemy.vy += (dy / dist) * 2.4;
+          aplicarDanoInimigoEspecial(enemy, 3, "#f8fafc");
+        }
+      }
+      shockwavesRef.current.push({ id: enemyIdRef.current++, x: cx, y: cy, radius: 210, life: 280, maxLife: 280 });
+      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(8, "#f8fafc");
+      if (!remote) mostrarMensagemPet("BURACO BRANCO: EMPURRA BALAS", "#f8fafc");
+      return true;
+    }
+
+    if (petId === "pet-wormhole") {
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 2400);
+      player.vx += 1.15;
+      player.stretchUntil = now + 360;
+      enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > cx && enemy.x < cx + 330).slice(0, 6).forEach((enemy) => aplicarDanoInimigoEspecial(enemy, 4, "#c084fc"));
+      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(9, "#c084fc");
+      if (!remote) mostrarMensagemPet("MINHOCA: DOBRA + RECARGA", "#c084fc");
+      return true;
+    }
+
+    if (petId === "pet-alien") {
+      player.strongReadyAt = Math.max(now, player.strongReadyAt - 1900);
+      boostChargeRef.current = Math.min(CONFIG.gameplay.boost.maxCharge, boostChargeRef.current + 24);
+      enemiesRef.current.filter((enemy) => enemy.hp > 0 && enemy.x > cx && Math.abs(enemy.y + enemy.h / 2 - cy) < 120).slice(0, 5).forEach((enemy) => aplicarDanoInimigoEspecial(enemy, 3.5, "#67e8f9"));
+      if (bossRef.current.active && bossRef.current.hp > 0) aplicarDanoBossEspecial(10, "#67e8f9");
+      if (!remote) mostrarMensagemPet("ALIENÍGENA: LASER + BOOST", "#67e8f9");
+      return true;
+    }
+
     if (petId === "pet-comet") {
       let cleared = 0;
       enemyProjectilesRef.current = enemyProjectilesRef.current.filter((bullet) => {
@@ -7711,7 +7760,7 @@ export default function JogoPage() {
     const candidates = typeof targetSlot === "number" ? onlinePlayers.filter((player) => player.slot === targetSlot) : onlinePlayers.filter((player) => player.slot !== onlineSlotRef.current);
     let sent = 0;
     for (const player of candidates) {
-      const code = formatarCodigoAmizadeInput(player.profileSummary?.friendCode || player.id || "");
+      const code = formatarCodigoAmizadeInput(player.profileSummary?.friendCode || (player as any).friendCode || player.id || "");
       if (!codigoAmizadeValido(code)) continue;
       adicionarPedidoAmizadeLocal(code);
       sent += 1;
@@ -8268,7 +8317,7 @@ export default function JogoPage() {
       if (msg.type === "friend_request") {
         const targetCode = formatarCodigoAmizadeInput(String(msg.targetCode || ""));
         const myCode = formatarCodigoAmizadeInput(localProfileRef.current.friendCode);
-        if (targetCode && targetCode !== myCode) return;
+        if (targetCode && !codigoAmizadeIgual(targetCode, myCode)) return;
         const code = formatarCodigoAmizadeInput(String(msg.fromCode || ""));
         const name = String(msg.fromName || code || "Player").slice(0, 24);
         if (!code || code === myCode) return;
@@ -8305,7 +8354,7 @@ export default function JogoPage() {
       if (msg.type === "friend_accept") {
         const targetCode = formatarCodigoAmizadeInput(String(msg.targetCode || ""));
         const myCode = formatarCodigoAmizadeInput(localProfileRef.current.friendCode);
-        if (targetCode && targetCode !== myCode) return;
+        if (targetCode && !codigoAmizadeIgual(targetCode, myCode)) return;
         const code = formatarCodigoAmizadeInput(String(msg.fromCode || ""));
         const name = String(msg.fromName || code || "Player").slice(0, 24);
         if (!code) return;
@@ -8313,6 +8362,22 @@ export default function JogoPage() {
         adicionarAmigoLocal({ id: String(msg.fromProfileId || code), profileId: msg.fromProfileId ? String(msg.fromProfileId) : undefined, code, name, color: msg.fromColor ? String(msg.fromColor) : undefined, status: "accepted", lastSeenAt: Date.now() });
         adicionarNotificacaoPerfil("friend", "Pedido aceito", `${name} aceitou sua amizade.`, "friends");
         mostrarToastPerfil(`${name} aceitou sua amizade.`);
+        return;
+      }
+
+
+      if (msg.type === "friend_request_failed") {
+        const targetCode = formatarCodigoAmizadeInput(String(msg.targetCode || ""));
+        if (targetCode) {
+          const current = localProfileRef.current;
+          salvarPerfilLocal({
+            ...current,
+            friendRequests: current.friendRequests.filter((request) => !codigoAmizadeIgual(request.code, targetCode)),
+            updatedAt: Date.now(),
+          });
+        }
+        mostrarToastPerfil(String(msg.message || "Esse código não está online nesta sala."));
+        adicionarNotificacaoPerfil("system", "Pedido não entregue", String(msg.message || "Código de amigo não encontrado na sala."), "friends");
         return;
       }
 
@@ -21692,6 +21757,9 @@ export default function JogoPage() {
                   </label>
                 </div>
 
+                <div className="sn-shop-guide-v262">
+                  <b>NAVES</b> muda o casco inteiro · <b>FRENTE</b> fica no cockpit · <b>CORPO</b> fica nas asas/costas · <b>PETS</b> dão especial no C
+                </div>
                 <div className="sn-shop-tabs-v250">
                   {SHOP_SLOTS.filter((slot) => slot !== "middle").map((slot) => (
                     <button type="button" key={slot} className={shopTab === slot ? "is-active" : ""} onClick={() => setShopTab(slot)}>
@@ -21891,7 +21959,7 @@ export default function JogoPage() {
                   <h3>AMIGOS E PEDIDOS</h3>
                   <p className="sn-profile-muted-v20">Gerencie pedidos recebidos/enviados e convide amigos para o lobby online.</p>
                   <div className="sn-profile-friend-add-v250">
-                    <input value={profileFriendCodeInput} onChange={(event) => setProfileFriendCodeInput(formatarCodigoAmizadeInput(event.target.value))} placeholder="SN-ABC123" />
+                    <input value={profileFriendCodeInput} onChange={(event) => setProfileFriendCodeInput(formatarCodigoAmizadeInput(event.target.value) || "SN-")} placeholder="SN-ABC123" />
                     <button type="button" onClick={() => adicionarPedidoAmizadeLocal(profileFriendCodeInput)}>ADICIONAR</button>
                   </div>
                   <div className="sn-profile-list-v250">
@@ -22030,6 +22098,13 @@ export default function JogoPage() {
           </div>
         ) : null;
       })()}
+
+      {petToast && (
+        <div className="sn-pet-toast-v262" style={{ "--pet-toast-color": petToast.color } as CSSProperties}>
+          <span>pet</span>
+          <strong>{petToast.message}</strong>
+        </div>
+      )}
 
       {petFocus && (
         <div className="sn-pet-focus-v258" style={{ "--pet-focus-color": petFocus.color } as CSSProperties}>

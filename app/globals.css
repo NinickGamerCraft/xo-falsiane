@@ -21628,3 +21628,82 @@ button.sn-hud-resource-chip-v250.is-cooling { opacity: .8; filter: grayscale(.25
     flex: 1 1 100%;
   }
 }
+
+/* Space News v2.6.2 — shop mais claro + UI de pet sem brigar com wave */
+.sn-pet-toast-v262 {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(16px, 3.2vh, 34px);
+  transform: translateX(-50%);
+  z-index: 386;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 620px);
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--pet-toast-color, #facc15) 68%, rgba(255,255,255,.2));
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(13, 12, 7, .92), rgba(0,0,0,.78));
+  color: #fff8d6;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--pet-toast-color, #facc15) 24%, transparent);
+  pointer-events: none;
+  animation: snPetToastInV262 .18s ease both;
+}
+.sn-pet-toast-v262 span {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pet-toast-color, #facc15) 28%, rgba(255,255,255,.08));
+  color: var(--pet-toast-color, #facc15);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+}
+.sn-pet-toast-v262 strong {
+  color: #fff8d6;
+  font-size: clamp(11px, 1.8vw, 15px);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes snPetToastInV262 {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(.96); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+.sn-shop-guide-v262 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(250,204,21,.24);
+  border-radius: 14px;
+  background: rgba(250,204,21,.06);
+  color: rgba(255,248,216,.78);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.sn-shop-guide-v262 b { color: #facc15; }
+.sn-shop-tabs-v250 button {
+  min-width: 84px;
+}
+.sn-shop-equipped-v250 span:nth-child(1)::after { content: " inteiro"; opacity: .7; font-size: 9px; margin-left: 4px; }
+.sn-shop-card-info-v250 p,
+.sn-shop-pet-info-v253 small {
+  line-height: 1.35;
+}
+
+@media (max-width: 820px) {
+  .sn-pet-toast-v262 {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    padding: 7px 10px;
+  }
+  .sn-pet-toast-v262 span { display: none; }
+  .sn-shop-guide-v262 { font-size: 10px; padding: 8px 10px; }
+}
